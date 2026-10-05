@@ -82,8 +82,7 @@ def _log_fetch_telemetry(
 # 57-1); this module's own internal call sites use `normalize_legacy_
 # ticker` directly (stage 57-2). Stage 57-3 removed the `_normalize_ticker`
 # forwarding shim and the `_TICKER_SYMBOL_OVERRIDE` re-export that used to
-# live here once the last business consumers (report_assembly, user_scope,
-# ticker_leverage, ticker_intel, window_data) migrated to `instrument_
+# live here once the last business consumers migrated to `instrument_
 # symbols.intelligence_identifier`. Do not add new logic here — extend
 # instrument_symbols instead.
 

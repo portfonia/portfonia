@@ -11,7 +11,6 @@ from decimal import Decimal
 
 import pytest
 
-from app.services import report_assembly as ra
 from app.services import report_prompts as rp
 from app.services import report_serializers as rs
 from app.services.analysis_framework import AnalysisFramework
@@ -393,18 +392,15 @@ def test_pass2_system_orders_framework_between_compliance_and_shared_rules() -> 
     assert compliance_pos < framework_pos < rules_pos
 
 
-def test_pass2_system_and_assembly_system_share_the_same_analysis_framework_text(
+def test_pass2_system_reads_the_shared_analysis_framework_loader(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Structural test (§3.5 step 4): both build functions must call the
-    SAME loader rather than each carrying its own hand-copied framework
-    text — this repo has twice paid for exactly that kind of drift (PR
-    #117's two CSS strings, PR #157's two `_FORWARD_WINDOW_DAYS`)."""
+    """Structural test (§3.5 step 4): the Pass 2 system prompt calls the
+    framework loader rather than carrying its own hand-copied framework
+    text (assembly's half of this test was removed with assembly, #640)."""
     marker = AnalysisFramework(version="marker-v0", text="MARKER FRAMEWORK TEXT XYZ")
     monkeypatch.setattr(rp, "load_analysis_framework", lambda: marker)
-    monkeypatch.setattr(ra, "load_analysis_framework", lambda: marker)
     assert "MARKER FRAMEWORK TEXT XYZ" in rp._build_pass2_system()
-    assert "MARKER FRAMEWORK TEXT XYZ" in ra._build_assembly_system()
 
 
 def test_pass2_system_propagates_analysis_framework_load_failure(

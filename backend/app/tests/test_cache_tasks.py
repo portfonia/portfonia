@@ -1,163 +1,65 @@
-"""90-day retention sweep for the shared-intel caches (issue #128 A2/A3 —
-design doc §4.4/§5.4)."""
+"""Daily intelligence-record retention sweep (issue #620/#639; the shared-intel
+cache part of this task was removed in issue #640)."""
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.cross_name_intel import CrossNameIntel
-from app.models.macro_event_intel import MacroEventIntel
-from app.models.search_cache import SearchCache
-from app.models.ticker_intel import TickerIntel
+from app.models.intel import IntelSlotRun
 from app.tasks import cache_tasks, celery_app
 
-_TODAY = date(2026, 8, 15)
-_OLD = _TODAY - timedelta(days=91)
-_RECENT = _TODAY - timedelta(days=10)
+_EMPTY_COUNTS = {
+    "news_deleted": 0,
+    "news_surfaced_deleted": 0,
+    "intel_articles_deleted": 0,
+    "paid_api_usage_deleted": 0,
+    "intel_collection_runs_deleted": 0,
+    "intel_slot_runs_deleted": 0,
+}
 
 
-def _seed(db_session: Session) -> None:
+def test_cleanup_expired_runs_intel_retention_and_commits(db_session: Session) -> None:
+    now = datetime.now(UTC)
     db_session.add_all(
         [
-            TickerIntel(
-                identifier="NVDA",
-                trade_date=_OLD,
-                prompt_version="l1-v1",
-                model="x",
-                analysis="old",
-                facts={},
+            IntelSlotRun(
+                slot="pre_open",
+                run_date=(now - timedelta(days=100)).date(),
+                started_at=now - timedelta(days=100),
+                status="ok",
+                details={},
             ),
-            TickerIntel(
-                identifier="NVDA",
-                trade_date=_RECENT,
-                prompt_version="l1-v1",
-                model="x",
-                analysis="recent",
-                facts={},
-            ),
-            SearchCache(query_hash="h1", query="q1", trade_date=_OLD, results=[]),
-            SearchCache(query_hash="h2", query="q2", trade_date=_RECENT, results=[]),
-            MacroEventIntel(
-                event_key="theme:货币政策",
-                trade_date=_OLD,
-                prompt_version="l2-v1",
-                model="x",
-                analysis="old",
-                affected_asset_classes=[],
-                facts={},
-            ),
-            MacroEventIntel(
-                event_key="theme:货币政策",
-                trade_date=_RECENT,
-                prompt_version="l2-v1",
-                model="x",
-                analysis="recent",
-                affected_asset_classes=[],
-                facts={},
-            ),
-            CrossNameIntel(
-                trade_date=_OLD,
-                prompt_version="l3-v1",
-                input_fingerprint="old",
-                model="x",
-                clusters=[],
-                facts={},
-            ),
-            CrossNameIntel(
-                trade_date=_RECENT,
-                prompt_version="l3-v1",
-                input_fingerprint="recent",
-                model="x",
-                clusters=[],
-                facts={},
+            IntelSlotRun(
+                slot="pre_open",
+                run_date=(now - timedelta(days=10)).date(),
+                started_at=now - timedelta(days=10),
+                status="ok",
+                details={},
             ),
         ]
     )
     db_session.flush()
 
+    result = cache_tasks._cleanup_expired(db_session)
 
-def test_cleanup_expired_deletes_only_rows_older_than_90_days(db_session: Session) -> None:
-    _seed(db_session)
-    cutoff = _TODAY - timedelta(days=90)
-
-    result = cache_tasks._cleanup_expired(db_session, cutoff)
-
-    assert result == {
-        "news_deleted": 0,
-        "news_surfaced_deleted": 0,
-        "intel_articles_deleted": 0,
-        "paid_api_usage_deleted": 0,
-        "intel_collection_runs_deleted": 0,
-        "intel_slot_runs_deleted": 0,
-        "ticker_intel_deleted": 1,
-        "search_cache_deleted": 1,
-        "macro_event_intel_deleted": 1,
-        "cross_name_intel_deleted": 1,
-    }
-    remaining_ti = db_session.execute(select(TickerIntel)).scalars().all()
-    remaining_sc = db_session.execute(select(SearchCache)).scalars().all()
-    remaining_mei = db_session.execute(select(MacroEventIntel)).scalars().all()
-    remaining_cni = db_session.execute(select(CrossNameIntel)).scalars().all()
-    assert [r.trade_date for r in remaining_ti] == [_RECENT]
-    assert [r.trade_date for r in remaining_sc] == [_RECENT]
-    assert [r.trade_date for r in remaining_mei] == [_RECENT]
-    assert [r.trade_date for r in remaining_cni] == [_RECENT]
-
-
-def test_cleanup_expired_noop_when_nothing_is_stale(db_session: Session) -> None:
-    db_session.add(
-        TickerIntel(
-            identifier="NVDA",
-            trade_date=_RECENT,
-            prompt_version="l1-v1",
-            model="x",
-            analysis="recent",
-            facts={},
-        )
-    )
-    db_session.flush()
-    cutoff = _TODAY - timedelta(days=90)
-
-    result = cache_tasks._cleanup_expired(db_session, cutoff)
-
-    assert result == {
-        "news_deleted": 0,
-        "news_surfaced_deleted": 0,
-        "intel_articles_deleted": 0,
-        "paid_api_usage_deleted": 0,
-        "intel_collection_runs_deleted": 0,
-        "intel_slot_runs_deleted": 0,
-        "ticker_intel_deleted": 0,
-        "search_cache_deleted": 0,
-        "macro_event_intel_deleted": 0,
-        "cross_name_intel_deleted": 0,
-    }
+    assert result == {**_EMPTY_COUNTS, "intel_slot_runs_deleted": 1}
+    remaining = db_session.execute(select(IntelSlotRun)).scalars().all()
+    assert len(remaining) == 1
 
 
 @patch("app.core.database.SessionLocal")
-def test_task_computes_cutoff_and_closes_session(mock_session_cls: MagicMock) -> None:
+def test_task_commits_and_closes_session(mock_session_cls: MagicMock) -> None:
     mock_session = MagicMock()
     mock_session.execute.return_value.rowcount = 0
     mock_session_cls.return_value = mock_session
 
     result = cache_tasks.sweep_stale_shared_intel_cache.run()
 
-    assert result == {
-        "news_deleted": 0,
-        "news_surfaced_deleted": 0,
-        "intel_articles_deleted": 0,
-        "paid_api_usage_deleted": 0,
-        "intel_collection_runs_deleted": 0,
-        "intel_slot_runs_deleted": 0,
-        "ticker_intel_deleted": 0,
-        "search_cache_deleted": 0,
-        "macro_event_intel_deleted": 0,
-        "cross_name_intel_deleted": 0,
-    }
+    assert result == _EMPTY_COUNTS
     mock_session.commit.assert_called_once()
     mock_session.close.assert_called_once()
 
@@ -168,9 +70,9 @@ def test_task_retries_and_alerts_on_exhaustion(
     mock_session_cls: MagicMock, mock_alert: MagicMock
 ) -> None:
     """Round 2 review finding: unlike backup/capture beat tasks, the sweep
-    had no try/except/retry/ops-alert at all — a silent sweep outage let
-    the cache tables grow without bound, the exact failure mode this task
-    exists to prevent. Matches backup_database_task's pattern: catch,
+    had no try/except/retry/ops-alert at all — a silent sweep outage lets
+    the tables grow without bound, the exact failure mode this task exists
+    to prevent. Matches backup_database_task's pattern: catch,
     retry, ops-alert on exhaustion, still close the session."""
     mock_session = MagicMock()
     mock_session.execute.side_effect = RuntimeError("DB down")

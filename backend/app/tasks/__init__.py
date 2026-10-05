@@ -263,7 +263,7 @@ _beat_schedule: dict[str, dict[str, Any]] = {
     # Upload-job retention sweep (issue #264): daily cleanup of upload_jobs
     # rows (holdings preview JSONB + terminal shell rows) older than 30
     # days. 04:30 ET — every day, staggered from the 03:00 ET backup and
-    # the 04:00 ET shared-intel-cache sweep.
+    # the 04:00 ET intelligence-retention sweep.
     "cleanup-upload-jobs-daily": {
         "task": "app.tasks.holdings_tasks.cleanup_upload_jobs",
         "schedule": crontab(hour=4, minute=30),
@@ -278,10 +278,10 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.backup_tasks.backup_database_task",
         "schedule": crontab(hour=3, minute=0),
     },
-    # L1 shared-intel cache retention (issue #128 A2): ticker_intel/
-    # search_cache grow one row per (identifier|query, trade_date) per day
-    # under multi-user fan-out — see app/tasks/cache_tasks.py module
-    # docstring. Off-peak, distinct from the 03:00 ET backup and the other
+    # Intelligence-record retention (issue #620/#639; name kept from the
+    # removed shared-intel cache sweep, issue #640 — see
+    # app/tasks/cache_tasks.py module docstring). Off-peak, distinct from the
+    # 03:00 ET backup and the other
     # daily cadences (forward events 08:00 ET, FX 16:00/20:00 ET, fund NAV
     # 20:00 CST). Every day, not just trading days, matching
     # backup-database-daily's rationale.

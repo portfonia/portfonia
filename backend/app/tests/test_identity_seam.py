@@ -4,9 +4,9 @@
 from ambient process state (`get_current_user_id()`/`DEV_USER_ID`) — every
 identity-bearing call must receive `user_id` as an explicit parameter, with
 the one request-scoped exception documented below. This is enforced by
-scanning real source text rather than by review attention alone, mirroring
-`test_report_assembly.py::test_assembly_module_never_imports_the_shared_cache_models`
-(issue #128 A4) — a boundary that only review discipline protects erodes the
+scanning real source text rather than by review attention alone (the same
+approach the issue #128 A4 assembly-boundary test used before issue #640
+removed that module) — a boundary that only review discipline protects erodes the
 first time someone adds a "convenience" call site under time pressure.
 """
 

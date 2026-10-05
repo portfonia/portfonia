@@ -31,7 +31,8 @@ reviewed PRs — no combined implementation, no reordering:
   checked-in allowlist of five still-pending intelligence/report consumers.
 - **57-3** (this stage): migrated the remaining five consumers
   (`report_assembly`, `user_scope`, `ticker_leverage`, `ticker_intel`,
-  `window_data`) to `instrument_symbols.intelligence_identifier`, removed
+  `window_data`; `report_assembly` and `ticker_intel` were later removed by
+  issue #640) to `instrument_symbols.intelligence_identifier`, removed
   the `_yfinance._normalize_ticker` forwarding shim and the
   `_TICKER_SYMBOL_OVERRIDE` re-export, and tightened the repo-wide
   zero-dependency check (`app/tests/test_issue_57_normalization_migration.py`)

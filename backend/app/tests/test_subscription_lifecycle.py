@@ -698,14 +698,12 @@ def test_task_expired_resume_receives_same_batch(
             kwargs["base_currency"],
             kwargs["report_type"],
             kwargs["session_node"],
-            kwargs["users_remaining"],
         ) == (
             u.id,
             u.locale,
             u.base_currency,
             "incremental",
             "weekend_snapshot",
-            1,
         )
         db_session.refresh(u)
         assert (

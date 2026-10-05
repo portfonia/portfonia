@@ -1,7 +1,7 @@
 """LLM report generation pipeline (Ring 0 — Stage F2).
 
 Report design:
-  Collect  scheduled intel slots capture news, accepted article bodies and L1/L2/L3
+  Collect  scheduled intel slots capture news and accepted article bodies
   Read     report-time code reads only the current user's URL-free material/cache rows
   Pass 2  portfolio snapshot + scheduled material + anomalies → PRIMARY_LLM → §2/§3/§4 body
   Strip   remove any inline citations / provenance tags / per-line disclaimers
@@ -23,7 +23,7 @@ Layer-3/4 compliance:
 Orchestration only (#37): prompt text, code-built section renderers, the LLM
 transport, serialization, and the compliance/translation
 backstops each live in their own module — see report_prompts.py,
-report_sections.py, report_llm.py, report_search.py, report_serializers.py,
+report_sections.py, report_llm.py, report_serializers.py,
 app/compliance/output_scan.py, and report_translation.py. This file wires
 them together into generate_report()/regenerate_report().
 """
@@ -54,40 +54,22 @@ from app.models.intel import IntelSlotRun
 from app.models.paid_intel import IntelArticle, IntelArticleLink
 from app.models.report import Report
 from app.services.analysis_framework import load_analysis_framework
-from app.services.cross_name_intel import (
-    clusters_for_user,
-    day_briefed_identifiers,
-    read_day_synthesis,
-)
 from app.services.email_sender import send_ops_alert, send_report_email
 from app.services.forward_events import FORWARD_WINDOW_DAYS, load_forward_events
 from app.services.github_issues import create_bug_report
 from app.services.holding_news import load_entity_aliases, recall_holding_news
-from app.services.investment_context import InvestorPreferences, load_investor_preferences
+from app.services.investment_context import load_investor_preferences
 from app.services.macro_coverage import (
     extract_macro_sidecar,
     load_recent_macro_coverage,
     persist_macro_coverage,
 )
 from app.services.macro_detector import detect_macro_signals
-from app.services.macro_event_intel import (
-    l2_event_keys_for_user,
-    read_l2_intel,
-    user_event_exposure,
-)
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import compute_portfolio
+from app.services.portfolio_weights import _holding_identifier as _identifier
+from app.services.portfolio_weights import _weight, large_weight_identifiers
 from app.services.price_anomaly_detector import PriceAnomaly
-from app.services.report_assembly import (
-    ASSEMBLY_PROMPT_VERSION,
-    _identifier,
-    _weight,
-    build_assembly_prompt,
-    parse_shadow_models,
-    portfolio_identifiers,
-    run_assembly_pass,
-    should_use_assembly,
-)
 from app.services.report_context import ReportContext, ReportInputsDict
 from app.services.report_llm import (  # noqa: F401 - retained for legacy test fixture patching
     _call_llm,
@@ -100,7 +82,6 @@ from app.services.report_prompts import (
     body_is_incomplete,
     prompt_label_hits,
 )
-from app.services.report_search import _run_tavily_search  # noqa: F401 - legacy test patch target
 from app.services.report_sections import (
     _build_data_window,
     _build_footer,
@@ -130,11 +111,6 @@ from app.services.section3_proportionality import (
     check_section3_proportionality,
 )
 from app.services.technical_position import compute_technical_positions
-from app.services.ticker_intel import (
-    l1_identifiers_for_user,
-    large_weight_identifiers,
-    read_l1_intel,
-)
 from app.services.watch_tier_config import load_watch_tier_weights
 from app.services.window_data import (
     HoldingMove,
@@ -177,11 +153,12 @@ _DISCLAIMER_VERSION = "f3-bilingual-v2"
 
 
 def intel_trade_date(session: Session, eff_date: date) -> date | None:
-    """Return the latest completed weekday post-close slot available to a report.
+    """Return the run date of the latest completed weekday post-close slot.
 
-    Slots run every day, but only weekday post_close runs compute L1/L2/L3
-    (`intel_tasks`: `not weekend and slot == "post_close"`), so a weekend run
-    is skipped here; a Saturday weekly report reads Friday's caches.
+    A report reads accepted paid-deepening articles only when this returns a
+    date (`generate_report`); with no completed weekday `post_close` run on or
+    before `eff_date`, the article read is skipped. Weekend runs are not
+    considered, so a Saturday weekly report resolves to Friday.
     """
     return session.scalar(
         select(IntelSlotRun.run_date)
@@ -392,12 +369,6 @@ def _merge_holding_news(
     return by_identifier, all_hashes
 
 
-# Forward calendar (#1): how far ahead §2.5 looks — now defined once in
-# forward_events.py, since the L2 shared cache (issue #128 A3) must analyze
-# exactly the horizon this section renders (round-1 review nit, PR #157: two
-# copies of the same 10 could drift into two different horizons).
-
-
 # ---------------------------------------------------------------------------
 # Assembly / rendering (shared by live generation and re-render)
 # ---------------------------------------------------------------------------
@@ -505,7 +476,7 @@ def _build_holding_check_inputs(
     already-gathered data — no new fetch, no LLM call.
 
     `weight` is computed HERE, once, from the real portfolio (`_weight`,
-    `report_assembly.py`) and handed to `HoldingCheckInput` as an explicit
+    `portfolio_weights.py`) and handed to `HoldingCheckInput` as an explicit
     value; `check_section3_proportionality` itself never reads a holding's
     real position (issue #173 Design item 4). Issue #421 Design item 7,
     amended per PR #425 review (blacktomb42) blocker 1: a holding with
@@ -520,7 +491,7 @@ def _build_holding_check_inputs(
 
     `material_text` is built from `ctx.holding_news` (the code-level recall
     already scoped to this holding, issue #30/R-3) plus this holding's own
-    anomaly record's trigger/theme text — both already Pass 2/assembly-stage,
+    anomaly record's trigger/theme text — both already Pass 2-stage,
     holdings-derived data, used only by the report body prompt.
     """
     total = float(portfolio.get("total_base", 0) or 0)
@@ -684,138 +655,6 @@ def _render_full_md(
     return full_md, violations, dynamic_out
 
 
-# ---------------------------------------------------------------------------
-# A4 personalized assembly (issue #128, design doc §6)
-# ---------------------------------------------------------------------------
-
-
-def _assembly_prompt_from_ctx(ctx: ReportContext, investor_prefs: InvestorPreferences) -> str:
-    """Build the assembly prompt from THIS report's context and nothing else.
-
-    Every argument is a `ctx` field already scoped to one user — the shared
-    caches are read through `ctx.ticker_intel`/`ctx.macro_event_intel`, which
-    `l1_identifiers_for_user`/`l2_event_keys_for_user` narrowed to this user's
-    own candidates. `build_assembly_prompt` takes no Session precisely so this
-    stays the only way in (see report_assembly.py's docstring).
-
-    `investor_prefs` is passed separately, not read off `ctx` (PR #212
-    review finding, issue #129 checkpoint B6): `investor_prefs.free_text`
-    must never land on `ctx`, since `ctx.to_jsonb()` serializes every
-    dataclass field into `report_inputs` — an unencrypted column — and
-    free_text is the one encrypted field on user_investment_context.
-    """
-    return build_assembly_prompt(
-        ctx.portfolio_summary,
-        ctx.price_anomalies,
-        ctx.ticker_intel,
-        ctx.macro_event_intel,
-        ctx.macro_event_exposure,
-        ctx.period_start,
-        ctx.period_end,
-        ctx.window_trading_days,
-        ctx.technical_positions,
-        ctx.cross_name_intel,
-        investor_locale=investor_prefs.locale,
-        investor_questionnaire=investor_prefs.questionnaire,
-        investor_free_text=investor_prefs.free_text,
-        macro_signals=ctx.macro_signals,
-        macro_continuity=ctx.macro_continuity_snapshot,
-    )
-
-
-def _try_assembly(
-    client: Any,
-    settings: Any,
-    ctx: ReportContext,
-    report_id: uuid.UUID,
-    investor_prefs: InvestorPreferences,
-) -> str | None:
-    """The assembled body, or None meaning "fall back to Pass 2".
-
-    Every failure mode returns None rather than raising: a switch that is
-    off, a model not yet chosen, empty shared caches, a provider error, or a
-    truncated body. That is the design doc §6.3 guarantee — the worst case of
-    enabling A4 is the pre-A4 report, never a thinner one. The cost of a
-    fallback is one wasted assembly call, which is the cheap half of the
-    pair.
-    """
-    if not should_use_assembly(
-        enabled=bool(settings.SHARED_COMPUTE_ENABLED),
-        model=str(settings.ASSEMBLY_LLM_MODEL),
-        ticker_intel=ctx.ticker_intel,
-        macro_event_intel=ctx.macro_event_intel,
-    ):
-        return None
-
-    model = str(settings.ASSEMBLY_LLM_MODEL).strip()
-    prompt = _assembly_prompt_from_ctx(ctx, investor_prefs)
-    logger.info("report %s: assembly pass (%s)", report_id, model)
-    try:
-        body = run_assembly_pass(client, model, prompt, usage_sink=ctx.llm_calls)
-    except Exception:
-        logger.exception("report %s: assembly pass failed — falling back to Pass 2", report_id)
-        return None
-
-    if body_is_incomplete(body):
-        logger.warning(
-            "report %s: assembled body looks truncated (%d chars) — falling back to Pass 2",
-            report_id,
-            len(body),
-        )
-        return None
-
-    ctx.body_source = "assembly"
-    ctx.assembly_model = model
-    ctx.assembly_prompt = prompt
-    ctx.assembly_raw = body
-    ctx.assembly_prompt_version = ASSEMBLY_PROMPT_VERSION
-    return body
-
-
-def _run_shadow_assembly(
-    client: Any,
-    settings: Any,
-    ctx: ReportContext,
-    report_id: uuid.UUID,
-    investor_prefs: InvestorPreferences,
-) -> None:
-    """Run the assembly pass once per shadow model, store, ship nothing.
-
-    Design doc §6.3.1: one round produces BOTH comparisons — architecture
-    (the shipped body vs each assembled body) and model selection (the listed
-    models against each other) — over an identical prompt, with costs landing
-    in the same `ctx.llm_calls` the shipped passes use.
-
-    Wrapped so a shadow failure is recorded and moved past: a measurement
-    harness must never be able to fail the thing it measures.
-    """
-    models = parse_shadow_models(str(settings.ASSEMBLY_SHADOW_MODELS))
-    if not models:
-        return
-    if not ctx.ticker_intel and not ctx.macro_event_intel:
-        logger.info("report %s: no shared intel this run — skipping shadow assembly", report_id)
-        return
-
-    prompt = _assembly_prompt_from_ctx(ctx, investor_prefs)
-    for model in models:
-        entry: dict[str, Any] = {"prompt_version": ASSEMBLY_PROMPT_VERSION}
-        if ctx.body_source == "assembly" and model == ctx.assembly_model:
-            # Already ran as the shipped body — re-running would bill twice
-            # for identical output. Point at it so the side-by-side read is
-            # still complete.
-            entry["raw"] = ctx.assembly_raw
-            entry["shipped"] = True
-            ctx.assembly_shadow[model] = entry
-            continue
-        logger.info("report %s: shadow assembly pass (%s)", report_id, model)
-        try:
-            entry["raw"] = run_assembly_pass(client, model, prompt, usage_sink=ctx.llm_calls)
-        except Exception as exc:
-            logger.exception("report %s: shadow assembly failed (%s)", report_id, model)
-            entry["error"] = f"{type(exc).__name__}: {exc}"
-        ctx.assembly_shadow[model] = entry
-
-
 # A manual window this short (hours) with nothing in it is a same-day re-run
 # artifact, not a real reporting period. (R-7)
 _SHORT_MANUAL_WINDOW_HOURS = 2.0
@@ -881,7 +720,7 @@ def _finish_report(
     end stays separate on purpose.
 
     `raw_body` (issue #440): still carries the macro-coverage sidecar the
-    §2-writing pass appended (`ctx.pass2_raw`/`ctx.assembly_raw` store it
+    §2-writing pass appended (`ctx.pass2_raw` stores it
     verbatim, sidecar included, for audit). Extracted HERE — the single
     render point for both the live pipeline and the #61 resume path — so a
     malformed or missing sidecar can never leak into the rendered report,
@@ -1038,7 +877,6 @@ def generate_report(
     session_node: str = "manual",
     moves_cache: MovesCache | None = None,
     now: datetime | None = None,
-    users_remaining: int = 1,
     _telemetry_attrs: dict[str, Any] | None = None,
 ) -> Report:
     """
@@ -1077,13 +915,6 @@ def generate_report(
     (report_tasks.py) attaches to this attempt's operational-event span.
     `None` (every other call site) attaches nothing extra.
 
-    `users_remaining` (issue #128 A4): how many users, INCLUDING this one,
-    the current fan-out still has to serve. Forwarded to the L1/L2 shared
-    caches so each user gets a fair slice of the day's remaining analysis
-    budget instead of the first user in a never-rotating order spending it
-    all — see `shared_budget.fair_share_budget` for why this same problem
-    surfaced once per checkpoint. `1` (every non-fan-out call site: manual
-    trigger, tests, a single-user system) means no restriction at all.
     """
     # issue #446: started before the idempotency lookup below (Design §3) —
     # inherits the caller's task run as a child span if one is active
@@ -1104,12 +935,7 @@ def generate_report(
     _stage_state: dict[str, str] = dict.fromkeys(
         (
             "preparation",
-            "l2_intel",
-            "l1_intel",
-            "l3_synthesis",
-            "assembly",
             "pass2_analysis",
-            "shadow_assembly",
             "render_and_compliance",
             "persist_report",
             "email_send",
@@ -1119,8 +945,8 @@ def generate_report(
     validate_report_type(report_type)
     settings = get_settings()
     # A local cache when the caller supplied none: the global move set has two
-    # consumers in this function (anomaly detection, then L1's shared-intel
-    # facts — see §5.5), and without a cache to share, the second would pay
+    # consumers in this function (anomaly detection, then the large-holding
+    # window moves), and without a cache to share, the second would pay
     # for a full second `compute_global_moves()` on every single-user call.
     moves_cache = moves_cache if moves_cache is not None else {}
     now = now if now is not None else datetime.now(tz=UTC)
@@ -1181,7 +1007,7 @@ def generate_report(
     if existing is not None:
         report = existing
         # #61: a retry of a failed/in_progress row whose prior attempt
-        # already produced a complete Pass 2/assembly body — under the SAME
+        # already produced a complete Pass 2 body — under the SAME
         # prompt/disclaimer version this retry would otherwise use — can
         # skip re-running the body LLM call and resume
         # directly from render. Snapshot report_inputs/prompt_version/
@@ -1194,11 +1020,7 @@ def generate_report(
         # output by redoing the body pass, so it always takes the full
         # reset path below.
         prior_inputs = cast(ReportInputsDict | None, existing.report_inputs)
-        prior_stored_body = (
-            (prior_inputs.get("assembly_raw") or prior_inputs.get("pass2_raw") or "")
-            if prior_inputs
-            else ""
-        )
+        prior_stored_body = (prior_inputs.get("pass2_raw") or "") if prior_inputs else ""
         reusable = bool(
             existing.status != "needs_review"
             and prior_stored_body
@@ -1296,16 +1118,16 @@ def generate_report(
     oe.set_report_id(report.id)
 
     if prior_ctx is not None:
-        # #61: resume straight from render using the stored Pass 2/assembly
-        # body — everything upstream of it (portfolio/news/anomalies fetch,
-        # macro/L1/L2/cross-name intel, article reads, Pass 2/assembly) is
+        # #61: resume straight from render using the stored Pass 2 body —
+        # everything upstream of it (portfolio/news/anomalies fetch, macro
+        # signals, article reads, Pass 2) is
         # skipped entirely, not just the LLM calls, since prior_ctx already
         # carries every field the render step reads.
         logger.info(
-            "report %s: resuming from stored Pass 2/assembly body — skipping body generation (#61)",
+            "report %s: resuming from stored Pass 2 body — skipping body generation (#61)",
             report.id,
         )
-        resume_raw_body = prior_ctx.assembly_raw or prior_ctx.pass2_raw
+        resume_raw_body = prior_ctx.pass2_raw
         try:
             _resumed = _finish_report(
                 session,
@@ -1351,9 +1173,7 @@ def generate_report(
     ctx = ReportContext()
     ctx.period_start = period_start.isoformat()
     ctx.period_end = period_end.isoformat()
-    # Recorded once, regardless of which pass ends up writing the body (§3.3(6)):
-    # Pass 2 and assembly compose from the same framework text, so one version
-    # covers both. Audit/reproducibility only — the framework's full text is
+    # Recorded once (§3.3(6)). Audit/reproducibility only — the framework's full text is
     # deliberately never stored here (see ReportContext.analysis_framework_version).
     ctx.analysis_framework_version = load_analysis_framework().version
 
@@ -1615,7 +1435,6 @@ def generate_report(
         # ------------------------------------------------------------------
         trade_date = intel_trade_date(session, eff_date)
         ctx.intel_trade_date = trade_date.isoformat() if trade_date else ""
-        ctx.search_queries = []
         ctx.search_results = (
             _load_report_articles(session, ctx, period_start, period_end) if trade_date else []
         )
@@ -1655,115 +1474,69 @@ def generate_report(
             if identifier in window_moves
         }
 
-        if trade_date is not None:
-            l2_event_keys = l2_event_keys_for_user(session, trade_date, ctx.macro_signals)
-            ctx.macro_event_intel = read_l2_intel(session, l2_event_keys, trade_date)
-            ctx.macro_event_exposure = user_event_exposure(
-                ctx.macro_event_intel, ctx.portfolio_summary.get("by_asset_class", {})
+        investor_prefs = load_investor_preferences(session, user_id)
+        ctx.investor_questionnaire_snapshot = investor_prefs.questionnaire
+        ctx.investor_questionnaire_version = investor_prefs.questionnaire_version
+        client = _openrouter_client()
+        _pass2_span = oe.start_span("pass2_analysis")
+        pass2_user = _build_pass2_prompt(
+            ctx.portfolio_summary,
+            ctx.macro_signals,
+            ctx.price_anomalies,
+            ctx.search_results,
+            ctx.period_start,
+            ctx.period_end,
+            ctx.window_trading_days,
+            ctx.holding_news,
+            large_holding_moves=ctx.large_holding_moves,
+            investor_locale=investor_prefs.locale,
+            investor_questionnaire=investor_prefs.questionnaire,
+            investor_free_text=investor_prefs.free_text,
+            macro_continuity=ctx.macro_continuity_snapshot,
+        )
+        ctx.pass2_model = settings.PRIMARY_LLM_MODEL
+        ctx.pass2_prompt = pass2_user
+        raw_pass2 = _call_llm(
+            client,
+            settings.PRIMARY_LLM_MODEL,
+            _build_pass2_system(),
+            pass2_user,
+            with_holdings=True,
+            usage_sink=ctx.llm_calls,
+        )
+        if body_is_incomplete(raw_pass2):
+            ctx.rejected_pass2_raw = raw_pass2
+            oe.end_span(_pass2_span, "failed", reason_code="truncated_body")
+            raise RuntimeError(
+                f"report {report.id}: Pass 2 output looks truncated "
+                f"({len(raw_pass2)} chars, missing one of §3/§4)"
             )
-            l1_identifiers = l1_identifiers_for_user(
-                ctx.price_anomalies,
-                holdings=list(ctx.portfolio_summary.get("holdings") or []),
-                portfolio_total=float(ctx.portfolio_summary.get("total_base") or 0.0),
-                exposed_asset_classes=sorted(
-                    {cls for classes in ctx.macro_event_exposure.values() for cls in classes}
-                ),
-            )
-            ctx.ticker_intel = read_l1_intel(session, l1_identifiers, trade_date)
-            day_clusters = read_day_synthesis(session, trade_date)
-            all_briefed = day_briefed_identifiers(session, trade_date)
-            ctx.cross_name_intel = clusters_for_user(
-                day_clusters, list(ctx.ticker_intel), all_briefed
-            )
-        _stage_state["l2_intel"] = "ok"
-        _stage_state["l1_intel"] = "ok"
-        _stage_state["l3_synthesis"] = "ok"
-
-        # The current report body path reads scheduled intel and selects the
-        # assembly or Pass 2 route below; this block owns that report path.
-        if True:
-            investor_prefs = load_investor_preferences(session, user_id)
-            ctx.investor_questionnaire_snapshot = investor_prefs.questionnaire
-            ctx.investor_questionnaire_version = investor_prefs.questionnaire_version
-            client = _openrouter_client()
-            _assembly_span = oe.start_span("assembly")
-            raw_body = _try_assembly(client, settings, ctx, report.id, investor_prefs)
-            if raw_body is not None:
-                _stage_state["assembly"] = "ok"
-                oe.end_span(_assembly_span, "ok")
-                _stage_state["pass2_analysis"] = "skipped"
-                oe.skip_span("pass2_analysis", reason_code="assembly_selected")
-            else:
-                _stage_state["assembly"] = "skipped"
-                oe.end_span(_assembly_span, "skipped", reason_code="not_selected")
-                _pass2_span = oe.start_span("pass2_analysis")
-                pass2_user = _build_pass2_prompt(
-                    ctx.portfolio_summary,
-                    ctx.macro_signals,
-                    ctx.price_anomalies,
-                    ctx.search_results,
-                    ctx.period_start,
-                    ctx.period_end,
-                    ctx.window_trading_days,
-                    ctx.holding_news,
-                    large_holding_moves=ctx.large_holding_moves,
-                    investor_locale=investor_prefs.locale,
-                    investor_questionnaire=investor_prefs.questionnaire,
-                    investor_free_text=investor_prefs.free_text,
-                    macro_continuity=ctx.macro_continuity_snapshot,
-                )
-                ctx.pass2_model = settings.PRIMARY_LLM_MODEL
-                ctx.pass2_prompt = pass2_user
-                raw_pass2 = _call_llm(
-                    client,
-                    settings.PRIMARY_LLM_MODEL,
-                    _build_pass2_system(),
-                    pass2_user,
-                    with_holdings=True,
-                    usage_sink=ctx.llm_calls,
-                )
-                if body_is_incomplete(raw_pass2):
-                    ctx.rejected_pass2_raw = raw_pass2
-                    oe.end_span(_pass2_span, "failed", reason_code="truncated_body")
-                    raise RuntimeError(
-                        f"report {report.id}: Pass 2 output looks truncated "
-                        f"({len(raw_pass2)} chars, missing one of §3/§4)"
-                    )
-                ctx.pass2_raw = raw_pass2
-                raw_body = raw_pass2
-                _stage_state["pass2_analysis"] = "ok"
-                oe.end_span(_pass2_span, "ok")
-            _shadow_span = oe.start_span("shadow_assembly")
-            try:
-                _run_shadow_assembly(client, settings, ctx, report.id, investor_prefs)
-                _stage_state["shadow_assembly"] = "ok"
-                oe.end_span(_shadow_span, "ok")
-            except Exception:
-                logger.exception("report %s: shadow assembly harness failed", report.id)
-                _stage_state["shadow_assembly"] = "degraded"
-                oe.end_span(_shadow_span, "degraded", reason_code="harness_failed")
-            result = _finish_report(
-                session,
-                report,
-                ctx,
-                user_id,
-                eff_date,
-                output_lang,
-                raw_body,
-                news_items,
-                stage_state=_stage_state,
-                extra_url_hashes=recalled_hashes,
-            )
-            oe.end_attempt(
-                _attempt,
-                "ok",
-                attributes={
-                    "path": "full",
-                    "report_status": result.status,
-                    "stage_state": _stage_state,
-                },
-            )
-            return result
+        ctx.pass2_raw = raw_pass2
+        raw_body = raw_pass2
+        _stage_state["pass2_analysis"] = "ok"
+        oe.end_span(_pass2_span, "ok")
+        result = _finish_report(
+            session,
+            report,
+            ctx,
+            user_id,
+            eff_date,
+            output_lang,
+            raw_body,
+            news_items,
+            stage_state=_stage_state,
+            extra_url_hashes=recalled_hashes,
+        )
+        oe.end_attempt(
+            _attempt,
+            "ok",
+            attributes={
+                "path": "full",
+                "report_status": result.status,
+                "stage_state": _stage_state,
+            },
+        )
+        return result
 
     except Exception as exc:
         logger.exception("report %s: generation failed", report.id)
@@ -1801,18 +1574,18 @@ def regenerate_report(
 ) -> Report:
     """Rebuild an existing report from its stored inputs WITHOUT re-fetching (#6).
 
-    Intel acquisition (scheduled news and shared intel) is never repeated — that data is
+    Intel acquisition (scheduled news and articles) is never repeated — that data is
     read back from `report_inputs`, so no token/credit is wasted on it.
 
     mode='render'  : zero new LLM cost except translation. Re-runs annotation +
                      assembly + language render from the stored Pass 2 body.
                      Use it to iterate on formatting/output language.
-    mode='analyze' : re-runs only the body pass from the stored inputs (no
-                     fetch or scheduled intel computation). Use it to iterate on the body
-                     prompt. Which pass runs follows the report's own
-                     `body_source` (A4): Pass 2 from the stored portfolio +
-                     search results, or the assembly pass from the stored
-                     L1/L2 intel. Updates that pass's stored body.
+    mode='analyze' : re-runs only Pass 2 from the stored inputs (no fetch or
+                     scheduled intel computation) and updates the stored
+                     Pass 2 body. Use it to iterate on the body prompt.
+                     Keys left in old `report_inputs` by the removed L1/L2/L3
+                     and assembly path (issue #640) are ignored; no shipped
+                     report ever used assembly.
 
     `user_id` (issue #129 B3): required, no ambient fallback — the caller
     (the `/reports/{id}/regenerate` router via `Depends(current_principal)`)
@@ -1837,12 +1610,7 @@ def regenerate_report(
     if report is None:
         raise ValueError(f"report {report_id} not found")
     inputs = cast(ReportInputsDict | None, report.report_inputs)
-    # A4: `assembly_raw` is populated only when the assembly pass produced the
-    # shipped body (a fallback to Pass 2 leaves it empty), so this pair reads
-    # unambiguously as "the body that shipped". Pre-A4 rows carry neither key —
-    # `ReportInputsDict` is total=False — and resolve to `pass2_raw` exactly as
-    # before.
-    stored_body = (inputs.get("assembly_raw") or inputs.get("pass2_raw") or "") if inputs else ""
+    stored_body = (inputs.get("pass2_raw") or "") if inputs else ""
     if not inputs or not stored_body:
         raise ValueError(f"report {report_id} has no stored report body to regenerate from")
 
@@ -1870,11 +1638,7 @@ def regenerate_report(
         # Re-fetched live, like fresh_technical below — a regenerate should
         # reflect a questionnaire answered/changed since the original
         # generation, not replay the stale answer set frozen in `inputs`
-        # (issue #129 checkpoint B6). Loaded ONCE, before the body-source
-        # branch, so the snapshot is set unconditionally regardless of which
-        # pass re-runs (PR #212 review finding — the original implementation
-        # only loaded this inside the Pass 2 branch, leaving an assembled
-        # regenerate's snapshot stale/absent).
+        # (issue #129 checkpoint B6).
         investor_prefs = load_investor_preferences(session, user_id)
 
         # issue #440: re-fetched live like investor_prefs above, self-
@@ -1884,145 +1648,42 @@ def regenerate_report(
         # back into the prompt regenerating it.
         macro_continuity = load_recent_macro_coverage(session, user_id, exclude_report_id=report.id)
 
-        # A4: re-run the pass that WROTE this body, not always Pass 2. Beyond
-        # being the wrong pass for an assembled report, re-running Pass 2 here
-        # would write `pass2_raw` while leaving the superseded `assembly_raw`
-        # in place — and since that key wins when both are present, the next
-        # `mode=render` would silently rebuild the OLD report.
-        if inputs.get("body_source") == "assembly":
-            assembly_model = str(
-                inputs.get("assembly_model") or get_settings().ASSEMBLY_LLM_MODEL
-            ).strip()
-            if not assembly_model:
-                raise ValueError(
-                    f"report {report.id}: assembled body cannot be re-analyzed — "
-                    "no assembly model recorded and ASSEMBLY_LLM_MODEL is unset"
-                )
-            # Exposure must be recomputed against the FRESH portfolio just
-            # fetched above, not replayed from the stored value (round 2
-            # review finding, PR #163): the stored exposure is the
-            # intersection of L2's cached classes with the ORIGINAL
-            # by_asset_class, and a holdings edit between generation and
-            # this regenerate can add or drop a class. Recomputing is zero
-            # LLM cost (`user_event_exposure` is pure set arithmetic) —
-            # only the analysis TEXT (`macro_event_intel`) stays stored,
-            # since that's the part `analyze` must not re-fetch/re-derive.
-            fresh_exposure = user_event_exposure(
-                inputs.get("macro_event_intel", {}), portfolio.get("by_asset_class", {})
+        pass2_user = _build_pass2_prompt(
+            portfolio,
+            inputs.get("macro_signals", {}),
+            inputs.get("price_anomalies", []),
+            inputs.get("search_results", []),
+            period_start_iso,
+            period_end_iso,
+            trading_days,
+            inputs.get("holding_news", {}),
+            large_holding_moves=inputs.get("large_holding_moves", {}),
+            investor_locale=investor_prefs.locale,
+            investor_questionnaire=investor_prefs.questionnaire,
+            investor_free_text=investor_prefs.free_text,
+            macro_continuity=macro_continuity,
+        )
+        raw_body = _call_llm(
+            _openrouter_client(),
+            get_settings().PRIMARY_LLM_MODEL,
+            _build_pass2_system(),
+            pass2_user,
+            with_holdings=True,
+            usage_sink=regen_calls,
+        )
+        if body_is_incomplete(raw_body):
+            raise RuntimeError(
+                f"report {report.id}: regenerated Pass 2 output looks truncated "
+                f"({len(raw_body)} chars, missing one of §3/§4)"
             )
-            # Cross-name clusters get the same treatment for the same reason:
-            # `report_inputs["cross_name_intel"]` is a PER-USER PROJECTION
-            # (already narrowed to the L1 keys this user had at generation
-            # time via `clusters_for_user`) — the same shape as
-            # `macro_event_exposure` above, not shared mechanism text. A
-            # holdings edit since generation could leave it naming a
-            # position no longer held. Re-narrowing is pure set arithmetic
-            # — zero LLM cost — and, exactly like `fresh_exposure` above,
-            # the re-narrowed result gets WRITTEN BACK below (round-3 review
-            # finding, PR #167): only re-deriving the underlying MECHANISM
-            # TEXT inside each cluster (which identifiers share a mechanism,
-            # and what it is) would need an LLM call and must not happen
-            # here — the stored `identifiers`/`summary`/`mechanism` content
-            # itself is untouched, only which clusters survive narrowing.
-            #
-            # `all_briefed_identifiers` here is the GENERATION-TIME
-            # `ticker_intel` key set (`inputs["ticker_intel"]`), not the
-            # fresh portfolio's identifiers and not a re-fetch of "everything
-            # briefed that day" (this is a re-render, no Session-scoped
-            # re-query of that global state is appropriate here). It is a
-            # sound upper bound: the stored summary was already validated at
-            # generation to name nothing outside that exact set, so re-
-            # checking against it (rather than the now-possibly-smaller
-            # `still_held`) still catches a name that was legitimately
-            # in-scope then but is a holding this reader no longer owns now.
-            still_held = set(portfolio_identifiers(portfolio))
-            fresh_clusters = clusters_for_user(
-                list(inputs.get("cross_name_intel", [])),
-                [k for k in inputs.get("ticker_intel", {}) if k in still_held],
-                list(inputs.get("ticker_intel", {})),
-            )
-            assembly_user = build_assembly_prompt(
-                portfolio,
-                inputs.get("price_anomalies", []),
-                inputs.get("ticker_intel", {}),
-                inputs.get("macro_event_intel", {}),
-                fresh_exposure,
-                period_start_iso,
-                period_end_iso,
-                trading_days,
-                inputs.get("technical_positions", []),
-                fresh_clusters,
-                investor_locale=investor_prefs.locale,
-                investor_questionnaire=investor_prefs.questionnaire,
-                investor_free_text=investor_prefs.free_text,
-                macro_signals=inputs.get("macro_signals", {}),
-                macro_continuity=macro_continuity,
-            )
-            raw_body = run_assembly_pass(
-                _openrouter_client(), assembly_model, assembly_user, usage_sink=regen_calls
-            )
-            if body_is_incomplete(raw_body):
-                raise RuntimeError(
-                    f"report {report.id}: regenerated assembly output looks truncated "
-                    f"({len(raw_body)} chars, missing one of §3/§4)"
-                )
-            body_update: dict[str, Any] = {
-                "assembly_raw": raw_body,
-                "assembly_prompt": assembly_user,
-                "assembly_model": assembly_model,
-                "assembly_prompt_version": ASSEMBLY_PROMPT_VERSION,
-                "analysis_framework_version": load_analysis_framework().version,
-                # Persist the exposure actually used, not the stale value —
-                # otherwise the stored row and the prompt that produced its
-                # body disagree, and a later render/audit would see the
-                # OLD intersection again.
-                "macro_event_exposure": fresh_exposure,
-                # Same reasoning, same fix (round-3 review finding, PR
-                # #167): persist the re-narrowed projection actually sent
-                # to the prompt, not the stale value from before whatever
-                # holdings edit triggered this regenerate.
-                "cross_name_intel": fresh_clusters,
-                "investor_questionnaire_snapshot": investor_prefs.questionnaire,
-                "investor_questionnaire_version": investor_prefs.questionnaire_version,
-                "macro_continuity_snapshot": macro_continuity,
-            }
-        else:
-            pass2_user = _build_pass2_prompt(
-                portfolio,
-                inputs.get("macro_signals", {}),
-                inputs.get("price_anomalies", []),
-                inputs.get("search_results", []),
-                period_start_iso,
-                period_end_iso,
-                trading_days,
-                inputs.get("holding_news", {}),
-                large_holding_moves=inputs.get("large_holding_moves", {}),
-                investor_locale=investor_prefs.locale,
-                investor_questionnaire=investor_prefs.questionnaire,
-                investor_free_text=investor_prefs.free_text,
-                macro_continuity=macro_continuity,
-            )
-            raw_body = _call_llm(
-                _openrouter_client(),
-                get_settings().PRIMARY_LLM_MODEL,
-                _build_pass2_system(),
-                pass2_user,
-                with_holdings=True,
-                usage_sink=regen_calls,
-            )
-            if body_is_incomplete(raw_body):
-                raise RuntimeError(
-                    f"report {report.id}: regenerated Pass 2 output looks truncated "
-                    f"({len(raw_body)} chars, missing one of §3/§4)"
-                )
-            body_update = {
-                "pass2_raw": raw_body,
-                "pass2_prompt": pass2_user,
-                "analysis_framework_version": load_analysis_framework().version,
-                "investor_questionnaire_snapshot": investor_prefs.questionnaire,
-                "investor_questionnaire_version": investor_prefs.questionnaire_version,
-                "macro_continuity_snapshot": macro_continuity,
-            }
+        body_update: dict[str, Any] = {
+            "pass2_raw": raw_body,
+            "pass2_prompt": pass2_user,
+            "analysis_framework_version": load_analysis_framework().version,
+            "investor_questionnaire_snapshot": investor_prefs.questionnaire,
+            "investor_questionnaire_version": investor_prefs.questionnaire_version,
+            "macro_continuity_snapshot": macro_continuity,
+        }
 
         # Recompute technical positions from the live DB so a backfill run
         # between the original generation and this regenerate is reflected.

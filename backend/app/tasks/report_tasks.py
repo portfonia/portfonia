@@ -217,14 +217,6 @@ def generate_incremental_report(
                     user_id=user_id,
                     moves_cache=moves_cache,
                     now=batch_now,
-                    # Issue #128 A4: how many users (including this one) are
-                    # still to be served, so the shared daily caps can be
-                    # sliced fairly instead of first-come-first-served — see
-                    # shared_budget.py. Derived from the batch POSITION, not
-                    # from how many succeeded: a failed user still consumed
-                    # its turn, and the countdown must stay monotonic so
-                    # later users neither over- nor under-claim.
-                    users_remaining=len(recipients) - index,
                     # issue #446: per-user batch position + wait offset —
                     # Design §3's "child attempts record zero-based
                     # recipient_index, users_remaining and monotonic offset

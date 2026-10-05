@@ -96,9 +96,6 @@ def test_daily_acceptance_5_merged_batch(
     assert result["status"] == "completed"
     assert [call.kwargs["session_node"] for call in gen.call_args_list] == nodes
     assert [call.kwargs["user_id"] for call in gen.call_args_list] == ids[: len(nodes)]
-    assert [call.kwargs["users_remaining"] for call in gen.call_args_list] == list(
-        range(len(nodes), 0, -1)
-    )
     assert all(call.kwargs["now"] == now.astimezone(UTC) for call in gen.call_args_list)
     assert all(
         call.kwargs["now"] is gen.call_args_list[0].kwargs["now"] for call in gen.call_args_list

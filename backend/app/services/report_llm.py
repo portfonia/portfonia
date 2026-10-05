@@ -162,7 +162,7 @@ def _call_llm(
     paying for and waiting on reasoning tokens it never asked for.
 
     `reasoning_effort` sets `extra_body={"reasoning": {"effort": ...}}` on
-    models that take an effort knob (L1 uses `openai/gpt-5.6-luna` with
+    models that take an effort knob (e.g. `openai/gpt-5.6-luna` with
     `"none"`). Do not pair this with `disable_reasoning` — they write the
     same `reasoning` key. Do not use the `-pro` suffix to turn reasoning
     off: Homepage eval showed luna-pro re-injects prior reasoning tokens.

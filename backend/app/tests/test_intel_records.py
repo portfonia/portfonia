@@ -21,7 +21,7 @@ from app.services.intel_records import (
 from app.services.news_fetcher import NewsItem, url_hash
 from app.services.report_prompts import _build_macro_signal_themes_block
 from app.services.report_serializers import _serialize_news
-from app.services.window_data import load_day_news, load_news_window
+from app.services.window_data import load_news_window
 from app.tests.conftest import TEST_USER_ID, seed_user
 
 NOW = datetime(2026, 10, 2, 16, 15, tzinfo=ET)
@@ -86,11 +86,9 @@ def test_acceptance_03_pool_only_loaders(db_session: Session) -> None:
         "article",
         "keep",
     )
-    assert [
-        x.title for x in load_news_window(db_session, NOW - timedelta(days=1), NOW, TEST_USER_ID)
-    ] == ["Nvidia earnings"]
-    loaded = load_day_news(db_session, NOW.date())
-    assert len(loaded) == 1 and loaded[0].url == loaded[0].source == ""
+    loaded = load_news_window(db_session, NOW - timedelta(days=1), NOW, TEST_USER_ID)
+    assert [x.title for x in loaded] == ["Nvidia earnings"]
+    assert loaded[0].url == loaded[0].source == ""
 
 
 def test_acceptance_07_conflict_links_existing_pool(db_session: Session) -> None:
@@ -180,4 +178,3 @@ def test_acceptance_07_instrument_first_promoted_by_rss(db_session: Session) -> 
     assert [
         x.title for x in load_news_window(db_session, NOW - timedelta(days=1), NOW, TEST_USER_ID)
     ] == ["Nvidia earnings"]
-    assert len(load_day_news(db_session, NOW.date())) == 1

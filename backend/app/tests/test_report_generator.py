@@ -19,11 +19,13 @@ and test_report_context.py respectively.
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import uuid
 from collections.abc import Generator
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
@@ -57,39 +59,11 @@ _TODAY = date(2026, 6, 4)
 def _seed_test_user(db_session: Session) -> None:
     """issue #129 B7's new FKs need a `users` row for _USER before most
     tests here write a holding/report under it. A few tests
-    (test_generate_report_assembly_path_also_gets_investor_preferences,
-    `_seed_investment_context`) insert their own `User(id=_USER, ...)` row
+    (`_seed_investment_context`) insert their own `User(id=_USER, ...)` row
     afterward with specific fields (locale/intel_focus) — those sites now
     check-first and skip their own insert if this fixture already created
     one, rather than the two racing on the same primary key."""
     seed_user(db_session, _USER)
-
-
-def _day_move(identifier: str, **overrides: object) -> HoldingMove:
-    """A minimal day-scoped `HoldingMove` for mocking `resolve_global_moves`
-    directly — avoids seeding real `Holding`/`PriceSnapshot` rows in tests
-    that only care whether L1 got a `day_pct`, not the number's specific
-    value (round 6 review fix: L1 now skips any candidate with no real
-    `day_pct`, so these tests need one to exercise the L1 path at all)."""
-    defaults: dict[str, object] = {
-        "identifier": identifier,
-        "market": "US",
-        "current_price": Decimal("215"),
-        "prev_price": Decimal("200"),
-        "net_pct": Decimal("0.075"),
-        "max_day_pct": Decimal("0.075"),
-        "max_day_date": _TODAY,
-        "baseline_date": _TODAY,
-        "latest_date": _TODAY,
-        "prev_close": Decimal("200"),
-        "day_open": Decimal("205"),
-        "day_high": Decimal("216"),
-        "day_low": Decimal("204"),
-        "day_close": Decimal("215"),
-        "after_hours": None,
-    }
-    defaults.update(overrides)
-    return HoldingMove(**defaults)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -104,73 +78,6 @@ def _no_email() -> MagicMock:  # type: ignore[misc]
     with patch("app.services.report_generator.send_report_email") as mock:
         mock.return_value = True
         yield mock
-
-
-# ---------------------------------------------------------------------------
-# Module-level guard: generate_report always runs the L1 shared-intel step
-# (issue #128 A2, ticker_intel.get_l1_intel_batch) after anomaly detection.
-# Most tests here don't exercise it (no anomalies seeded -> no candidates ->
-# no LLM call), but any that do must not hit a real OpenRouter endpoint --
-# ticker_intel imports its own _call_llm/_openrouter_client bindings,
-# independent of report_generator.py's (same reason report_translation needs
-# its own mock, see test_shared_compute_a1.py's _run_batch docstring).
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _mock_l1_llm_boundary() -> None:  # type: ignore[misc]
-    with (
-        patch("app.services.ticker_intel._openrouter_client", return_value=MagicMock()),
-        patch(
-            "app.services.ticker_intel._call_llm",
-            return_value="Nothing notable. [Speculative]",
-        ),
-    ):
-        yield
-
-
-# ---------------------------------------------------------------------------
-# Same guard for the L2 shared macro-event step (issue #128 A3,
-# macro_event_intel.get_l2_intel_batch). Most tests here produce no L2
-# candidate with global facts (the `news`/`forward_events` tables are empty),
-# but macro_event_intel resolves its own _call_llm/_openrouter_client, so an
-# unmocked one would reach the live endpoint.
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _mock_l3_llm_boundary() -> None:  # type: ignore[misc]
-    """Same guard again for the L3 day-level synthesis step (issue #128
-    quality gate, cross_name_intel.get_day_synthesis).
-
-    Worth stating why this is not optional even though most tests here produce
-    fewer than two servable L1 rows and therefore never reach the call: the
-    step is wrapped in a try/except so the report survives a synthesis
-    failure, which means an unmocked live call would NOT fail loudly here —
-    it would just quietly bill a real request and pass. A silent boundary
-    escape is worse than a noisy one.
-    """
-    with (
-        patch("app.services.cross_name_intel._openrouter_client", return_value=MagicMock()),
-        patch(
-            "app.services.cross_name_intel._call_llm",
-            return_value='{"clusters": []}',
-        ),
-    ):
-        yield
-
-
-@pytest.fixture(autouse=True)
-def _mock_l2_llm_boundary() -> None:  # type: ignore[misc]
-    with (
-        patch("app.services.macro_event_intel._openrouter_client", return_value=MagicMock()),
-        patch(
-            "app.services.macro_event_intel._call_llm",
-            return_value='{"analysis": "Nothing notable. [Speculative]", '
-            '"affected_asset_classes": []}',
-        ),
-    ):
-        yield
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +236,6 @@ def test_generate_report_normal_path(db_session: Session) -> None:
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch("app.services.report_generator._run_tavily_search") as mock_search,
     ):
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -344,9 +250,7 @@ def test_generate_report_normal_path(db_session: Session) -> None:
     assert report.generated_at is not None
     assert report.report_inputs is not None
     assert report.report_inputs["pass2_model"] != ""
-    assert report.report_inputs["search_queries"] == []
     assert report.report_inputs["search_results"] == []
-    mock_search.assert_not_called()
 
 
 def test_generate_report_macro_sidecar_stripped_and_coverage_persisted(
@@ -393,9 +297,6 @@ def test_generate_report_macro_sidecar_stripped_and_coverage_persisted(
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm_with_sidecar),
-        patch(
-            "app.services.report_generator._run_tavily_search", return_value=_FAKE_TAVILY_RESULTS
-        ),
     ):
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -447,11 +348,7 @@ def test_generate_report_empty_book_content_contract(db_session: Session) -> Non
         patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
         patch("app.services.report_generator.intel_trade_date", return_value=_TODAY),
-        patch("app.services.report_generator.read_l1_intel", return_value={"NVDA": "It rose."}),
-        patch("app.services.report_generator.read_l2_intel", return_value={}),
-        patch("app.services.report_generator.read_day_synthesis", return_value=[]),
     ):
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -463,158 +360,6 @@ def test_generate_report_empty_book_content_contract(db_session: Session) -> Non
     assert "FOMC Meeting" in report.report_md
     # No holding to expose it to -> "—", not omitted or crashed.
     assert "| FOMC Meeting | —" in report.report_md
-
-
-def test_generate_report_pass2_call_excludes_l1_ticker_intel_text(db_session: Session) -> None:
-    """Round 2 review finding: `ctx.ticker_intel` is populated and persisted
-    on report_inputs, but nothing enforces that Pass 2 never receives it —
-    isolation held only because `_build_pass2_prompt` happens not to be
-    wired to it. Locks the contract with a red test, parallel to
-    test_generate_report_pass1_call_has_no_holdings, so a future "wire L1
-    into Pass 2" edit can't silently ship holdings-derived L1 prose into the
-    per-user Pass 2 call without breaking a test."""
-    _L1_MARKER = "ZZZ_L1_SHARED_ANALYSIS_MARKER_ZZZ"
-    captured: dict[str, str] = {}
-
-    def _capture_pass2_llm(
-        client: object,
-        model: str,
-        system: str,
-        user: str,
-        *,
-        with_holdings: bool = False,
-        **kwargs: object,
-    ) -> str:
-        if with_holdings:
-            captured["pass2_user"] = user
-            return _FAKE_LLM_PASS2
-        return _FAKE_LLM_PASS1
-
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch(
-            "app.services.report_generator.load_news_window",
-            return_value=[_news_item("Fed raises rates")],
-        ),
-        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch(
-            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
-        ),
-        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
-        patch("app.services.report_generator._call_llm", side_effect=_capture_pass2_llm),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
-        patch("app.services.report_generator.intel_trade_date", return_value=_TODAY),
-        patch("app.services.report_generator.read_l1_intel", return_value={"NVDA": _L1_MARKER}),
-        patch("app.services.report_generator.read_l2_intel", return_value={}),
-        patch("app.services.report_generator.read_day_synthesis", return_value=[]),
-    ):
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    assert report.report_inputs is not None
-    assert report.report_inputs["ticker_intel"].get("NVDA") == _L1_MARKER  # sanity: L1 DID run
-    assert "pass2_user" in captured
-    assert _L1_MARKER not in captured["pass2_user"]
-
-
-_L2_MARKER = "ZZZ_L2_SHARED_EVENT_MARKER_ZZZ"
-
-
-def _mock_l2_llm(*args: object, **kwargs: object) -> str:
-    import json
-
-    return json.dumps(
-        {
-            "analysis": f"{_L2_MARKER} rate policy datapoint. [Established]",
-            "affected_asset_classes": ["STOCK", "CRYPTO"],
-        }
-    )
-
-
-def _l2_patches(
-    llm: object = _mock_l2_llm, day_title: str = "Fed holds rates steady"
-) -> tuple[Any, Any, Any]:
-    """L2 resolves its own bindings (its own `_call_llm`, its own
-    `load_day_news`) — patching report_generator's does not reach it, the
-    same independence L1/report_translation already have."""
-    return (
-        patch("app.services.macro_event_intel._openrouter_client", return_value=MagicMock()),
-        patch("app.services.macro_event_intel._call_llm", side_effect=llm),
-        patch(
-            "app.services.macro_event_intel.load_day_news",
-            return_value=[_news_item(day_title)],
-        ),
-    )
-
-
-def test_generate_report_pass2_call_excludes_l2_macro_event_intel_text(
-    db_session: Session,
-) -> None:
-    """Same contract A2 locked for L1 (issue #128 A3, design doc §1.2):
-    `ctx.macro_event_intel` is populated and persisted, but A3 is
-    cache-infrastructure only — report content stays byte-identical until A4
-    assembles it, so nothing L2 produced may reach the per-user Pass 2 call."""
-    captured: dict[str, str] = {}
-
-    def _capture_pass2_llm(
-        client: object,
-        model: str,
-        system: str,
-        user: str,
-        *,
-        with_holdings: bool = False,
-        **kwargs: object,
-    ) -> str:
-        if with_holdings:
-            captured["pass2_user"] = user
-            return _FAKE_LLM_PASS2
-        return _FAKE_LLM_PASS1
-
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch(
-            "app.services.report_generator.load_news_window",
-            return_value=[_news_item("Fed raises rates")],
-        ),
-        patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
-        patch(
-            "app.services.report_generator.detect_window_anomalies", return_value=([_anomaly()], 2)
-        ),
-        patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
-        patch("app.services.report_generator._call_llm", side_effect=_capture_pass2_llm),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
-        patch("app.services.report_generator.intel_trade_date", return_value=_TODAY),
-        patch("app.services.report_generator.read_l1_intel", return_value={}),
-        patch(
-            "app.services.report_generator.read_l2_intel",
-            return_value={
-                "theme:货币政策": {
-                    "analysis": f"{_L2_MARKER} rate policy datapoint. [Established]",
-                    "affected_asset_classes": ["STOCK"],
-                }
-            },
-        ),
-        patch("app.services.report_generator.read_day_synthesis", return_value=[]),
-    ):
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    assert report.report_inputs is not None
-    intel = report.report_inputs["macro_event_intel"]
-    # Sanity: L2 DID run for the theme the user's own signals selected.
-    assert _L2_MARKER in intel["theme:货币政策"]["analysis"]
-    # Out-of-taxonomy "CRYPTO" was dropped before it could be stored.
-    assert intel["theme:货币政策"]["affected_asset_classes"] == ["STOCK"]
-    # The per-user half: STOCK is the only class this portfolio holds.
-    assert report.report_inputs["macro_event_exposure"] == {"theme:货币政策": ["STOCK"]}
-    assert "pass2_user" in captured
-    assert _L2_MARKER not in captured["pass2_user"]
-    # Round-1 review nit (blacktomb42, PR #157): the Pass 2 prompt is only
-    # the INPUT side of "A3 changes no report content". Assert the rendered
-    # body too — a future edit could inject L2 text at assembly time
-    # (_render_full_md) without ever touching the prompt.
-    assert report.report_md is not None
-    assert _L2_MARKER not in report.report_md
 
 
 def test_generate_report_retry_clears_stale_provider_message_id(db_session: Session) -> None:
@@ -640,10 +385,6 @@ def test_generate_report_retry_clears_stale_provider_message_id(db_session: Sess
             ),
             patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
             patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-            patch(
-                "app.services.report_generator._run_tavily_search",
-                return_value=_FAKE_TAVILY_RESULTS,
-            ),
         ]
 
     with contextlib.ExitStack() as stack:
@@ -686,17 +427,12 @@ _REJECTED_PASS2 = "x" * 3000
 @pytest.fixture
 def rejected_pass2_llm() -> Generator[MagicMock, None, None]:
     """Mock external inputs while keeping orchestration and DB persistence real."""
-    settings = get_settings().model_copy(
-        update={"SHARED_COMPUTE_ENABLED": False, "ASSEMBLY_SHADOW_MODELS": ""}
-    )
     with (
-        patch.object(rg, "get_settings", return_value=settings),
         patch.object(rg, "compute_portfolio", return_value=_portfolio_snap()),
         patch.object(rg, "load_news_window", return_value=[_news_item("Fed raises rates")]),
         patch.object(rg, "detect_macro_signals", return_value=_macro_hit()),
         patch.object(rg, "detect_window_anomalies", return_value=([_anomaly()], 2)),
         patch.object(rg, "_openrouter_client", return_value=MagicMock()),
-        patch.object(rg, "_run_tavily_search", return_value=[]),
         patch.object(rg, "_call_llm", side_effect=[_REJECTED_PASS2]) as llm,
     ):
         yield llm
@@ -716,7 +452,6 @@ def _generate_rejected_pass2(db_session: Session) -> Report:
     assert row.status == "failed"
     assert row.report_inputs is not None
     assert row.report_inputs["pass2_raw"] == ""
-    assert row.report_inputs["assembly_raw"] == ""
     assert row.report_md is None
     assert row.email_sent_at is None
     return row
@@ -806,7 +541,6 @@ def test_generate_report_retry_after_render_failure_skips_pass1_pass2(
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm) as mock_llm,
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
         patch(
             "app.services.report_generator._translate_md",
             side_effect=RuntimeError("translation boom"),
@@ -888,7 +622,6 @@ def test_generate_report_retry_after_prompt_version_bump_reruns_pass1_pass2(
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
         patch(
             "app.services.report_generator._render_full_md",
             side_effect=RuntimeError("render boom"),
@@ -917,7 +650,6 @@ def test_generate_report_retry_after_prompt_version_bump_reruns_pass1_pass2(
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm) as mock_llm2,
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
     ):
         retried = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -945,7 +677,6 @@ def test_generate_report_retry_of_unsent_success_only_resends_email(
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
         patch("app.services.report_generator.send_report_email", return_value=False) as mock_email,
     ):
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
@@ -1017,7 +748,6 @@ def test_generate_report_no_keyword_hit_but_news_present_runs_full_pipeline(
         patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm) as mock_llm,
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
     ):
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -1066,7 +796,6 @@ def test_generate_report_prior_success_coverage_alone_runs_full_pipeline(
         patch("app.services.report_generator.detect_window_anomalies", return_value=([], 0)),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm) as mock_llm,
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
     ):
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -1169,7 +898,6 @@ def test_generate_report_blocks_noncompliant_body(
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm_noncompliant),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
     ):
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -1195,7 +923,6 @@ def test_generate_report_retry_of_needs_review_unmarks_prior_surfaced_news(
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm_noncompliant),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
         patch("app.services.report_generator.unmark_news_surfaced") as mock_unmark,
     ):
         report1 = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
@@ -1238,7 +965,6 @@ def _normal_path_patches() -> list[object]:
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
     ]
 
 
@@ -1317,10 +1043,6 @@ def test_regenerate_analyze_reruns_pass2_from_stored_intel(db_session: Session) 
         patch(
             "app.services.report_generator.load_news_window",
             side_effect=AssertionError("analyze must not re-fetch news"),
-        ),
-        patch(
-            "app.services.report_generator._run_tavily_search",
-            side_effect=AssertionError("analyze must not re-run search"),
         ),
     ):
         out = rg.regenerate_report(db_session, rid, user_id=_USER, mode="analyze", output_lang="en")
@@ -1525,9 +1247,6 @@ def test_generate_report_strips_inline_markers(db_session: Session) -> None:
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm_f2),
-        patch(
-            "app.services.report_generator._run_tavily_search", return_value=_FAKE_TAVILY_RESULTS
-        ),
     ):
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -1565,9 +1284,6 @@ def test_generate_report_normal_path_has_footer(db_session: Session) -> None:
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch(
-            "app.services.report_generator._run_tavily_search", return_value=_FAKE_TAVILY_RESULTS
-        ),
     ):
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -1644,470 +1360,6 @@ def test_generate_report_forwards_moves_cache_to_detect_window_anomalies(
     assert mock_detect.call_args.args[-1] is cache
 
 
-# ---------------------------------------------------------------------------
-# A4 personalized assembly wiring (issue #128, design doc §6)
-#
-# The assembly pass resolves its OWN _call_llm binding (app.services.
-# report_assembly), so these tests patch it separately from
-# report_generator's — the same module-boundary reason the L1/L2 fixtures
-# above exist.
-# ---------------------------------------------------------------------------
-
-_FAKE_ASSEMBLED_BODY = (
-    "## §2 Macro Events\n\nRates repriced; the portfolio's US equity sleeve is exposed.\n\n"
-    "## §3 Holdings Context\n\nNVIDIA, the heaviest position, rose on an earnings beat. "
-    "[Established]\n\n"
-    "## §4 Exposure & Price Data\n\nNVDA — earnings beat drove the move [Established]\n\n"
-    + _PASS2_FILLER
-)
-
-
-def _assembly_ready_patches(**setting_overrides: object) -> list[object]:
-    """The normal path, plus a real L1 result so there IS shared intel to
-    assemble from, plus the requested A4 settings."""
-    settings = get_settings()
-    patches = _normal_path_patches()
-    patches.append(
-        patch(
-            "app.services.report_generator.resolve_global_moves",
-            return_value=({"NVDA": _day_move("NVDA")}, 1),
-        )
-    )
-    patches.extend(
-        [
-            patch("app.services.report_generator.intel_trade_date", return_value=_TODAY),
-            patch(
-                "app.services.report_generator.read_l1_intel",
-                return_value={"NVDA": "It rose on an earnings beat. [Established]"},
-            ),
-            patch(
-                "app.services.report_generator.read_l2_intel",
-                return_value={
-                    "theme:货币政策": {
-                        "analysis": "Rates repriced. [Established]",
-                        "affected_asset_classes": ["STOCK"],
-                    }
-                },
-            ),
-            patch("app.services.report_generator.read_day_synthesis", return_value=[]),
-        ]
-    )
-    for name, value in setting_overrides.items():
-        patches.append(patch.object(settings, name, value))
-    return patches
-
-
-def test_generate_report_uses_pass2_when_shared_compute_is_disabled(
-    db_session: Session,
-) -> None:
-    """`SHARED_COMPUTE_ENABLED=false` is the production default and must be
-    byte-for-byte the pre-A4 pipeline (design doc §6.5): the assembly pass is
-    never even constructed."""
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=False, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        mock_assembly = stack.enter_context(patch("app.services.report_assembly._call_llm"))
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    mock_assembly.assert_not_called()
-    assert report.report_inputs is not None
-    assert report.report_inputs["body_source"] == "pass2"
-    assert report.report_inputs["pass2_raw"]
-    assert not report.report_inputs["assembly_raw"]
-
-
-def test_generate_report_assembles_from_shared_intel_when_enabled(
-    db_session: Session,
-) -> None:
-    """The A4 architecture switch: the body comes from the assembly pass over
-    pre-computed L1/L2 intel, and the giant Pass 2 call does not happen at
-    all — that call not happening IS the cost reduction."""
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        mock_assembly = stack.enter_context(
-            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
-        )
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    mock_assembly.assert_called_once()
-    assert mock_assembly.call_args.kwargs["with_holdings"] is True, (
-        "the assembly payload carries portfolio weights — deny must stay enforced"
-    )
-    assert report.status == "success"
-    assert report.report_inputs is not None
-    assert report.report_inputs["body_source"] == "assembly"
-    assert report.report_inputs["assembly_raw"] == _FAKE_ASSEMBLED_BODY
-    assert report.report_inputs["assembly_model"] == "cheap/model"
-    # Pass 2 never ran, so it left no body behind.
-    assert not report.report_inputs["pass2_raw"]
-    assert report.report_md is not None
-    assert "heaviest position" in report.report_md
-
-
-def test_generate_report_assembly_path_also_gets_investor_preferences(
-    db_session: Session,
-) -> None:
-    """PR #212 review bug finding: the original implementation only wired
-    investor-preference injection into the Pass 2 fallback branch, so an
-    assembled report (SHARED_COMPUTE_ENABLED=True, the intended A4 cost
-    architecture) silently ignored the user's questionnaire AND recorded no
-    audit snapshot in report_inputs, even though a row existed."""
-    # `_seed_test_user` (module-level autouse fixture) already created the
-    # `users` row for _USER.
-    from app.models.user_investment_context import UserInvestmentContext
-
-    db_session.add(
-        UserInvestmentContext(
-            user_id=_USER,
-            questionnaire={
-                "asset_scale": "500K_2M",
-                "markets": ["US"],
-                "style": "GROWTH",
-                "horizon": "LONG",
-                "risk_appetite": "AGGRESSIVE",
-                "sectors_of_interest": ["Technology"],
-                "objective": "GROWTH",
-                "intel_focus": "GEOPOLITICS",
-            },
-            questionnaire_version="v1",
-            free_text="Concentrated in AI infrastructure names on purpose.",
-        )
-    )
-    db_session.flush()
-
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        mock_assembly = stack.enter_context(
-            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
-        )
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.report_inputs is not None
-    assert report.report_inputs["body_source"] == "assembly"
-    # The snapshot must be set regardless of body source.
-    snap = report.report_inputs["investor_questionnaire_snapshot"]
-    assert snap["intel_focus"] == "GEOPOLITICS"
-    # The assembly prompt itself must carry the INVESTOR PREFERENCES block —
-    # `prompt` is run_assembly_pass's 4th positional arg to _call_llm.
-    assembly_prompt = mock_assembly.call_args.args[3]
-    assert "INVESTOR PREFERENCES" in assembly_prompt
-    assert "geopolitical developments" in assembly_prompt
-    assert "Reader locale: zh" in assembly_prompt
-
-
-def test_generate_report_assembly_keeps_the_code_built_sections(
-    db_session: Session,
-) -> None:
-    """Design doc §6.3 contract table: §1/§4.2/§4.4 stay code-built. The
-    assembled body is a drop-in replacement for Pass 2's, so the same
-    injection points must still fire."""
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
-        )
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.report_md is not None
-    assert "§1" in report.report_md
-    assert "Data window" in report.report_md
-    # The single footer disclaimer, unchanged.
-    assert "Notes & Disclaimer" in report.report_md
-
-
-def test_generate_report_falls_back_to_pass2_when_shared_caches_are_empty(
-    db_session: Session,
-) -> None:
-    """Cold start / capped / every candidate blocked: there is nothing to
-    assemble, so the run degrades to Pass 2 rather than shipping a hollow
-    report (design doc §6.3)."""
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        # No L1 and no L2 intel this run.
-        stack.enter_context(patch("app.services.report_generator.read_l1_intel", return_value={}))
-        stack.enter_context(patch("app.services.report_generator.read_l2_intel", return_value={}))
-        mock_assembly = stack.enter_context(patch("app.services.report_assembly._call_llm"))
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    mock_assembly.assert_not_called()
-    assert report.status == "success"
-    assert report.report_inputs is not None
-    assert report.report_inputs["body_source"] == "pass2"
-
-
-def test_generate_report_falls_back_to_pass2_when_assembled_body_is_truncated(
-    db_session: Session,
-) -> None:
-    """A provider can return a short/mangled 200. Pass 2 raises on that so
-    Celery retries; the assembly path instead degrades to Pass 2 in the same
-    run — the promise is that enabling A4 can never produce a WORSE report
-    than not enabling it."""
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        mock_assembly = stack.enter_context(
-            patch("app.services.report_assembly._call_llm", return_value="## §2 too short")
-        )
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    mock_assembly.assert_called_once()
-    assert report.status == "success"
-    assert report.report_inputs is not None
-    assert report.report_inputs["body_source"] == "pass2"
-    assert report.report_inputs["pass2_raw"]
-    assert report.report_md is not None
-    assert "NVIDIA up 9%" in report.report_md
-
-
-def test_generate_report_falls_back_to_pass2_when_the_assembly_call_raises(
-    db_session: Session,
-) -> None:
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch("app.services.report_assembly._call_llm", side_effect=RuntimeError("provider"))
-        )
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    assert report.report_inputs is not None
-    assert report.report_inputs["body_source"] == "pass2"
-
-
-def test_generate_report_scans_the_assembled_body_for_compliance(
-    db_session: Session,
-) -> None:
-    """Compliance > everything: the assembled body goes through the identical
-    Layer-4 backstop, so a forbidden phrase holds the report as needs_review
-    and it is never emailed."""
-    bad_body = (
-        "## §2 Macro Events\n\nRates moved.\n\n"
-        "## §3 Holdings Context\n\nWe recommend you buy more NVDA immediately.\n\n"
-        "## §4 Exposure & Price Data\n\nNVDA — moved [Established]\n\n" + _PASS2_FILLER
-    )
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(patch("app.services.report_assembly._call_llm", return_value=bad_body))
-        mock_email = stack.enter_context(
-            patch("app.services.report_generator.send_report_email", return_value=True)
-        )
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "needs_review"
-    assert report.report_inputs is not None
-    assert report.report_inputs["body_source"] == "assembly"
-    mock_email.assert_not_called()
-
-
-# --- Shadow comparison (design doc §6.3.1) ---------------------------------
-
-
-def test_generate_report_shadow_models_are_stored_but_never_shipped(
-    db_session: Session,
-) -> None:
-    """One round yields both comparisons the design asks for: the shipped
-    Pass 2 body vs each assembled body (architecture), and the listed models
-    against each other (selection). The shadow output must not touch what
-    the user receives."""
-    shadow_body = "## §2 shadow\n\n## §3 shadow\n\n## §4 shadow\n\n" + _PASS2_FILLER
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=False,
-            ASSEMBLY_SHADOW_MODELS="cheap/model, mid/model",
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        mock_assembly = stack.enter_context(
-            patch("app.services.report_assembly._call_llm", return_value=shadow_body)
-        )
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert mock_assembly.call_count == 2, "one assembly pass per shadow model"
-    assert report.report_inputs is not None
-    shadow = report.report_inputs["assembly_shadow"]
-    assert set(shadow) == {"cheap/model", "mid/model"}
-    assert shadow["cheap/model"]["raw"] == shadow_body
-    # The shipped report is untouched by the shadow run.
-    assert report.report_inputs["body_source"] == "pass2"
-    assert report.report_md is not None
-    assert "shadow" not in report.report_md
-    assert "NVIDIA up 9%" in report.report_md
-
-
-def test_generate_report_shadow_failure_never_fails_the_report(
-    db_session: Session,
-) -> None:
-    """A comparison harness must not be able to break the thing it measures."""
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=False, ASSEMBLY_SHADOW_MODELS="broken/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch("app.services.report_assembly._call_llm", side_effect=RuntimeError("provider"))
-        )
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    assert report.report_inputs is not None
-    assert "error" in report.report_inputs["assembly_shadow"]["broken/model"]
-
-
-def test_generate_report_shadow_prompt_construction_failure_never_fails_the_report(
-    db_session: Session,
-) -> None:
-    """Round 2 review finding (PR #163): `_run_shadow_assembly`'s own
-    try/except only wraps the per-model `run_assembly_pass` call — the ONE
-    prompt-build call before that loop (`_assembly_prompt_from_ctx`) was
-    unguarded. A defect there would propagate past a Pass 2 body that
-    already succeeded and flip the whole report to 'failed', which is
-    exactly the "measurement breaks what it measures" contract this
-    harness exists to avoid."""
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=False, ASSEMBLY_SHADOW_MODELS="broken/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch(
-                "app.services.report_generator.build_assembly_prompt",
-                side_effect=RuntimeError("prompt construction blew up"),
-            )
-        )
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    assert report.report_inputs is not None
-    assert report.report_inputs["body_source"] == "pass2"
-    assert report.report_inputs["pass2_raw"]
-    assert report.report_inputs["assembly_shadow"] == {}
-
-
-def test_generate_report_shadow_is_skipped_when_there_is_no_shared_intel(
-    db_session: Session,
-) -> None:
-    """Nothing to compare against — spending two model calls on an empty
-    assembly prompt would just bill for noise."""
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(ASSEMBLY_SHADOW_MODELS="cheap/model"):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(patch("app.services.report_generator.read_l1_intel", return_value={}))
-        stack.enter_context(patch("app.services.report_generator.read_l2_intel", return_value={}))
-        mock_assembly = stack.enter_context(patch("app.services.report_assembly._call_llm"))
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    mock_assembly.assert_not_called()
-    assert report.report_inputs is not None
-    assert report.report_inputs["assembly_shadow"] == {}
-
-
-# --- Re-render contract (#6) with an assembled body ------------------------
-
-
-def test_regenerate_render_rebuilds_an_assembled_report_without_llm_calls(
-    db_session: Session,
-) -> None:
-    """Design doc §6.3 contract: `mode=render` stays token-free (except
-    translation) for an assembly-sourced report too — the stored
-    `assembly_raw` is the body it rebuilds from."""
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
-        )
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.report_inputs is not None
-    assert report.report_inputs["body_source"] == "assembly"
-
-    with (
-        patch("app.services.report_generator._call_llm") as mock_pass2,
-        patch("app.services.report_assembly._call_llm") as mock_assembly,
-    ):
-        rebuilt = rg.regenerate_report(db_session, report.id, user_id=_USER, mode="render")
-
-    mock_pass2.assert_not_called()
-    mock_assembly.assert_not_called()
-    assert rebuilt.report_md is not None
-    assert "heaviest position" in rebuilt.report_md
-
-
-def test_regenerate_analyze_reruns_the_pass_that_wrote_the_body(
-    db_session: Session,
-) -> None:
-    """`analyze` means "re-run this report's body pass". For an
-    assembly-sourced report that is the assembly pass, not Pass 2.
-
-    Re-running Pass 2 here would not just be the wrong pass — it would leave
-    `assembly_raw` holding the SUPERSEDED body while `report_md` showed the
-    new one, so a later `mode=render` would silently rebuild the old report.
-    """
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
-        )
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    reanalyzed = (
-        "## §2 Macro Events\n\nReanalyzed macro read.\n\n"
-        "## §3 Holdings Context\n\nReanalyzed holdings read. [Probable]\n\n"
-        "## §4 Exposure & Price Data\n\nNVDA — reanalyzed [Probable]\n\n" + _PASS2_FILLER
-    )
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
-        patch("app.services.report_generator._call_llm") as mock_pass2,
-        patch("app.services.report_assembly._call_llm", return_value=reanalyzed) as mock_assembly,
-    ):
-        updated = rg.regenerate_report(db_session, report.id, user_id=_USER, mode="analyze")
-
-    mock_pass2.assert_not_called()
-    mock_assembly.assert_called_once()
-    assert updated.report_md is not None
-    assert "Reanalyzed holdings read" in updated.report_md
-    assert updated.report_inputs is not None
-    assert updated.report_inputs["assembly_raw"] == reanalyzed
-
-    # And the stored body is now genuinely the one that shipped: a follow-up
-    # render must not resurrect the superseded text.
-    with (
-        patch("app.services.report_generator._call_llm"),
-        patch("app.services.report_assembly._call_llm"),
-    ):
-        rerendered = rg.regenerate_report(db_session, report.id, user_id=_USER, mode="render")
-
-    assert rerendered.report_md is not None
-    assert "Reanalyzed holdings read" in rerendered.report_md
-    assert "heaviest position" not in rerendered.report_md
-
-
 def test_regenerate_analyze_reuses_stored_base_currency_by_default(
     db_session: Session,
 ) -> None:
@@ -2119,19 +1371,12 @@ def test_regenerate_analyze_reuses_stored_base_currency_by_default(
     `generate_report` itself runs under `_normal_path_patches`'s
     `compute_portfolio` mock, which always returns `_portfolio_snap()`
     (base_currency="USD") regardless of the `base_currency` argument — so
-    the ORIGINAL report's stored value is set directly here (same
-    technique as test_regenerate_analyze_recomputes_macro_event_exposure_
-    from_fresh_portfolio above), rather than relying on that mock to
-    respect an argument it deliberately ignores.
+    the ORIGINAL report's stored value is set directly here, rather than
+    relying on that mock to respect an argument it deliberately ignores.
     """
     with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
+        for p in _normal_path_patches():
             stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
-        )
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     assert report.report_inputs is not None
@@ -2147,7 +1392,7 @@ def test_regenerate_analyze_reuses_stored_base_currency_by_default(
         patch(
             "app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()
         ) as mock_compute,
-        patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY),
+        patch("app.services.report_generator._call_llm", return_value=_FAKE_LLM_PASS2),
     ):
         rg.regenerate_report(db_session, report.id, user_id=_USER, mode="analyze")
 
@@ -2161,13 +1406,8 @@ def test_regenerate_analyze_base_currency_override(db_session: Session) -> None:
     users.base_currency preference instead of the stale one baked into the
     original report."""
     with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
+        for p in _normal_path_patches():
             stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
-        )
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
     # Stored value is "USD" (the mocked compute_portfolio's own snapshot) —
@@ -2179,7 +1419,7 @@ def test_regenerate_analyze_base_currency_override(db_session: Session) -> None:
         patch(
             "app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()
         ) as mock_compute,
-        patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY),
+        patch("app.services.report_generator._call_llm", return_value=_FAKE_LLM_PASS2),
     ):
         rg.regenerate_report(
             db_session, report.id, user_id=_USER, mode="analyze", base_currency="CNY"
@@ -2188,257 +1428,56 @@ def test_regenerate_analyze_base_currency_override(db_session: Session) -> None:
     assert mock_compute.call_args.kwargs["base_currency"] == "CNY"
 
 
-def test_regenerate_analyze_recomputes_macro_event_exposure_from_fresh_portfolio(
-    db_session: Session,
-) -> None:
-    """Round 2 review finding (PR #163): `analyze` already refreshes
-    `portfolio` from the live DB (so a holdings edit between generation and
-    regenerate is picked up), but was replaying the STORED
-    `macro_event_exposure` — the intersection computed against the
-    ORIGINAL `by_asset_class`. If a confirm between generation and
-    regenerate drops the only class an event bore on, the stale exposure
-    would still tell the model "your exposure: <class you no longer
-    hold>". Exposure is cheap set arithmetic (`user_event_exposure`, zero
-    LLM calls) and must be recomputed against the SAME fresh portfolio the
-    prompt is otherwise built from.
-    """
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
-        )
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.report_inputs is not None
-    assert report.report_inputs["body_source"] == "assembly"
-
-    # Simulate the original exposure having been computed against a
-    # portfolio that held STOCK — matches _portfolio_snap()'s by_asset_class.
-    stale_inputs = dict(report.report_inputs)
-    stale_inputs["macro_event_intel"] = {
-        "theme:x": {
-            "analysis": "STALE_EVENT_MARKER touches the STOCK sleeve.",
-            "affected_asset_classes": ["STOCK"],
-        }
-    }
-    stale_inputs["macro_event_exposure"] = {"theme:x": ["STOCK"]}
-    report.report_inputs = stale_inputs
-    db_session.commit()
-
-    # A holdings edit since generation moved this portfolio entirely out of
-    # STOCK — the event no longer bears on anything this user holds.
-    fresh_snap = _portfolio_snap()
-    fresh_snap.by_asset_class = {"EQUITY_US_BROAD": Decimal("10000")}
-
-    with (
-        patch("app.services.report_generator.compute_portfolio", return_value=fresh_snap),
-        patch(
-            "app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY
-        ) as mock_assembly,
-    ):
-        rg.regenerate_report(db_session, report.id, user_id=_USER, mode="analyze")
-
-    sent_prompt = mock_assembly.call_args.args[3]
-    assert "theme:x" not in sent_prompt, (
-        "a dropped asset class must remove the event from the prompt, "
-        "not carry forward the exposure computed against the OLD portfolio"
-    )
+_REMOVED_INPUT_KEYS: dict[str, Any] = {
+    "ticker_intel": {"NVDA": "old L1 brief"},
+    "macro_event_intel": {"theme:rates": {"analysis": "old L2", "affected_asset_classes": []}},
+    "macro_event_exposure": {"theme:rates": ["STOCK"]},
+    "cross_name_intel": [{"identifiers": ["NVDA", "AAPL"], "summary": "old L3"}],
+    "body_source": "pass2",
+    "assembly_model": "",
+    "assembly_prompt": "",
+    "assembly_raw": "",
+    "assembly_prompt_version": "",
+    "assembly_shadow": {},
+    "search_queries": ["old query"],
+}
 
 
-def test_regenerate_render_still_works_for_a_pre_a4_report(db_session: Session) -> None:
-    """Historical rows have no `assembly_raw` key at all (`ReportInputsDict`
-    is total=False). They must keep rebuilding from `pass2_raw` exactly as
-    before — design doc §6.4's stored-structure risk."""
+def test_issue_640_regenerate_ignores_removed_report_input_keys(db_session: Session) -> None:
+    """Issue #640 acceptance 3: a stored row that still carries keys from the
+    removed L1/L2/L3, assembly and report-time search paths regenerates in
+    both modes."""
     with contextlib.ExitStack() as stack:
         for p in _normal_path_patches():
             stack.enter_context(p)  # type: ignore[arg-type]
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    # Simulate a row written before A4 existed.
-    report.report_inputs = {
-        k: v
-        for k, v in dict(report.report_inputs or {}).items()
-        if not k.startswith("assembly_") and k != "body_source"
-    }
+    report.report_inputs = {**dict(report.report_inputs or {}), **_REMOVED_INPUT_KEYS}
     db_session.commit()
 
-    with (
-        patch("app.services.report_generator._call_llm") as mock_pass2,
-    ):
-        rebuilt = rg.regenerate_report(db_session, report.id, user_id=_USER, mode="render")
-
-    mock_pass2.assert_not_called()
-    assert rebuilt.report_md is not None
-    assert "NVIDIA up 9%" in rebuilt.report_md
-
-
-# ---------------------------------------------------------------------------
-# L3 day-level cross-name synthesis wiring (issue #128 quality gate — design
-# doc §6.7 item 1)
-# ---------------------------------------------------------------------------
-
-
-_L3_CLUSTERS = [
-    {
-        "identifiers": ["NVDA", "AAPL"],
-        "mechanism": "ai_capex_stack",
-        "summary": "Accelerator demand set the tape while the long end cut the other way.",
-        "confidence": "Probable",
-    }
-]
-
-
-def test_generate_report_stores_only_clusters_touching_this_users_holdings(
-    db_session: Session,
-) -> None:
-    """The per-user narrowing has to happen at the boundary where the global
-    clusters enter this report, not later — `report_inputs` is stored, read
-    back by regenerate, and re-rendered, so an unnarrowed cluster there would
-    outlive any downstream filtering."""
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch(
-                "app.services.report_generator.read_l1_intel",
-                return_value={"NVDA": "It rose. [Probable]"},
-            )
-        )
-        stack.enter_context(
-            patch(
-                "app.services.report_generator.read_day_synthesis",
-                return_value=[
-                    {
-                        "identifiers": ["NVDA", "SGOL"],
-                        "mechanism": "safe_haven",
-                        "summary": "A haven bid ran through the group.",
-                        "confidence": "Probable",
-                    }
-                ],
-            )
-        )
-        stack.enter_context(
-            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
-        )
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.report_inputs is not None
-    # Only NVDA has L1 intel for this user, so the two-name floor drops the
-    # cluster entirely rather than storing a one-name "group".
-    assert report.report_inputs["cross_name_intel"] == []
-
-
-def test_synthesis_failure_never_fails_the_report(db_session: Session) -> None:
-    """Same degradation contract every shared layer answers to: a cross-name
-    conclusion is an enrichment, so losing it costs a sentence, never a
-    report."""
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch(
-                "app.services.report_generator.read_day_synthesis",
-                return_value=[],
-            )
-        )
-        stack.enter_context(
-            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
-        )
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.status == "success"
-    assert report.report_inputs is not None
-    assert report.report_inputs["cross_name_intel"] == []
-
-
-def test_pass2_prompt_never_receives_cross_name_intel(db_session: Session) -> None:
-    """The synthesis is A4's input. Feeding it to Pass 2 as well would make
-    the shadow comparison meaningless — the two architectures would no longer
-    be reading different inputs (design doc §6.3.1)."""
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(SHARED_COMPUTE_ENABLED=False):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch("app.services.report_generator.read_day_synthesis", return_value=_L3_CLUSTERS)
-        )
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.report_inputs is not None
-    assert "ai_capex_stack" not in report.report_inputs["pass2_prompt"]
-
-
-def test_regenerate_analyze_persists_the_renarrowed_cross_name_clusters(
-    db_session: Session,
-) -> None:
-    """PR #167 review round 3, suggestion: `analyze` already re-narrows
-    stored clusters with `clusters_for_user` against the FRESH portfolio (a
-    holdings edit since generation must not leave a stale cluster naming a
-    position no longer held — same correction PR #163 made for
-    `macro_event_exposure`), and feeds the result into the assembly prompt.
-    But the re-narrowed result was never written back to
-    `report_inputs["cross_name_intel"]` — only the prompt saw it. The stored
-    field is a PER-USER PROJECTION (already narrowed once at generation via
-    `clusters_for_user`), exactly like `macro_event_exposure`, not shared
-    mechanism text that must stay untouched; leaving it stale means a later
-    reader of `report_inputs["cross_name_intel"]` sees identifiers the fresh
-    book no longer holds, even though the body just generated does not.
-    """
-    with contextlib.ExitStack() as stack:
-        for p in _assembly_ready_patches(
-            SHARED_COMPUTE_ENABLED=True, ASSEMBLY_LLM_MODEL="cheap/model"
-        ):
-            stack.enter_context(p)  # type: ignore[arg-type]
-        stack.enter_context(
-            patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY)
-        )
-        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
-
-    assert report.report_inputs is not None
-
-    # Simulate a stored cluster naming two identifiers, both present in the
-    # generation-time L1 key set.
-    stale_inputs = dict(report.report_inputs)
-    stale_inputs["ticker_intel"] = {
-        "NVDA": "NVDA rose on an earnings beat. [Established]",
-        "AAPL": "AAPL tracked the broader move. [Probable]",
-    }
-    stale_inputs["cross_name_intel"] = [
-        {
-            "identifiers": ["NVDA", "AAPL"],
-            "mechanism": "discount_rate",
-            "summary": "NVDA and AAPL moved together on the rate channel.",
-            "confidence": "Probable",
-        }
-    ]
-    report.report_inputs = stale_inputs
-    db_session.commit()
-
-    # A holdings edit since generation drops AAPL entirely — the fresh
-    # portfolio holds only NVDA. Re-narrowing a 2-identifier cluster against
-    # a 1-identifier held set must drop the cluster (below the 2-name floor).
-    fresh_snap = _portfolio_snap()
-    fresh_snap.holdings[0].ticker = "NVDA"
-    fresh_snap.holdings[0].name = "NVIDIA"
+    with patch("app.services.report_generator._call_llm") as mock_llm:
+        rendered = rg.regenerate_report(db_session, report.id, user_id=_USER, mode="render")
+    mock_llm.assert_not_called()
+    assert rendered.report_md is not None
+    assert "NVIDIA up 9%" in rendered.report_md
 
     with (
-        patch("app.services.report_generator.compute_portfolio", return_value=fresh_snap),
-        patch("app.services.report_assembly._call_llm", return_value=_FAKE_ASSEMBLED_BODY),
+        patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
+        patch("app.services.report_generator._call_llm", return_value=_FAKE_LLM_PASS2) as llm,
     ):
-        rebuilt = rg.regenerate_report(db_session, report.id, user_id=_USER, mode="analyze")
+        analyzed = rg.regenerate_report(db_session, report.id, user_id=_USER, mode="analyze")
+    assert llm.call_count == 1
+    assert analyzed.report_inputs is not None
+    assert analyzed.report_inputs["pass2_raw"] == _FAKE_LLM_PASS2
+    assert "old L1 brief" not in analyzed.report_inputs["pass2_prompt"]
 
-    assert rebuilt.report_inputs is not None
-    assert rebuilt.report_inputs["cross_name_intel"] == [], (
-        "the stored field must reflect the re-narrowed (now empty) cluster set "
-        "actually sent to the prompt, not the stale 2-identifier value from "
-        "before the holdings edit"
-    )
+
+def test_issue_640_report_context_ignores_removed_keys() -> None:
+    """The #61 resume path rehydrates old rows through `from_jsonb`."""
+    from app.services.report_context import ReportContext
+
+    ctx = ReportContext.from_jsonb({"pass2_raw": "body", **_REMOVED_INPUT_KEYS})
+    assert ctx.pass2_raw == "body"
+    assert "ticker_intel" not in ctx.to_jsonb()
 
 
 # ---------------------------------------------------------------------------
@@ -2598,10 +1637,6 @@ def test_regenerate_render_does_not_refetch_investor_preferences(db_session: Ses
             "app.services.report_generator.load_news_window",
             side_effect=AssertionError("render must not re-fetch"),
         ),
-        patch(
-            "app.services.report_generator._run_tavily_search",
-            side_effect=AssertionError("render must not re-fetch"),
-        ),
     ):
         out = rg.regenerate_report(db_session, rid, user_id=_USER, mode="render", output_lang="en")
     assert out.report_md is not None
@@ -2646,10 +1681,6 @@ def test_regenerate_analyze_refreshes_investor_preferences(db_session: Session) 
         patch(
             "app.services.report_generator.load_news_window",
             side_effect=AssertionError("analyze must not re-fetch news"),
-        ),
-        patch(
-            "app.services.report_generator._run_tavily_search",
-            side_effect=AssertionError("analyze must not re-run search"),
         ),
     ):
         out = rg.regenerate_report(db_session, rid, user_id=_USER, mode="analyze", output_lang="en")
@@ -3005,9 +2036,6 @@ def _generate_report_with_snap(db_session: Session, snap: PortfolioSnapshot) -> 
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch(
-            "app.services.report_generator._run_tavily_search", return_value=_FAKE_TAVILY_RESULTS
-        ),
         patch.object(rg, "send_ops_alert", mock_alert),
     ):
         rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
@@ -3211,7 +2239,6 @@ def test_generate_report_window_cap_news_backfill(db_session: Session, capped: b
         patch.object(rg, "detect_window_anomalies", return_value=([], 0)),
         patch.object(rg, "_openrouter_client", return_value=MagicMock()),
         patch.object(rg, "_call_llm", side_effect=_mock_llm),
-        patch.object(rg, "_run_tavily_search", return_value=[]),
     ):
         clock.now.return_value = now
         report = rg.generate_report(
@@ -3301,7 +2328,6 @@ def test_large_weight_holding_window_price_reaches_pass2_prompt(db_session: Sess
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_capture_pass2),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
     ):
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -3329,3 +2355,54 @@ def test_render_full_md_holdings_briefing_header_uses_period_end() -> None:
     )
     assert full_md.splitlines()[0] == "# Portfonia Holdings Briefing — 2026-10-05 16:00 ET"
     assert not violations
+
+
+# ---------------------------------------------------------------------------
+# Issue #640: removing L1/L2/L3 and assembly must not change Pass 2 prompts
+# ---------------------------------------------------------------------------
+
+_PASS2_SNAPSHOT = Path(__file__).parent / "fixtures" / "issue_640_pass2_prompt.json"
+
+
+def _capture_pass2_prompt(session: Session) -> dict[str, str]:
+    captured: dict[str, str] = {}
+
+    def _capture(
+        client: object,
+        model: str,
+        system: str,
+        user: str,
+        *,
+        with_holdings: bool = False,
+        **kw: object,
+    ) -> str:
+        if with_holdings:
+            captured["system"] = system
+            captured["user"] = user
+            return _FAKE_LLM_PASS2
+        return _FAKE_LLM_PASS1
+
+    _seed_investment_context(session, _USER, locale="en", intel_focus="GEOPOLITICS")
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(patch("app.services.report_generator._call_llm", side_effect=_capture))
+        stack.enter_context(
+            patch("app.services.report_generator.intel_trade_date", return_value=_TODAY)
+        )
+        report = rg.generate_report(
+            session,
+            user_id=_USER,
+            report_date=_TODAY,
+            now=datetime(2026, 6, 4, 21, 0, tzinfo=UTC),
+        )
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    assert report.report_inputs["body_source"] == "pass2"
+    return captured
+
+
+def test_issue_640_pass2_prompt_matches_pre_removal_snapshot(db_session: Session) -> None:
+    captured = _capture_pass2_prompt(db_session)
+    expected = json.loads(_PASS2_SNAPSHOT.read_text(encoding="utf-8"))
+    assert captured == expected

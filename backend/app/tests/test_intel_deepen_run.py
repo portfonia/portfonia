@@ -312,7 +312,6 @@ def test_23_full_slot_no_urls(
     db_session: Session, caplog: pytest.LogCaptureFixture, weekend: bool
 ) -> None:
     from app.models.intel import InstrumentProfile, IntelSlotRun
-    from app.models.ticker_intel import TickerIntel
     from app.services.intel_signals import Signal
     from app.services.news_capture import PoolCaptureResult
     from app.tasks import intel_tasks as task
@@ -356,7 +355,6 @@ def test_23_full_slot_no_urls(
         patch.object(task, "compute_signals", return_value={} if weekend else {"AAA": signal}),
         patch.object(task, "capture_news", return_value=PoolCaptureResult(0, [])),
         patch.object(task, "collect_slot_news", side_effect=collect),
-        patch.object(task, "run_post_close_analysis", return_value={}) as shared,
         patch.object(deepen, "get_settings", return_value=settings()),
         patch(
             "app.services.paid_search.post",
@@ -376,11 +374,12 @@ def test_23_full_slot_no_urls(
         patch.object(task, "send_ops_alert", return_value=True) as digest,
     ):
         assert task.intel_slot_task("post_close")["status"] == "ok"
-    assert shared.called is not weekend
-    assert not db_session.scalars(select(TickerIntel)).all()
     articles = db_session.scalars(select(IntelArticle)).all()
     assert len(articles) == (0 if weekend else 2)
     assert all(r.status == "accepted" for r in articles)
+    # Issue #640 acceptance 1: no shared-analysis step, evidence key or report line.
+    assert "shared_analysis" not in db_session.scalars(select(IntelSlotRun)).one().details
+    assert "Analysis written" not in digest.call_args.args[1]
     payloads = [digest.call_args.args[1], caplog.text]
     for model in [IntelArticle, IntelArticleLink, PaidApiUsage, IntelSlotRun]:
         for row in db_session.scalars(select(model)):
@@ -567,7 +566,6 @@ def test_18_worked_example_paid_waves(db_session: Session) -> None:
 def test_16_weekend_worked_example(db_session: Session) -> None:
     from app.models.intel import NewsInstrument
     from app.models.news import News
-    from app.models.ticker_intel import TickerIntel
     from app.services.intel_signals import Signal
     from app.services.macro_detector import detect_macro_signals
     from app.services.news_fetcher import NewsItem
@@ -636,7 +634,6 @@ def test_16_weekend_worked_example(db_session: Session) -> None:
         ("tavily", "extract"),
         ("parallel", "extract"),
     ]
-    assert not db_session.scalars(select(TickerIntel)).all()
 
 
 def test_26_search_requests_use_quiet_windows(db_session: Session) -> None:

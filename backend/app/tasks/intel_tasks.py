@@ -25,7 +25,6 @@ from app.services.intel_deepen import DeepenRun
 from app.services.intel_deepen_config import load_intel_deepen_config
 from app.services.intel_digest import batch_subject, build_batch_report
 from app.services.intel_selection import select_units
-from app.services.intel_shared_analysis import run_post_close_analysis
 from app.services.intel_signals import compute_signals
 from app.services.news_capture import capture_news
 from app.tasks import celery_app
@@ -171,10 +170,6 @@ def intel_slot_task(slot: str) -> dict[str, str]:
                 except Exception as exc:
                     deepen.close()
                     deepen_errors.append(f"deepening: {type(exc).__name__}")
-                if not weekend and slot == "post_close":
-                    evidence["shared_analysis"] = run_post_close_analysis(
-                        session, run, deepen.selected, universe
-                    )
             rss = session.scalar(
                 select(IntelCollectionRun)
                 .where(IntelCollectionRun.slot_run_id == run.id, IntelCollectionRun.kind == "rss")

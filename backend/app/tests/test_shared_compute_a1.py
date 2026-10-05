@@ -72,7 +72,6 @@ def _run_batch() -> None:
             return_value="## §2 Macro Events\n\nNothing.\n\n## §3 Holdings Intelligence\n\nNothing.\n\n## §4 Exposure & Price Data\n\nNothing.\n\n"
             + "filler " * 500,
         ),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
         patch("app.services.report_translation._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_translation._call_llm", return_value="translated " * 500),
         patch("app.services.report_translation.time.sleep"),

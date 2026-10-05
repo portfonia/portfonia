@@ -416,7 +416,8 @@ Auth, extended again here for `accounts`) — see
 capture-layer tables (`ticker_intel`/`macro_event_intel`/`search_cache`/
 `cross_name_intel`) deliberately do NOT get a `user_id` FK here — they
 carry no `user_id` column at all by design (stage A's type-boundary
-discipline), and B7 does not "helpfully" add one.
+discipline), and B7 does not "helpfully" add one. Issue #640 later
+dropped all four tables.
 
 Pre-migration safety check (not enforced by the migration itself):
 production audited 2026-08-28 — 4 users, 0 orphan `user_id` rows across

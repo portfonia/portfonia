@@ -129,7 +129,8 @@ action — see below).
   CATEGORIES matched, never raw term occurrences or price-move magnitude.
 - `extract_section3` / `segment_section3_by_holding` — §3 has **no
   per-holding markdown heading** (verified against
-  `report_prompts.py`/`report_assembly.py` at implementation time — both
+  `report_prompts.py`/`report_assembly.py` at implementation time; the
+  latter was removed by issue #640 — both
   write §3 as one flowing prose block naming holdings inline; an earlier
   draft of this issue's Design comment assumed a heading convention that
   does not exist, corrected on the issue before implementation per
@@ -150,7 +151,8 @@ action — see below).
   configured row at all), and the full display name alone still missed
   ordinary prose that drops the legal suffix — §3 says "Apple", never
   "Apple Inc.". `load_entity_aliases()` remains in the mix as a
-  supplementary source (the same table `cross_name_intel` uses to ask
+  supplementary source (the same table the removed `cross_name_intel`
+  used, until issue #640, to ask
   "does this prose NAME an identifier" — narrower than
   `load_holding_keywords()`'s broad recall terms, which would false-match
   theme words like "gold"), not the sole source.
@@ -179,14 +181,16 @@ action — see below).
 
 **Wiring** (`report_generator.py`): a single integration point,
 `_render_full_md` (already the one function both the Pass 2 and
-assembly-generation shapes, plus `regenerate_report`'s render/analyze
+assembly-generation shapes (assembly removed by issue #640), plus
+`regenerate_report`'s render/analyze
 modes, converge through — Requirements item 3's "both shapes" falls out
 of this for free). New optional params `report_id`/`holding_news`
 default to `None`; the check only runs when both are supplied. The
 quiet-day canned-body path passes neither (nothing to check — no real
 per-holding analysis exists on a quiet day). `_build_holding_check_inputs`
 assembles each holding's `HoldingCheckInput` from already-gathered,
-Pass-2-stage data: real weight via `report_assembly._weight`/`_identifier`,
+Pass-2-stage data: real weight via `portfolio_weights._weight`/`_holding_identifier`
+(moved from `report_assembly` by issue #640),
 material text from `ctx.holding_news` (issue #30/R-3's per-holding news
 recall) plus that holding's own anomaly record's trigger/theme text — no
 new fetch, no LLM call, no search-result text (not available at this

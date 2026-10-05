@@ -2,12 +2,10 @@
 TypedDict mirror.
 
 Split out of report_generator.py (#37) so the type can be imported by other
-report_* modules without them depending on the orchestrator — e.g.
-report_search.py's `_targeted_anomaly_queries` reads anomaly dicts shaped by
-this module. `_tavily_used_today` (issue #128 A2) no longer reads
-report_inputs at all — it counts `search_cache` rows directly, since a query
-that hit cache made no real API call but was still being counted as spend
-under the old report_inputs-summation approach.
+report_* modules without them depending on the orchestrator.
+
+Keys written by the removed L1/L2/L3, assembly and report-time search paths
+(issue #640) may still appear in old stored rows; `from_jsonb` ignores them.
 """
 
 from __future__ import annotations
@@ -62,7 +60,6 @@ class ReportInputsDict(TypedDict, total=False):
     pass1_model: str
     pass1_prompt: str
     pass1_raw: str
-    search_queries: list[str]
     search_results: list[dict[str, Any]]
     intel_trade_date: str
     pass2_model: str
@@ -72,16 +69,7 @@ class ReportInputsDict(TypedDict, total=False):
     llm_calls: list[dict[str, Any]]
     pass2_translated: str
     prompt_label_hits: list[str]
-    ticker_intel: dict[str, str]
-    macro_event_intel: dict[str, dict[str, Any]]
-    macro_event_exposure: dict[str, list[str]]
-    cross_name_intel: list[dict[str, Any]]
     body_source: str
-    assembly_model: str
-    assembly_prompt: str
-    assembly_raw: str
-    assembly_prompt_version: str
-    assembly_shadow: dict[str, dict[str, Any]]
     analysis_framework_version: str
     # B6 audit snapshot (issue #129, Ring 1-B design.md §8.4) — the full
     # closed-enum questionnaire answers actually used for THIS report, not
@@ -141,7 +129,6 @@ class ReportContext:
     pass1_model: str = ""
     pass1_prompt: str = ""
     pass1_raw: str = ""
-    search_queries: list[str] = field(default_factory=list)
     search_results: list[dict[str, Any]] = field(default_factory=list)
     intel_trade_date: str = ""
     pass2_model: str = ""
@@ -150,68 +137,20 @@ class ReportContext:
     # Output rejected by the completeness guard, written only on the failure
     # path. Must never be read as a report body.
     rejected_pass2_raw: str = ""
-    # LLM call records (Pass 1 + Pass 2 + L1 shared-intel analyses, issue
-    # #128 A2 — `get_l1_intel_batch(..., usage_sink=ctx.llm_calls)`;
-    # translation chunks excluded as they are cheap/many and the per-chunk
-    # token count is not material for cost audits).
+    # LLM call records (Pass 2; translation chunks excluded as they are
+    # cheap/many and the per-chunk token count is not material for cost audits).
     llm_calls: list[dict[str, Any]] = field(default_factory=list)
     # Snapshot of the translated report body (dynamic section only, pre-footer).
     # Stored so compliance attribution can be traced per translation chunk if needed.
     pass2_translated: str = ""
-    # L1 shared ticker intel (issue #128 A2): {identifier: cached analysis}
-    # for the identifiers that triggered an anomaly or a holding-news recall
-    # this window. NOT consumed by the Pass 2 prompt or the rendered body yet
-    # — A2 only seeds/reads the shared cache (design doc §1.2: report content
-    # stays byte-identical through A1-A3); A4 is what assembles this into the
-    # report. Stored here for audit and so a future A4 read-back has it
-    # without a DB re-query.
-    ticker_intel: dict[str, str] = field(default_factory=dict)
-    # L2 shared macro-event intel (issue #128 A3): {event_key: {analysis,
-    # affected_asset_classes}} for the macro themes this user's own signals
-    # hit plus the day's forward-calendar events. The values are SHARED
-    # across every user who touched the same event that day (see
-    # macro_event_intel.py); only which keys appear here is per-user.
-    macro_event_intel: dict[str, dict[str, Any]] = field(default_factory=dict)
-    # The per-user half of L2: {event_key: [asset_class, ...]} — the cached
-    # affected classes intersected with THIS user's own by_asset_class keys.
-    # Pure set arithmetic, no LLM call. Like `ticker_intel`, neither field
-    # feeds Pass 2 or the rendered body yet — A4 is the consumer (design doc
-    # §1.2/§6.3); both are stored now so A4 reads them back without a
-    # re-query and so an audit can see what the shared layer produced.
-    macro_event_exposure: dict[str, list[str]] = field(default_factory=dict)
-    # L3 day-level cross-identifier synthesis (issue #128 quality gate),
-    # already narrowed to this user: [{identifiers, mechanism, summary,
-    # confidence}]. The stored clusters are GLOBAL (one inference per trading
-    # day for the whole system — see cross_name_intel.py); what makes this
-    # field per-user is `clusters_for_user`, which intersects each cluster's
-    # identifiers with this user's own L1 keys and drops what is left too
-    # small. Same selection/values split as `ticker_intel` above, one layer
-    # up: selection per-user, values global.
-    cross_name_intel: list[dict[str, Any]] = field(default_factory=list)
-    # --- A4 personalized assembly (issue #128) -----------------------------
-    # Which pass actually wrote the shipped body: "pass2" (pre-A4 behavior,
-    # and every fallback path) or "assembly". Recorded rather than inferred,
-    # so a stored row states plainly which architecture produced it — and so
-    # regenerate_report knows which pass to re-run in analyze mode.
+    # Which pass wrote the shipped body. Always "pass2" since issue #640
+    # removed the assembly path; kept so stored rows stay self-describing.
     body_source: str = "pass2"
-    assembly_model: str = ""
-    assembly_prompt: str = ""
-    # The assembled §2/§3/§4 body. Populated ONLY when the assembly pass
-    # produced the shipped body; a fallback to Pass 2 leaves it empty, so
-    # `assembly_raw or pass2_raw` is an unambiguous "the body that shipped".
-    assembly_raw: str = ""
-    assembly_prompt_version: str = ""
-    # Shadow comparison (design doc §6.3.1): {model: {prompt, raw, error}}.
-    # Never rendered, never emailed — read side by side by the product owner
-    # against the shipped body, with costs in `llm_calls`.
-    assembly_shadow: dict[str, dict[str, Any]] = field(default_factory=dict)
     # System default analysis framework version (issue #128 Ring 1 stage B,
     # checkpoint B1 — config/analysis_framework.yml's own `version` field,
     # NOT the full framework text: audit/reproducibility only, kept out of
     # report_inputs to avoid the text ever being incidentally exposed
-    # through a future endpoint that reads this column). Same version
-    # regardless of body_source — both Pass 2 and assembly compose from the
-    # same framework text (§3.3(3)).
+    # through a future endpoint that reads this column).
     analysis_framework_version: str = ""
     # See ReportInputsDict above for the field-by-field rationale.
     investor_questionnaire_snapshot: dict[str, Any] | None = None
@@ -241,8 +180,8 @@ class ReportContext:
         """Rehydrate a ReportContext from a previously stored `report_inputs`.
 
         Used by generate_report's stage-skip-on-retry path (#61) to resume
-        render/translate/persist from a prior attempt's completed Pass 2 or
-        assembly output without recomputing anything upstream of it. Unknown
+        render/translate/persist from a prior attempt's completed Pass 2
+        output without recomputing anything upstream of it. Unknown
         keys (a JSONB written by a newer field than this dataclass has, or an
         older row missing a since-added field — see ReportInputsDict's
         `total=False` note) are ignored/defaulted via plain dataclass

@@ -19,7 +19,6 @@ point of this file).
 from __future__ import annotations
 
 import contextlib
-import copy
 import uuid
 from datetime import date
 from typing import Any, cast
@@ -29,7 +28,6 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.core.database import get_engine
 from app.models.operational_event import OperationalEvent
 from app.models.user import User
@@ -92,11 +90,7 @@ def _events_for_report(db_session: Session, report_id: uuid.UUID) -> list[Operat
 
 def test_generate_report_full_path_emits_matched_stage_spans(db_session: Session) -> None:
     _seed_real_user(_USER)
-    settings = get_settings().model_copy(
-        update={"SHARED_COMPUTE_ENABLED": False, "ASSEMBLY_SHADOW_MODELS": ""}
-    )
     with (
-        patch.object(rg, "get_settings", return_value=settings),
         patch("app.services.report_generator.send_report_email", return_value=True),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
@@ -110,13 +104,6 @@ def test_generate_report_full_path_emits_matched_stage_spans(db_session: Session
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
         patch("app.services.report_generator.intel_trade_date", return_value=_TODAY),
-        patch("app.services.report_generator.read_l1_intel", return_value={"NVDA": "It rose."}),
-        patch("app.services.report_generator.read_l2_intel", return_value={}),
-        patch("app.services.report_generator.read_day_synthesis", return_value=[]),
-        patch(
-            "app.services.report_generator._run_tavily_search",
-            side_effect=lambda *a, **kw: copy.deepcopy(_FAKE_TAVILY_RESULTS),
-        ),
     ):
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
 
@@ -138,10 +125,7 @@ def test_generate_report_full_path_emits_matched_stage_spans(db_session: Session
     stage_state = cast(dict[str, Any], root_end.attributes.get("stage_state") or {})
     for stage in (
         "preparation",
-        "l2_intel",
-        "l1_intel",
-        "l3_synthesis",
-        "shadow_assembly",
+        "pass2_analysis",
         "render_and_compliance",
         "persist_report",
         "email_send",
@@ -152,7 +136,6 @@ def test_generate_report_full_path_emits_matched_stage_spans(db_session: Session
     for stage in (
         "preparation",
         "pass2_analysis",
-        "shadow_assembly",
         "render_and_compliance",
         "persist_report",
         "email_send",
@@ -200,13 +183,6 @@ def test_generate_report_pass2_truncation_leaves_pass2_span_failed_and_later_sta
         return "too short" if with_holdings else str(_FAKE_TAVILY_RESULTS[0]["content"])
 
     with (
-        patch.object(
-            rg,
-            "get_settings",
-            return_value=get_settings().model_copy(
-                update={"SHARED_COMPUTE_ENABLED": False, "ASSEMBLY_SHADOW_MODELS": ""}
-            ),
-        ),
         patch("app.services.report_generator.compute_portfolio", return_value=_portfolio_snap()),
         patch(
             "app.services.report_generator.load_news_window",
@@ -219,13 +195,6 @@ def test_generate_report_pass2_truncation_leaves_pass2_span_failed_and_later_sta
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_truncated_llm),
         patch("app.services.report_generator.intel_trade_date", return_value=_TODAY),
-        patch("app.services.report_generator.read_l1_intel", return_value={"NVDA": "It rose."}),
-        patch("app.services.report_generator.read_l2_intel", return_value={}),
-        patch("app.services.report_generator.read_day_synthesis", return_value=[]),
-        patch(
-            "app.services.report_generator._run_tavily_search",
-            side_effect=lambda *a, **kw: copy.deepcopy(_FAKE_TAVILY_RESULTS),
-        ),
         contextlib.suppress(RuntimeError),
     ):
         rg.generate_report(db_session, user_id=user_id, report_date=_TODAY)

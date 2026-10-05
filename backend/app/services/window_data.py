@@ -12,7 +12,7 @@ import logging
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from itertools import pairwise
 
@@ -137,90 +137,6 @@ def backfill_news_surfaced_before(session: Session, user_id: uuid.UUID, cutoff: 
     return len(news_ids)
 
 
-def day_window_bounds(trade_date: date) -> tuple[datetime, datetime]:
-    """The [00:00, 24:00) ET bounds of one ET calendar day — L1's own window
-    (design doc §4.8, second addendum), a pure function of `trade_date` alone.
-
-    No `Session`, no `user_id`, no `Report` row read anywhere in this
-    function's body — that is deliberate, not an oversight: it is what makes
-    it structurally impossible for a per-user report watermark to leak into
-    L1's window the way `[period_start, period_end]` did (the round-5 bug).
-    Passing these bounds into `resolve_global_moves`/`compute_global_moves`
-    yields each identifier's single trading day's move (latest close vs. the
-    most recent close before this day), not a multi-day cumulative change —
-    see `ticker_intel.build_l1_facts`'s docstring for why that distinction
-    matters and how the result is consumed.
-    """
-    start = datetime.combine(trade_date, time.min, tzinfo=ET)
-    end = datetime.combine(trade_date, time.max, tzinfo=ET)
-    return start, end
-
-
-# L1 lookback length (issue #128 quality gate). A weekday list ending on
-# trade_date — not a user's report watermark. Keep generate_report and the
-# A1 "moves computed once per window" test on this same number.
-L1_LOOKBACK_TRADING_DAYS = 5
-
-
-def lookback_trading_dates(end: date, n: int = L1_LOOKBACK_TRADING_DAYS) -> list[date]:
-    """``n`` dates ending on ``end``, oldest first; ``end`` is always
-    included, and only the preceding dates are restricted to weekdays.
-
-    Pure function of ``end`` — no Session, no user_id, no report watermark.
-    That is the point: L1 may carry multi-day headlines and own-price path,
-    but the date list cannot come from a user's ``period_start``. Weekends
-    are skipped; exchange holidays are not (this is a weekday calendar, not
-    an exchange calendar). ``n < 1`` returns an empty list.
-
-    ``end`` is always the list's last element, even when ``end`` itself
-    falls on a weekend (issue #178) — ``report_generator.py``'s only caller
-    passes ``eff_date`` here (the real ET calendar date a manual run happens
-    to fire on, with no weekday normalization) and then looks up
-    ``lookback_moves.get(eff_date, {})``, so silently dropping ``end`` from
-    this list — as the naive "skip anything that isn't a weekday, including
-    the very first cursor" loop used to — made that lookup always miss,
-    which made every L1 candidate's ``day_pct`` come out ``None`` and get
-    silently skipped, regardless of whether a real price close existed for
-    that date. Only the ``n - 1`` days *before* ``end`` are weekday-filtered.
-    """
-    if n < 1:
-        return []
-    out: list[date] = [end]
-    cursor = end - timedelta(days=1)
-    while len(out) < n:
-        if cursor.weekday() < 5:
-            out.append(cursor)
-        cursor -= timedelta(days=1)
-    out.reverse()
-    return out
-
-
-def load_day_news(session: Session, trade_date: date) -> list[NewsItem]:
-    """News published on `trade_date` (one ET calendar day) — L1's own
-    recall source (design doc §4.8, second addendum).
-
-    Deliberately has NO `user_id` parameter and never touches
-    `news_surfaced`: that ledger is a per-user Pass-2 dedup mechanism (a
-    user's own report never re-shows them a headline they've already seen),
-    and routing L1 through it would make L1's candidate news set depend on
-    which user's report happens to run first in a fan-out — the same
-    per-user-contamination class `l1_identifiers_for_user`/`build_l1_facts`
-    already close off for identifiers and price moves. `load_news_window`
-    (per-user, ledger-aware) remains Pass 2's own source and is untouched.
-    """
-    start, end = day_window_bounds(trade_date)
-    rows = (
-        session.execute(
-            select(News)
-            .where(News.origin == "pool", News.published_at >= start, News.published_at <= end)
-            .order_by(News.published_at.desc())
-        )
-        .scalars()
-        .all()
-    )
-    return [headline_from_row(r) for r in rows]
-
-
 def load_news_window(
     session: Session, start: datetime, end: datetime, user_id: uuid.UUID
 ) -> list[NewsItem]:
@@ -253,26 +169,6 @@ def load_news_window(
         .all()
     )
     return [headline_from_row(r) for r in rows]
-
-
-def load_instrument_news_window(
-    session: Session, _start: datetime, end: datetime, user_id: uuid.UUID, identifiers: list[str]
-) -> list[NewsItem]:
-    """Load linked instrument headlines not yet surfaced to this user."""
-    if not identifiers:
-        return []
-    surfaced = select(NewsSurfaced.news_id).where(NewsSurfaced.user_id == user_id)
-    rows = session.scalars(
-        select(News)
-        .join(NewsInstrument, NewsInstrument.news_id == News.id)
-        .where(
-            NewsInstrument.identifier.in_(identifiers),
-            News.published_at <= end,
-            News.id.not_in(surfaced),
-        )
-        .order_by(News.published_at.desc())
-    ).all()
-    return [headline_from_row(row) for row in rows]
 
 
 def load_instrument_news_by_identifier(
@@ -711,12 +607,8 @@ def resolve_global_moves(
     place the cache-or-compute decision lives.
 
     Public because the global move set has a SECOND consumer besides anomaly
-    detection: the L1 shared ticker-intel cache (issue #128 A2) sources every
-    numeric fact it caches from here. That consumer must never re-derive
-    those numbers from `select_user_anomalies`' per-user output (design doc
-    §4.8 addendum — three consecutive review rounds found a different
-    per-user field leaking into the shared cache that way), and it must not
-    pay for a second full computation to avoid doing so either.
+    detection: `generate_report` reads the large-holding window moves from it,
+    and must not pay for a second full computation to do so.
     """
     cache_key = (start, end)
     cached = moves_cache.get(cache_key) if moves_cache is not None else None

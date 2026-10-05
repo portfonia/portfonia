@@ -28,7 +28,9 @@ cache, itself filtered to events overlapping a held asset class
 `_build_macro_signal_themes_block` (extracted as a shared helper in
 `report_prompts.py`, used by both Pass 2 and assembly), the same
 keyword-recalled candidate pool `macro_detector.py` always produced,
-independent of any holdings match.
+independent of any holdings match. Issue #640 removed the assembly path
+and the L2 cache; Pass 2 is now the only body path and keeps this
+block.
 
 **Composition**: short current-state overview (2-3 sentences) + ONE
 question-led deep anchor (3-5 paragraphs: what changed and against what
@@ -74,7 +76,8 @@ responsibilities:
    explicitly left this "pending" — a routine, revisitable engineering
    choice, not a silently invented product threshold).
 2. **Render** (`render_macro_continuity_block`): the `MACRO COVERAGE
-   CONTINUITY` prompt block both Pass 2 and assembly inject, capped at 10
+   CONTINUITY` prompt block Pass 2 injects (assembly also did until
+   issue #640 removed it), capped at 10
    development_keys / a 320-char prior-paragraph excerpt / 8 items per list
    field. Tells the model what was already covered and instructs it to say
    what changed rather than repeat the earlier treatment or manufacture

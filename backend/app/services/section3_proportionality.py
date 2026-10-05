@@ -19,9 +19,8 @@ DESIGN DECISIONS (recorded on issue #173, product owner, 2026-09-10):
 
 2. §3 segmentation is paragraph + identifier-match (issue #173 Design
    item 2, resolved against actual code 2026-09-10 — see the issue
-   comment thread): `report_prompts.py`'s Pass 2 instructions and
-   `report_assembly.py`'s assembly instructions both write §3 as ONE
-   flowing prose block naming holdings inline — there is no per-holding
+   comment thread): `report_prompts.py`'s Pass 2 instructions write §3 as
+   ONE flowing prose block naming holdings inline — there is no per-holding
    markdown heading to parse. A paragraph naming exactly one holding
    attributes its full length to that holding; a paragraph naming more
    than one is excluded from any single holding's length (to avoid

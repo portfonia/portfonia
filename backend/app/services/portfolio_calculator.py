@@ -229,8 +229,7 @@ def format_fx_rates_as_of(fx_rates_as_of: dict[str, str]) -> str:
     """Render the per-currency FX-rate-as-of map as one display string.
 
     Shared by every report-text call site that used to interpolate the old
-    single `fx_date` scalar (report_sections.py/report_assembly.py/
-    report_prompts.py) so "n/a" for an empty map and the "CCY as of DATE"
+    single `fx_date` scalar (report_sections.py/report_prompts.py) so "n/a" for an empty map and the "CCY as of DATE"
     shape stay in exactly one place. Sorted by currency code for
     deterministic output.
     """

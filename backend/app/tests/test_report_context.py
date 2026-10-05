@@ -14,7 +14,6 @@ from app.services import report_context as rc
 def test_report_context_to_jsonb_serialisable() -> None:
     ctx = rc.ReportContext(
         pass1_model="deepseek/test",
-        search_queries=["foo"],
     )
     data = ctx.to_jsonb()
     assert data["pass1_model"] == "deepseek/test"

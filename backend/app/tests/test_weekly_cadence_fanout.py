@@ -101,7 +101,6 @@ def test_weekly_zero_holdings_user_gets_empty_table_contract_via_beat_path(
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
     ):
         result = generate_incremental_report.run(report_type="incremental", cadences=["weekly"])
 
@@ -191,7 +190,6 @@ def test_weekly_fanout_two_users_each_get_their_own_locale_after_the_first_users
         patch("app.services.report_generator.detect_macro_signals", return_value=_macro_hit()),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_mock_llm),
-        patch("app.services.report_generator._run_tavily_search", return_value=[]),
         patch("app.services.report_translation._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_translation._call_llm", translate_llm),
         patch("app.services.report_translation.time.sleep"),  # skip the real per-chunk pacing

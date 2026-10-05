@@ -38,7 +38,9 @@ several existing themes, from a product-owner-reviewed candidate list).
   would systematically win the shared daily L2 budget over genuinely
   rarer themes, not just miscategorize one article. Caught on bare
   `sanctions` in PR #174 round 2 review — worth remembering for any future
-  ASCII-named theme.
+  ASCII-named theme. Issue #640 removed `macro_event_intel.py` and the L2
+  budget, so this fairness effect no longer exists; the false-positive
+  rule above still applies.
 - **`config/macro_keywords.yml` is not under `locales/`, so its Chinese
   keywords are NOT the Language Policy's carved-out exception** (see
   "Language Policy (MANDATORY)" below) — a real gap the product owner

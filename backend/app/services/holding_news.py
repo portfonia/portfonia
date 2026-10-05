@@ -60,12 +60,10 @@ def load_entity_aliases(path: Path | None = None) -> dict[str, list[str]]:
     `holding_news_keywords.yml`'s main `holdings` key deliberately mixes real
     entity/company names ("Micron", "TSMC") with theme/technology recall
     tokens ("gold", "lithography", "Nasdaq") to cast a wide net for THIS
-    module's own recall purpose. `cross_name_intel.clusters_for_user` asks a
-    different question — "does this prose NAME an identifier" — and a theme
-    word failing that test is a false positive with a real cost: it silently
-    deletes a legitimate, name-free mechanism sentence. The YAML's separate
-    `entity_aliases` key holds only the subset where the term genuinely is
-    the identifier's company/entity name.
+    module's own recall purpose. The YAML's separate `entity_aliases` key
+    holds only the subset where the term genuinely is the identifier's
+    company/entity name, for consumers that ask "does this text NAME an
+    identifier".
     """
     actual = path or _get_keywords_path()
     if not actual.exists():

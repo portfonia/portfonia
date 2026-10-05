@@ -223,12 +223,7 @@ themes:
   # #174) fire on routine Europe-market roundups and on virtually any
   # sanctions headline (Russia/Iran/North Korea sanctions are already
   # covered by their own themes) — same false-positive class as PR #172's
-  # bare "breakthrough"/"突破". Bare "sanctions" is also worse than a
-  # generic miscategorization: theme_keys in macro_event_intel.py are
-  # sorted() and the daily L2 cap is consumed in that sorted order, so a
-  # broadly-firing "G7与全球治理" (an ASCII name, sorting before every
-  # Chinese-named theme) would systematically win the L2 budget race over
-  # genuinely rarer themes on days it spuriously triggers.
+  # bare "breakthrough"/"突破".
   - name: "G7与全球治理"
     name_en: "G7 and global governance"
     keywords:

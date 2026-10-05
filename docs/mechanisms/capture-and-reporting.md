@@ -120,10 +120,10 @@ consumers of the identifier convention had been added since:
   producer — round 1 finding: this one was missed in the first PR revision,
   splitting PSH across two identifiers, correct in §1 but silently absent
   from anomaly detection and L1 facts)
-- `report_assembly._identifier` (holdings-listing print key, must match the
-  L1 block's key or the model can't connect prose to a listed holding)
-- `ticker_intel._holding_identifier` (feeds `large_weight_identifiers`) and
-  `ticker_intel.build_l1_facts`'s `technical_positions` join key
+- `portfolio_weights._holding_identifier` (feeds `large_weight_identifiers`
+  and the §3 proportionality key; moved here by issue #640, which removed
+  the former `report_assembly._identifier` and
+  `ticker_intel._holding_identifier`/`build_l1_facts` call sites)
 - `technical_position.compute_technical_position` (round 2 finding: this one
   queries `price_snapshots` directly with the raw ticker rather than joining
   against an already-normalized dict, so it needed the fix at the *query*
@@ -278,6 +278,9 @@ omitted these names from LLM-facing context on the per-report side —
 `report_sections.py` (section 1) is the distinct case that deliberately
 keeps the row, rendering `[market not supported]` rather than omitting it;
 this closes the shared-compute-layer sibling gap in the other two.
+Issue #640 later removed L1, the assembly path and `report_assembly.py`;
+`global_identifier_universe` and its `is_capture_supported()` filter
+remain for anomaly detection.
 
 **Bare ticker with no exchange suffix, resolved for the declared-market
 case by PR #310** (issue #313 item 5): a bare `VOD`/`PSH` uploaded without
@@ -662,7 +665,8 @@ up to three distinct stored samples; those original titles may be Chinese.
 It prints articles and filings separately, with their combined inserted count.
 
 Part 2 reports selections in words, per-unit/provider outcomes, paid run/month
-spend, cost per kept article, and weekday post-close shared-analysis counts.
+spend and cost per kept article (the weekday post-close shared-analysis
+counts were removed with that analysis by issue #640).
 The provider-less `nothing usable` line is omitted for a unit that kept
 articles through another provider.
 Macro display names come from each theme's `name_en`; matching keywords remain
@@ -751,8 +755,7 @@ thresholds. Other mover thresholds are 15% over three captured sessions and
 20% over five. Near candidates use 8%/9%, followed by fresh filings and news
 spikes against the last ten same-slot counts. Counts include zero only when
 the instrument was in that run's recorded universe. Weekends use filings,
-weekend news spikes and macro spikes only; there is no price selection or
-shared analysis. Weekend macro selection requires at least ten fresh items
+weekend news spikes and macro spikes only; there is no price selection. Weekend macro selection requires at least ten fresh items
 and, with sufficient history, twice the weekend median.
 
 `instrument_news_capture.collect_slot_news` accepts mover/near priority order;
@@ -869,8 +872,6 @@ Optional Settings overrides (keys stay outside repository files):
 | `INTEL_PAID_WORKERS` | 4 |
 | `PAID_API_WARN_RATIO` | 0.8 |
 | `INTEL_AB_MODE` | `ab` (`ab`, `tavily`, `parallel`) |
-| `INTEL_L1_MAX_PER_DAY` | 40 |
-| `INTEL_L2_THEME_MAX_PER_DAY` / `INTEL_L2_FORWARD_MAX_PER_DAY` | 10 / 15 |
 
 The existing `TAVILY_API_KEY` remains required. The batch report contains
 no raw stats keys, URLs or key values. Apart from quoted stored sample titles,
@@ -882,8 +883,8 @@ Migration `d62100000001` adds three tables; downgrade drops those derived
 articles and usage. Deploy with #620 and #622 only on separate owner approval.
 Issue #622 moves report-side intelligence to read-only cache access. The report
 path selects the latest completed weekday `post_close` slot at or before the
-effective report date, reads URL-free accepted articles and current-version L1/L2/L3
-rows, and never invokes report-time search or lazy shared-intel computation.
+effective report date, reads URL-free accepted articles, and never invokes
+report-time search.
 These changes deploy with #620 and #621; the report-input scrub migration
 requires the backup and owner authorization described in the deployment runbook.
 
@@ -891,12 +892,13 @@ requires the backup and owner authorization described in the deployment runbook.
 
 Issue #622 completes the Ring 2 report path. `generate_report` selects the
 latest completed weekday `post_close` slot at or before the effective report
-date and reads its URL-free accepted article bodies, scoped to the user's holding
-identifiers and macro themes. It reads L1, L2 and L3 only for that trade date;
-missing rows remain absent and never trigger a report-time computation.
-Slots run every day, but only weekday `post_close` runs compute L1/L2/L3, so
-weekend runs are skipped when choosing the trade date: a Saturday weekly report
-and a Sunday manual report read Friday's caches.
+date (`intel_trade_date`) and reads URL-free accepted article bodies whose
+slot run started inside the report window, scoped to the user's holding
+identifiers and macro themes. Weekend runs are skipped when choosing the trade
+date, so a Saturday weekly report resolves to Friday. When no completed weekday
+`post_close` run exists on or before the report date, the article read is
+skipped. Issue #640 removed the L1/L2/L3 reads this function originally served
+and kept the function and this gate unchanged.
 
 The report path performs no Pass 1 query-generation call and no Tavily or
 Parallel request. `search_results` stores only title, body, date, index and
@@ -912,12 +914,12 @@ ordered by absolute window move; other stocks follow by portfolio weight.
 `MAX_HOLDINGS_WITH_HEADLINES` caps the list at six, with six titles each. ETFs
 and funds are excluded even at large weights. Both readers require publication
 strictly after `period_start - LATE_INGEST_WINDOW` and at/before `period_end`,
-with the existing per-user surfaced exclusion. Article-body selection, L1,
+with the existing per-user surfaced exclusion. Article-body selection,
 price blocks and macro recall retain their existing selection rules.
 
 Pass 2 must describe data in plain words without naming input sections. When a
 holding has no window move in the prompt, it makes no direction claim and does
-not mention missing or unavailable data. Ordinary Pass 2 receives no new L1 or
+not mention missing or unavailable data. Ordinary Pass 2 receives no new
 technical-position input. The raw and translated bodies are scanned for the
 fixed prompt labels; hits are stored in `report_inputs["prompt_label_hits"]`
 and logged at WARNING without editing, blocking or retrying the report. The
@@ -1156,316 +1158,36 @@ layer** (per-user, incremental).
   threshold). Flagged holdings carry a session arc (prev close/open-gap/
   intraday range/close/after-hours) for §4.2. Report always says "this
   report period", never "today".
-- **Tavily fan-out fairness (issue #128 A1 finding, resolved by A2's
-  `search_cache`)**: the shared Tavily daily search budget used to be
-  consumed sequentially in fixed `active_user_ids()` UUID order within a
-  fan-out batch — users processed later in a given day could inherit
-  `daily_remaining=0` and get no search-augmented context. Root-cause fix
-  was reuse/dedup, not reallocating a fixed-size budget — see the L1
-  shared-intel entry below.
 - Portfolio valuation reads the **latest captured close** from
   `price_snapshots`, falling back to `holding.market_price` only for funds
   (no ticker). FX anomalies are not computed (FX stays daily in `fx_rates`).
-- **L1 shared ticker-intel cache (Ring 1 stage A2, issue #128, PR #155)**:
-  Issue #621 additionally computes L1 in weekday post-close slots. Candidates
-  are movers, quiet selections and each active user's latest snapshot's large
-  holdings, unioned as identifiers only. Linked headlines are ET-date-prefixed;
-  moves and technical facts remain global. The daily attempt cap is now
-  `Settings.INTEL_L1_MAX_PER_DAY` (40). Report-side relocation completes in #622.
-  a new analysis stage (not a refactor — before A2, per-identifier "what
-  happened to this security" narrative only existed inside each user's own
-  Pass 2 call). `ticker_intel.get_l1_intel_batch` computes one LLM analysis
-  per `(identifier, trade_date, prompt_version)` and caches it in the
-  `ticker_intel` table — two users sharing an identifier in the same
-  fan-out batch pay for one LLM call, not one each. `search_cache`
-  (`(query_hash, trade_date)`) does the same for Tavily queries, closing
-  the A1 fan-out fairness gap above. Both get a 90-day cleanup beat task
-  (`cache_tasks.py`).
-  - **Hard type boundary, not a discipline, keeps per-user data out of the
-    shared cache**: `l1_identifiers_for_user` is the only channel from a
-    user's own (per-user-judged) anomaly list into L1 — its return type is
-    `list[str]`, identifiers only. Every numeric fact then comes from
-    `window_data.resolve_global_moves`/`HoldingMove`, which is global by
-    construction. This shape exists because the first draft read numbers
-    straight out of the per-user-weighted `PriceAnomaly` structure, and
-    three independent review rounds each found a different per-user value
-    (a threshold-derived `trigger` field, then value-weighted
-    price/pct fields from theme-merged anomalies, then a theme-slug-keyed
-    news lookup) that had leaked into the shared cache — auditing fields
-    one at a time was losing that race. The same rule applies to any
-    future cross-user shared-cache consumer (A3's `macro_event_intel`,
-    A4): selection may be per-user, values must not be.
-  - **L1 describes exactly one trading day, never a report window**: an
-    earlier version scoped L1's price-move fact to the calling user's own
-    `[period_start, period_end]` (`period_start = user_watermark(user)`,
-    per-user by construction) — two users analyzing the same identifier on
-    the same day could get different windows, and whichever `generate_report`
-    call reached L1 first cached its own window's numbers for everyone else
-    that day. Fixed by dropping the window concept entirely:
-    `window_data.day_window_bounds(trade_date)` is a pure function of the
-    date only.
-  - **Compliance scan runs on stripped output, matching Pass 2**:
-    `_generate` calls `_strip_markers` (same as Pass 2's
-    `cleaned = _strip_markers(raw_body)`) before `_scan_forbidden_output` —
-    without it, a model-emitted disclaimer line could false-trip the scan
-    and permanently blacklist that identifier's cache slot for the day.
-  - **A headline-only candidate (no captured close yet, e.g. a pre-market
-    manual run) is skipped entirely, not cached**: caching it would lock
-    that identifier's slot for the whole trading day — even after the real
-    close is captured later (e.g. the scheduled `after_close` batch), a
-    cache hit would keep serving the earlier, unsupported-by-data version.
-  - `LOW_COST_LLM_MODEL` is used with `data_collection=deny` kept enforced
-    (no BYOK exception — L1 identifiers are holdings-derived, unlike Pass
-    1's public-only inputs) under the default provider pin
-    (`OPENROUTER_PROVIDER_ORDER`) — confirmed via a real OpenRouter call
-    with these exact parameters that this alias is actually served under
-    deny, not just assumed.
-  - Full 7-round review history and design rationale:
-    `Docs/Ring 1-A design.md` §4.3/§4.8 (Obsidian).
 
+### Shared analysis removed (issue #640)
 
-### L2 shared macro-event cache (Ring 1 stage A3, issue #128)
+The L1 per-instrument briefs (`ticker_intel`), L2 per-macro-event inferences
+(`macro_event_intel`), L3 cross-instrument clusters (`cross_name_intel`), the
+assembly report path and its shadow comparison, the fan-out budget slicing
+(`shared_budget`) and the report-time search leftovers (`report_search.py`,
+`search_cache`) were removed in issue #640. Production never enabled
+`SHARED_COMPUTE_ENABLED`, and no stored report used assembly (`body_source`
+was always `pass2`), yet weekday post-close slots still paid for L1/L2/L3
+calls whose output no report read. Migration `d64000000001` drops the four
+tables; downgrade recreates them empty.
 
-Issue #621 computes L2 in weekday post-close slots over every theme in the
-day's pool news and forward-calendar events, reusing `_serialize_macro` from
-`report_serializers`. The two daily attempt caps now come from Settings
-(theme 10, forward 15). Failures are isolated from L1/L3 and the slot digest.
-Reports read current-version L2 rows for the selected trade date; slot workers
-remain the only callers of the lazy computation function.
+What stayed:
+- `large_weight_identifiers` moved to `app/services/portfolio_weights.py`
+  (Pass 2 large-holding window prices and headline order).
+- `intel_trade_date` still gates the report's article read (see Scheduled
+  report intelligence reads).
+- The daily `sweep-stale-shared-intel-cache-daily` Beat entry and
+  `cache_tasks.sweep_stale_shared_intel_cache` keep their names and now run
+  only `intel_records.sweep_intel` (news, article, collection-run and
+  slot-run retention), which the same task already carried.
+- `ReportContext.from_jsonb` ignores the removed keys on old `report_inputs`
+  rows, so render and analyze regeneration keep working.
 
-The second shared-analysis layer, same shape as A2's L1 but keyed on EVENTS
-instead of identifiers: `macro_event_intel.get_l2_intel_batch` computes one
-LLM inference per `(event_key, trade_date, prompt_version)` — "what is this
-event, and which asset classes/sectors does it bear on" — and caches it in
-the `macro_event_intel` table, so a macro theme or scheduled release that
-shows up in three users' reports is reasoned about once. Same 90-day beat
-cleanup as A2 (`cache_tasks.py`, extended rather than duplicated). Like A2,
-**A3 does not change report content**: `ctx.macro_event_intel` /
-`ctx.macro_event_exposure` are stored on `report_inputs` but never fed to
-Pass 2 — A4 is the consumer (design doc §1.2).
-
-- **Two event vocabularies, one table, prefixed keys**: `theme:<name>` (a
-  `macro_detector` ThemeHit, keyword table `config/macro_keywords.yml`) and
-  `fwd:<forward_events.id>` (a scheduled calendar row, already uniquely
-  keyed by `uq_forward_events_key`). `load_forward_events` now returns `id`
-  so the events A3 analyzes and the events §2.5 renders come from one
-  loader, never two divergent queries.
-- **The A2 type-boundary rule is applied harder here**:
-  `l2_event_keys_for_user(session, trade_date, macro_signals) -> list[str]`
-  is the only channel from per-user state into the cache (`ctx.macro_signals`
-  IS per-user — `detect_macro_signals` runs over
-  `load_news_window(..., user_id)`, so both the theme set and its backing
-  articles depend on that user's watermark and `news_surfaced` ledger).
-  `build_l2_facts(session, event_keys, trade_date)` then takes a Session,
-  plain strings and a date — there is no parameter through which a
-  watermark, portfolio or anomaly list COULD arrive; it re-derives theme
-  evidence itself from `load_day_news`. Same rule as `ticker_intel.py`
-  states for A3/A4: selection may be per-user, values must not be.
-- **Day-scoped by construction** (A2's round-5 lesson): nothing here reads
-  `period_start`/`period_end`. Theme evidence is one ET calendar day's
-  global news; a forward event's facts are its immutable calendar row.
-- **Closed-enum output, validated before storage**: the model picks
-  `affected_asset_classes` from `VALID_ASSET_CLASSES`
-  (`asset_class_config.py`) and `affected_sectors` from
-  `sector_taxonomy.VALID_SECTORS` minus `OTHER` (`OTHER` is the bucket an
-  UNCLASSIFIABLE holding falls into, so accepting it would sweep every
-  unknown-sector holding into the event's exposure). Out-of-taxonomy labels
-  are dropped and logged — an invented synonym would not error, it would
-  intersect with nothing and turn a real exposure into a silent miss.
-  `VALID_SECTORS` is derived from `_YF_SECTOR_MAP`'s values, not
-  hand-listed, so it cannot drift from `map_yf_sector`'s actual output.
-- **`sector` scope is NOT widened**: `affected_sectors` is stored for the
-  forward-event holding-relevance mapping that already runs on `sector`
-  (`report_sections._forward_exposure`) — this repo's one sanctioned use.
-  The per-user exposure step (`user_event_exposure`) reads asset_class only,
-  locked by a test.
-- **Per-user half costs nothing**: `user_event_exposure` intersects the
-  cached classes with the user's own `portfolio_summary["by_asset_class"]`
-  keys. Pure set arithmetic, zero LLM calls (design doc §5.3).
-- **Failure/compliance handling mirrors L1 exactly**: output is
-  `_strip_markers`'d before `_scan_forbidden_output` (so a model-emitted
-  disclaimer can't blacklist the day's only slot for that event); a
-  violation, an API failure, or unparseable JSON writes a null-analysis
-  marker row so the event is attempted at most once per day rather than once
-  per user; a candidate with NO global facts is skipped without calling the
-  LLM and **without writing any row at all** (an "attempted" marker would
-  itself lock out a later, better-informed run the same day).
-- **Daily cap fairness — TWO budgets, one per event kind**
-  (`_MAX_L2_THEME_ANALYSES_PER_DAY = 10`, `_MAX_L2_FORWARD_ANALYSES_PER_DAY
-  = 15`, counted separately by key prefix). Ordering alone is not enough and
-  the first draft got this wrong: candidates are ordered deterministically
-  and globally (sorted themes, then forward events by scheduled date —
-  unlike `l1_identifiers_for_user`, which deliberately keeps the caller's
-  own |move| order), but the ORDER is only stable within one user's list,
-  and the lists themselves differ, because `theme:` keys are per-user while
-  the `fwd:` calendar is global. Under one shared cap, the day's first
-  non-quiet user could therefore be a user with no theme hits, spend the
-  entire budget on calendar events, and leave every later user's themes
-  unanalyzed until tomorrow (caught by blacktomb42 review round 1 on PR
-  #157). Separate budgets make that impossible; truncation WITHIN a kind
-  (earnings season filling the forward budget) is a genuine cost ceiling
-  that truncates the same global list for everyone, not a fairness defect.
-  Still NOT closed in general: a cap that binds over genuinely disjoint
-  per-user candidates — L1's situation — needs batch-level orchestration and
-  belongs to A4.
-
-
-### Personalized assembly + fan-out budget fairness (Ring 1 stage A4, issue #128)
-
-The consumer the first three checkpoints were built for. When
-`SHARED_COMPUTE_ENABLED` is on, the §2/§3/§4 body is ASSEMBLED from the L1/L2
-analyses (`report_assembly.py`) instead of inferred from scratch by one giant
-per-user Pass 2 — that skipped `PRIMARY_LLM_MODEL` call is the cost
-reduction, and the shape becomes `O(|identifier union|) + O(N)`.
-
-- **The saving is the narrowed task, not a smaller model.** The assembly
-  prompt never carries the raw news corpus or search snippets — those were
-  already digested into L1/L2 — so `build_assembly_prompt` has no
-  `news_items`/`search_results` parameter at all. Re-adding one would
-  silently restore Pass 2's token profile while looking like a feature.
-- **The type boundary is INVERTED from A2/A3's, because the risk is.** A2/A3
-  had to keep per-user values OUT of a shared cache; A4 writes no cache — it
-  READS two and mixes in per-user holdings, so its failure mode is another
-  user's shared rows landing in this user's report (CLAUDE.md's §1.3
-  cross-user leak, at the last checkpoint). `build_assembly_prompt` therefore
-  takes **no `Session`** and `report_assembly.py` imports **no ORM model**:
-  with no DB handle it cannot ask for "everything cached today", only for
-  what the per-user caller passes — and that (`ctx.ticker_intel`,
-  `ctx.macro_event_intel`) is already scoped by `l1_identifiers_for_user` /
-  `l2_event_keys_for_user`. Locked by structural tests plus a real
-  three-user fan-out assertion (`test_shared_compute_a4.py`), not by review
-  attention.
-- **Degradation is the default, and that is the whole safety story.**
-  `_try_assembly` returns `None` — meaning "fall back to Pass 2" — for every
-  failure mode: switch off, `ASSEMBLY_LLM_MODEL` unset, both caches empty,
-  provider error, or a body failing the same completeness guard. The worst
-  case of enabling A4 is the pre-A4 report, never a thinner one. Pass 2 still
-  RAISES on a truncated body (nothing left to fall back to); assembly falls
-  back in the same run. `body_is_incomplete` (`report_prompts.py`) is the one
-  expression of that rule so the two cannot drift.
-- **`ASSEMBLY_LLM_MODEL` is deliberately empty by default** — it is an
-  OUTPUT of the shadow comparison, not an input. Enabling the switch without
-  it falls back rather than guessing a model whose quality on this task
-  nobody has measured.
-- **Shadow comparison** (`ASSEMBLY_SHADOW_MODELS`, comma-separated): runs the
-  assembly pass once per listed model over the SAME prompt, stores results in
-  `report_inputs["assembly_shadow"]`, ships and emails nothing. Run it with
-  `SHARED_COMPUTE_ENABLED=false` and one round yields both comparisons at
-  once — architecture (shipped Pass 2 body vs each assembled body) and model
-  selection — with costs read off `report_inputs["llm_calls"]`. Exception-
-  isolated: a measurement harness must not be able to fail what it measures.
-- **`regenerate_report(mode="analyze")` re-runs the pass that WROTE the
-  body**, keyed on the stored `body_source`. Re-running Pass 2 on an
-  assembled report would not just be the wrong pass — it would write
-  `pass2_raw` while leaving the superseded `assembly_raw` in place, and since
-  that key wins in `assembly_raw or pass2_raw`, the next `mode=render` would
-  silently rebuild the OLD report. `mode="render"` stays token-free for both
-  sources; pre-A4 rows carry neither key (`ReportInputsDict` is
-  `total=False`) and resolve to `pass2_raw` unchanged.
-- **Fan-out budget fairness, finally solved generally** (`shared_budget.py`).
-  The same bug surfaced once per checkpoint — A1's Tavily budget, A2's L1
-  cap, A3's L2 cap — because a shared capped daily resource consumed
-  sequentially in a never-rotating user order (`active_user_ids` is sorted)
-  starves the same users every day. A3's per-event-kind split only worked
-  because L2 candidates group on a key prefix; L1's are per-user by nature,
-  so it handed the general problem forward. The rule: **allocate from what is
-  actually LEFT, divided by how many users still have to be served
-  (including this one)** — `fair_share_budget(remaining, users_remaining)`,
-  threaded as `generate_report(users_remaining=len(user_ids) - index)` into
-  both `get_l1_intel_batch` and `get_l2_intel_batch` (which slices each of
-  its per-kind budgets independently, preserving A3's split). No user can
-  starve a later one; unused share flows forward because the divisor shrinks;
-  `users_remaining=1` (every pre-A4 call site) means no restriction. It
-  decides HOW MANY, never WHICH — candidate ordering stays per-user by
-  design. Deliberately NOT a reservation table or a round-robin merge of all
-  users' candidate lists: those need every user's candidates derived before
-  any user's report is generated, a whole extra pass whose only product is an
-  ordering.
-- **"User investment context" (design doc §6.3) is scoped to the portfolio
-  snapshot** — weights, concentration flags, asset-class and currency mix.
-  There is no user-profile/risk-tolerance model in this codebase (that is
-  Stage B), and A4 does not invent one.
-- **A3's `sector` boundary holds**: the assembly path reads `asset_class`
-  exposure only (`user_event_exposure`); `sector` stays scoped to the
-  forward-event mapping in `report_sections._forward_exposure`.
-
-
-### L3 day-level cross-name synthesis (Ring 1 quality gate, issue #128, PR #167)
-
-Issue #621 invokes L3 after slot-time L1 and L2 in weekday post-close slots.
-When more than 25 servable L1 rows exist, input selection takes the largest
-absolute `facts.day_pct`, with identifier ties deterministic. Existing
-fingerprinting, caps and compliance checks remain. Reports read the stored L3
-synthesis for the selected trade date; slot workers remain the only callers of
-the lazy computation function.
-
-The gap A1–A4 left open: L1 (per identifier) and L2 (per event) structurally
-cannot express "these identifiers moved together today for one mechanism" —
-three overlay comparisons on a real 26-holding book showed assembly was
-otherwise as deep as Pass 2 per-name, but never produced that cross-name
-sentence, because nothing in the input shape could. `cross_name_intel.py`
-adds a third shared layer that performs exactly that join, once per trading
-day for the whole system.
-
-- **No per-user selection channel at all, unlike L1/L2.** What this layer
-  analyzes ("every identifier the system briefed today") is already a global
-  fact, readable straight from `ticker_intel`/`macro_event_intel` — so
-  `get_day_synthesis(session, trade_date, ...)` has no parameter a
-  watermark, portfolio, or anomaly list could arrive through. The per-user
-  narrowing happens entirely on the way OUT, via `clusters_for_user`.
-- **Output is decomposable clusters, not a day-level paragraph, because that
-  shape is a leak-prevention property, not a formatting choice.** A summary
-  naming everything analyzed today could not be narrowed to one user's
-  book — it would carry other users' holdings into this report as prose no
-  matter how the identifier list beside it were filtered. So:
-  `clusters: [{identifiers, mechanism, summary, confidence}]`, with the
-  summary required to describe the mechanism and name no identifiers.
-  `clusters_for_user` additionally drops any cluster whose summary NAMES an
-  identifier the reader does not hold (a prompt rule is an instruction, not
-  a guarantee) — checked against the FULL day's briefed-identifier universe
-  (`day_briefed_identifiers`), not just a cluster's own filtered members,
-  and expanded through `holding_news.load_entity_aliases()` — a genuine
-  entity/company-name subset, deliberately NOT the full
-  `holding_news_keywords.yml` recall table, which mixes in theme/tech tokens
-  ("gold", "lithography", "Nasdaq") a legitimate mechanism summary is
-  expected to use.
-- **Cache key carries an `input_fingerprint`** (sha256 over the day's
-  global L1 identifier set), not just `(trade_date, prompt_version)` — a
-  date-only key would freeze the day's conclusion to whichever user's
-  `generate_report` reached it first, and every later user would read a
-  conclusion that structurally cannot mention any of their names (the same
-  "early write locks the day" shape L1's headline-only path hit once).
-- **`_MAX_SYNTHESES_PER_DAY` (9) is 3x `_MAX_ATTEMPTS_PER_KEY` (3), not
-  equal to it** — the first version had them equal, so one non-retryable
-  failure or compliance block on the day's first fingerprint could write
-  `attempt_count=3` in a single shot, zeroing the entire daily budget for
-  every later, genuinely different fingerprint that day. Widening the
-  constant was the accepted fix over splitting `attempt_count`'s dual
-  meaning (cost tracking vs daily-budget accounting) — both concrete ways to
-  split it reopen a version of the bug issue #160 already closed (a new
-  flag column either lands on all three sibling tables or splits their
-  semantics; capping on distinct-fingerprint/success count instead of
-  `SUM(attempt_count)` lets a bad-provider day retry unboundedly across an
-  ever-changing fingerprint stream). Full tradeoff write-up: Obsidian
-  `Hermes/Portfonia/Docs/Ring 1-A design.md` §6.7.
-- **L1's own prompt (`l1-v4`) dropped its macro-brief channel entirely,
-  rather than reading L2 through a global loader.** An earlier draft passed
-  `ctx.macro_event_intel` (a per-user L2 SELECTION) into L1 facts as
-  `macro_briefs`, baking a per-user selection outcome into a value written
-  to the shared `ticker_intel` cache — the round-5 window-leak shape in a
-  new field. L3 already performs the L1+L2 join globally, so the fix was
-  removing the join from L1 rather than reading L2 without contamination a
-  second time.
-- **`ASSEMBLY_PROMPT_VERSION` = `a4-v2`** (bumped from `a4-v1` alongside the
-  new CROSS-NAME MECHANISM block, closed-set TRANSMISSION labels, TRACKING
-  POSITION display rules — sub-1%-weight holdings get one line, never a
-  heading, but are NOT floored out of L1 selection; deliberate legal
-  tracking-position use case — and a TECHNICAL POSITION block).
-- **Status**: merged (squash `c308e6c`, PR #167), three independent review
-  rounds (2 bugs / 7 suggestions / 2 nits, all verified and fixed).
-  `SHARED_COMPUTE_ENABLED` stays **false** — this closes the quality-gate
-  structural gap, it does not itself authorize switching the production
-  body-source; that is a separate, later decision.
+The design history of the removed stages is in Git history (issue #128 PRs
+#155, #157, #163, #167) and Obsidian `Docs/Ring 1-A design.md`.
 
 
 ### Narrative-layer redesign: Pass 2 material widening for large no-anomaly holdings (Ring 1 quality gate, issue #128, PR #168)
@@ -1480,47 +1202,25 @@ Anthropic-demand -> advanced-node -> TSM transmission chain. Root cause:
 Pass 2's depth comes from seeing raw search/news text and being allowed to
 use public industry structure (which is what "grounded" material genuinely
 supports) — assembly's design deliberately withholds both. Direction set:
-**material sharing, not narrative sharing** — L1/L2/L3 stay as shared
-caches, but every user's report body is still written by their own real
-Pass 2 call, now fed richer material. `SHARED_COMPUTE_ENABLED` is
-unaffected either way; full design rationale and iteration history: Obsidian
+**material sharing, not narrative sharing** — every user's report body is
+written by their own real Pass 2 call, fed richer material. Assembly and
+L1/L2/L3 were later removed entirely (issue #640). Full design rationale and
+iteration history: Obsidian
 `Hermes/Portfonia/Docs/Ring 1-A Narrative Layer Redesign (Quality Gate Reversal).md`.
 
 - **Large no-anomaly holdings get material too** (`large_weight_identifiers`
-  in `ticker_intel.py`, top-5 by weight ≥5%, identifier strings only — same
-  type-boundary discipline as every other L1 selection channel). Pass 2's
-  own material-gathering in `report_generator.py` used to look only at
-  `ctx.price_anomalies`; it now unions `anomaly_ids | weight_ids`, so a
-  holding large enough to matter no longer needs to cross an anomaly
-  threshold to get recalled news + a targeted search.
-- **Weight-targeted search queries are date-locked to the report window**
-  (`_targeted_weight_queries`/`_rank_title_matches_first`,
-  `report_search.py`) — an unqualified `"{ident} stock news catalyst"` query
-  pulled generic, sometimes months-stale articles in an early compare. The
-  date lock is now enforced two ways: the query text embeds the window
-  (`"{ident} stock news catalyst {start} to {end}"`, still the
-  `search_cache` key) AND `_run_tavily_search`/`_fetch_one_query` accept an
-  optional `date_windows: dict[str, tuple[date, date]]` param that maps to
-  Tavily's real `start_date`/`end_date` publish-date filter — the query text
-  alone was never enough, since Tavily itself was never told to restrict by
-  date (PR #168 round 2 review). Slot-time workers are the remaining callers;
-  the report path does not invoke this search helper.
+  in `portfolio_weights.py` since #640, top-5 by weight ≥5%, identifier
+  strings only). Pass 2's own material-gathering in `report_generator.py`
+  used to look only at `ctx.price_anomalies`; it now unions
+  `anomaly_ids | weight_ids`, so a holding large enough to matter no longer
+  needs to cross an anomaly threshold to get recalled news and its window
+  price move.
 - **`_weighted_identifiers` aggregates by identifier before ranking** — a
   position split across lots (this product preserves upload order, so the
   same ticker can legitimately appear as more than one `Holding` row; VOO is
   the worked example) used to be ranked as separate half-sized rows, letting
   one identifier occupy two `top_k` slots and evict a genuinely distinct 5th
-  holding. `l1_identifiers_for_user`'s weight channel now calls
-  `large_weight_identifiers` directly instead of re-slicing the same data
-  inline, so the two call sites can't drift.
-- **Combined targeted-search budget now respects `fair_share_budget`**
-  (`report_generator.py`) — the anomaly + weight-targeted Tavily budget used
-  to spend the full remaining daily allowance with no
-  `fair_share_budget(remaining, users_remaining)` division, unlike every
-  other shared-budget consumer in the same function (L1/L2/L3, and the
-  leftover top-up right below it). This call runs earlier in a fan-out
-  batch, so it could exhaust the day's budget before any later user — or
-  even that top-up — got a turn.
+  holding.
 - **`NAMING IS NOT ANALYSIS` no longer contradicts `GROUNDED CONNECTIONS
   ONLY`** (`report_prompts.py`, both part of `_SHARED_BODY_RULES`). The
   former told the model to write a causal chain whenever "a holding sits on
@@ -1528,24 +1228,14 @@ unaffected either way; full design rationale and iteration history: Obsidian
   itself would make; the latter forbids exactly that ("a plausible-sounding
   mechanism you construct yourself... is not grounding"). Rewritten to
   require the SUPPLIED MATERIAL state the exposure, and to explicitly defer
-  to `GROUNDED CONNECTIONS ONLY` by name. Also fixed the `LARGE HOLDINGS
-  WINDOW PRICE` reference leaking into assembly's system prompt —
-  `build_assembly_prompt` never renders that section (no
-  `large_holding_moves` parameter at all), so `_ASSEMBLY_SYSTEM` was
-  pointing the model at data that, for that consumer, never exists.
-  `_rule_direction_requires_evidence`/`_rule_naming_is_not_analysis` are now
-  parameterized functions; `_SHARED_BODY_RULES_NO_LARGE_HOLDINGS` (imported
-  by `report_assembly.py` instead of `_SHARED_BODY_RULES`) composes the
-  no-large-holdings variant of both — duplicating only the composition
-  wiring, not the rule prose, for the six rules unaffected either way.
+  to `GROUNDED CONNECTIONS ONLY` by name. (The no-large-holdings rule
+  variants PR #168 added for assembly were removed with assembly in #640.)
 - **Status**: merged (squash `1a831a9`, PR #168), two independent review
   rounds on the review-fix commits (1 bug / 1 suggestion / 1 nit, then
   0 bugs / 3 suggestions, plus 1 nit from an independent redundant review
   pass — all verified against actual code and fixed with TDD). Deployed to
   production (`systemd-run docker compose up -d --build`, no new migration,
-  `/health` verified, 7 containers stable, clean logs). `SHARED_COMPUTE_ENABLED`
-  stays **false** — this closes gaps in Pass 2's own material-gathering, it
-  does not touch the assembly path or authorize turning it on.
+  `/health` verified, 7 containers stable, clean logs).
 
 
 
@@ -1624,7 +1314,8 @@ this render actually needed (a holding's native currency, or the selected
 and a new shared `portfolio_calculator.format_fx_rates_as_of()` helper
 (`"CCY as of DATE, CCY as of DATE"`, or `"n/a"` when empty) used by
 `report_sections.py`'s §1 header / footer disclosure / data-window line,
-`report_assembly.py`, and `report_prompts.py` — all of which previously
+`report_assembly.py` (removed by issue #640), and `report_prompts.py` —
+all of which previously
 interpolated a single date string. `report_sections._fx_is_stale()` changed
 from a single bool to `list[str]` (stale currencies, sorted) since staleness
 is now inherently per-currency; `report_generator.py`'s FX-stale ops alert
@@ -1801,12 +1492,9 @@ is currently active.
   ancestry only, never `report_id` (a killed process before the first
   commit must not leave an orphaned `report_id` reference).
 - Named stage spans wrap their existing locations exactly as designed:
-  `preparation`, `l2_intel`, `l1_intel`, `l3_synthesis`, `assembly` (ok/skipped,
-  never
-  fabricates a Pass 2 call it didn't make), `pass2_analysis` (entered only
-  when assembly did not produce a body; `skip_span(reason_code=
-  "assembly_selected")` records the skip explicitly when it did),
-  `shadow_assembly`, `render_and_compliance`, `persist_report` (closes
+  `preparation`, `pass2_analysis`, `render_and_compliance`, `persist_report`
+  (issue #640 removed the `l2_intel`, `l1_intel`, `l3_synthesis`, `assembly`
+  and `shadow_assembly` stages; `persist_report` closes
   right after the business commit — Requirements point 2's "report-ready"
   milestone, strictly before email), `email_send` (outcome `ok`/
   `unconfirmed`/`failed` — never changes `report.status`, matching
@@ -1835,13 +1523,9 @@ session), retry + ops-alert on exhaustion, same shape as
 
 **Deliberately out of scope for this integration pass** (documented gap, not
 a silent omission): per-call `llm_call`/`llm_request` child spans for the
-L1/L2/L3/assembly/translation modules' own `_call_llm` sites
-(`ticker_intel.py`, `macro_event_intel.py`, `cross_name_intel.py`,
-`report_assembly.py`, `report_translation.py`) — those are covered only at
-their PARENT stage span's granularity (`l1_intel`/`l2_intel`/`l3_synthesis`/
-`assembly`), not per individual LLM call inside them; `report_search.py`'s
-own cache-hit/miss/budget-skipped counts are not yet surfaced as span
-attributes; `report_translation.py`'s chunk/retry/fallback child spans under
+translation module's own `_call_llm` sites (`report_translation.py`) — those
+are covered only at their parent stage span's granularity;
+`report_translation.py`'s chunk/retry/fallback child spans under
 `render_and_compliance` are not yet added. None of these gaps affect
 correctness of what IS instrumented — they are additional granularity a
 future pass can add without touching the writer or the schema. No FX/other
