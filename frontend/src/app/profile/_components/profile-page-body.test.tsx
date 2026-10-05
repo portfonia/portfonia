@@ -707,12 +707,15 @@ it("polish_660_acceptance_3 retranslates the lock with frozen countdown values",
   const { fireEvent } = await import("@testing-library/react");
   const now = Date.now();
   const clock = vi.spyOn(Date, "now").mockReturnValue(now);
-  const me: Me = { ...BASE_ME, email_verified_at: "2026-10-04T12:00:00Z", subscription: { status: "active", type: "weekly", expires_on: "2026-11-15", cancel_pending: false, next_adjustment_at: new Date(now + 40 * 60000).toISOString() } };
-  const view = render(<NextIntlClientProvider locale="en" messages={en}><ProfilePageBody me={me} hadLoadError={false} /></NextIntlClientProvider>);
-  fireEvent.change(screen.getByRole("combobox", { name: en.profile.reportScheduleHeading }), { target: { value: "mwf" } });
-  expect(screen.getByRole("alert")).toHaveTextContent(en.profile.subscriptionDailyLock.replace("{hours}", "0").replace("{minutes}", "40"));
-  clock.mockReturnValue(now + 2 * 60000);
-  view.rerender(<NextIntlClientProvider locale="zh-Hans" messages={zhHans}><ProfilePageBody me={me} hadLoadError={false} /></NextIntlClientProvider>);
-  expect(screen.getByRole("alert")).toHaveTextContent(zhHans.profile.subscriptionDailyLock.replace("{hours}", "0").replace("{minutes}", "40"));
-  clock.mockRestore();
+  try {
+    const me: Me = { ...BASE_ME, email_verified_at: "2026-10-04T12:00:00Z", subscription: { status: "active", type: "weekly", expires_on: "2026-11-15", cancel_pending: false, next_adjustment_at: new Date(now + 40 * 60000).toISOString() } };
+    const view = render(<NextIntlClientProvider locale="en" messages={en}><ProfilePageBody me={me} hadLoadError={false} /></NextIntlClientProvider>);
+    fireEvent.change(screen.getByRole("combobox", { name: en.profile.reportScheduleHeading }), { target: { value: "mwf" } });
+    expect(screen.getByRole("alert")).toHaveTextContent(en.profile.subscriptionDailyLock.replace("{hours}", "0").replace("{minutes}", "40"));
+    clock.mockReturnValue(now + 2 * 60000);
+    view.rerender(<NextIntlClientProvider locale="zh-Hans" messages={zhHans}><ProfilePageBody me={me} hadLoadError={false} /></NextIntlClientProvider>);
+    expect(screen.getByRole("alert")).toHaveTextContent(zhHans.profile.subscriptionDailyLock.replace("{hours}", "0").replace("{minutes}", "40"));
+  } finally {
+    clock.mockRestore();
+  }
 });
