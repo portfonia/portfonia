@@ -109,7 +109,6 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
   return (
     <div className="flex flex-col gap-6">
       <SubscriptionDialog state={subscription} />
-      {subscription.error && !subscription.dialog && <p className="text-sm text-destructive" role="alert">{subscription.error}</p>}
       <header>
         <h1 className="font-heading text-2xl font-semibold">{t("pageTitle")}</h1>
       </header>
@@ -338,6 +337,7 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
                   <option value="cancel">{t("subscriptionCancel")}</option>
                 )}
               </select>
+              {subscription.error && !subscription.dialog && <p className="text-sm text-destructive" role="alert">{subscription.error}</p>}
               {noVerifiedRecipient && <p className="text-sm text-muted-foreground">{t("subscriptionVerifyEmail")}</p>}
             </div>
           </div>
