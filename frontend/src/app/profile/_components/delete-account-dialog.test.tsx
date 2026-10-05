@@ -5,9 +5,10 @@ import { LocaleProvider } from "@/app/_components/locale-provider";
 import type { Me } from "@/lib/api";
 import { ProfilePageBody } from "./profile-page-body";
 
-const { logoutAfterAccountDeletion } = vi.hoisted(() => ({ logoutAfterAccountDeletion: vi.fn() }));
-vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn(), logoutAfterAccountDeletion }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }), usePathname: () => "/profile" }));
+const { signOut, replace } = vi.hoisted(() => ({ signOut: vi.fn(), replace: vi.fn() }));
+vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
+vi.mock("@/lib/supabase/browser", () => ({ createClient: () => ({ auth: { signOut } }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), replace }), usePathname: () => "/profile" }));
 vi.mock("next/script", () => ({ default: () => null }));
 const me: Me = {
   email: "user@example.com", credit_balance: "5.00", delivery_email: null,
@@ -20,7 +21,9 @@ const fetchMock = vi.fn<typeof fetch>();
 let summary = { cash_balance: "0.00", refundable_cash: "0.00", gift_balance: "3.01", subscription_active: true };
 let result = new Response(null, { status: 204 });
 beforeEach(() => {
-  logoutAfterAccountDeletion.mockReset();
+  signOut.mockReset();
+  signOut.mockResolvedValue({ error: null });
+  replace.mockReset();
   summary = { cash_balance: "0.00", refundable_cash: "0.00", gift_balance: "3.01", subscription_active: true };
   result = new Response(null, { status: 204 });
   fetchMock.mockReset();
@@ -58,7 +61,9 @@ it("12 cash zero submits only the first dialog and logs out on 204", async () =>
   await userEvent.clear(within(dialog).getByRole("textbox"));
   await userEvent.type(within(dialog).getByRole("textbox"), " USER@example.com ");
   await userEvent.click(confirm);
-  await waitFor(() => expect(logoutAfterAccountDeletion).toHaveBeenCalledOnce());
+  await waitFor(() => expect(replace).toHaveBeenCalledExactlyOnceWith("/"));
+  expect(signOut).toHaveBeenCalledExactlyOnceWith({ scope: "local" });
+  expect(screen.queryByRole("alert")).toBeNull();
   expect(fetchMock).toHaveBeenCalledWith("/api/me/account-deletion", expect.objectContaining({
     method: "POST", body: JSON.stringify({ confirm_email: " USER@example.com ", relinquish_cash: "0.00", altcha: null }),
   }));
@@ -84,7 +89,9 @@ it.each(["0.00", "10.00"])("13 purchased credits require a fresh signature and p
   expect(confirm).toBeDisabled();
   solve();
   await userEvent.click(confirm);
-  await waitFor(() => expect(logoutAfterAccountDeletion).toHaveBeenCalledOnce());
+  await waitFor(() => expect(replace).toHaveBeenCalledExactlyOnceWith("/"));
+  expect(signOut).toHaveBeenCalledExactlyOnceWith({ scope: "local" });
+  expect(screen.queryByRole("alert")).toBeNull();
   expect(fetchMock).toHaveBeenCalledWith("/api/me/account-deletion", expect.objectContaining({
     method: "POST", body: JSON.stringify({ confirm_email: "user@example.com", relinquish_cash: "12.00", altcha: "solved" }),
   }));
@@ -134,29 +141,20 @@ it.each([[502, "Deletion failed. Nothing was changed; please retry."],
   await userEvent.type(within(dialog).getByRole("textbox"), "user@example.com");
   await userEvent.click(within(dialog).getByRole("button", { name: "Delete account" }));
   await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(String(message)));
-  expect(logoutAfterAccountDeletion).not.toHaveBeenCalled();
+  expect(signOut).not.toHaveBeenCalled();
+  expect(replace).not.toHaveBeenCalled();
 });
 
-it("12 does not show deletion failure when logout redirects after 204", async () => {
-  const redirect = Object.assign(new Error("NEXT_REDIRECT"), {
-    digest: "NEXT_REDIRECT;replace;/;307;",
+it("3 a thrown request error shows the failure and does not sign out", async () => {
+  fetchMock.mockImplementation(async (_url, options) => {
+    if (options?.method === "POST") throw new Error("network down");
+    return Response.json(summary);
   });
-  logoutAfterAccountDeletion.mockRejectedValue(redirect);
-  // Next.js handles this rejection in the browser; capture only this expected redirect.
-  const processEvents: NodeJS.EventEmitter = process;
-  const emit = processEvents.emit;
-  const redirectHandler = vi.spyOn(processEvents, "emit").mockImplementation(function (event, ...args) {
-    if (event === "unhandledRejection" && args[0] === redirect) return true;
-    return emit.call(process, event, ...args);
-  });
-  try {
-    renderProfile();
-    const dialog = await open();
-    await userEvent.type(within(dialog).getByRole("textbox"), "user@example.com");
-    await userEvent.click(within(dialog).getByRole("button", { name: "Delete account" }));
-    await waitFor(() => expect(logoutAfterAccountDeletion).toHaveBeenCalledOnce());
-    expect(screen.queryByText("Deletion failed. Nothing was changed; please retry.")).not.toBeInTheDocument();
-  } finally {
-    redirectHandler.mockRestore();
-  }
+  renderProfile();
+  const dialog = await open();
+  await userEvent.type(within(dialog).getByRole("textbox"), "user@example.com");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Delete account" }));
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Deletion failed. Nothing was changed; please retry."));
+  expect(signOut).not.toHaveBeenCalled();
+  expect(replace).not.toHaveBeenCalled();
 });

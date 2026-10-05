@@ -1,13 +1,13 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import Script from "next/script";
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel } from "@/components/ui/alert-dialog";
-import { logoutAfterAccountDeletion } from "@/lib/auth-actions";
-import { isNextRedirectError } from "@/lib/next-redirect-error";
+import { createClient } from "@/lib/supabase/browser";
 
 interface DeletionSummary {
   cash_balance: string;
@@ -35,6 +35,7 @@ function DeletionProof({ onChange }: { onChange: (payload: string | null) => voi
 
 export function DeleteAccountDialog({ email }: { email: string }) {
   const t = useTranslations("profile");
+  const router = useRouter();
   const [summary, setSummary] = useState<DeletionSummary | null>(null);
   const [step, setStep] = useState<"confirm" | "relinquish">("confirm");
   const [signature, setSignature] = useState("");
@@ -82,7 +83,10 @@ export function DeleteAccountDialog({ email }: { email: string }) {
       });
       if (response.status === 204) {
         discard();
-        await logoutAfterAccountDeletion();
+        // Not a Server Action: the Auth user is gone, so the proxy would
+        // redirect any POST to /profile before the action ran (#667).
+        await createClient().auth.signOut({ scope: "local" });
+        router.replace("/");
         return;
       }
       const data: unknown = await response.json();
@@ -96,8 +100,7 @@ export function DeleteAccountDialog({ email }: { email: string }) {
       } else {
         setError(t(response.status === 500 ? "deleteAccountIncomplete" : "deleteAccountFailed"));
       }
-    } catch (error) {
-      if (isNextRedirectError(error)) throw error;
+    } catch {
       setError(t("deleteAccountFailed"));
     } finally {
       setPending(false);

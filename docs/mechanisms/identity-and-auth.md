@@ -1105,8 +1105,14 @@ positive gift balance, and the new-invitation/no-second-grant consequences
 of re-registration. Positive cash opens a separate dialog with refundable
 amount disclosure, support contact, a fresh email signature and Altcha.
 Closing discards inputs and proof; balance/proof errors close the flow and
-require restarting. Success clears the local Supabase session and redirects
-to `/`. Privacy Policy copy in all three catalogs discloses the fingerprint,
+require restarting. Success clears the local Supabase session in the
+browser (`createClient().auth.signOut({ scope: "local" })` from
+`lib/supabase/browser`) and navigates to `/` with `router.replace`. This
+must not be a Server Action (issue #667): a Server Action is a POST to
+`/profile`, and once the Auth user is deleted `proxy.ts`'s `getUser()`
+fails, so the route guard redirects that POST to `/login` before the action
+runs and the client reports a failure for a deletion that succeeded.
+Privacy Policy copy in all three catalogs discloses the fingerprint,
 API-token/waitlist removal, and self-service deletion on Profile.
 
 Deployment includes a ledger CHECK-constraint migration. Downgrade fails
