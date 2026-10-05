@@ -19,11 +19,13 @@ and test_report_context.py respectively.
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import uuid
 from collections.abc import Generator
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
@@ -3329,3 +3331,54 @@ def test_render_full_md_holdings_briefing_header_uses_period_end() -> None:
     )
     assert full_md.splitlines()[0] == "# Portfonia Holdings Briefing — 2026-10-05 16:00 ET"
     assert not violations
+
+
+# ---------------------------------------------------------------------------
+# Issue #640: removing L1/L2/L3 and assembly must not change Pass 2 prompts
+# ---------------------------------------------------------------------------
+
+_PASS2_SNAPSHOT = Path(__file__).parent / "fixtures" / "issue_640_pass2_prompt.json"
+
+
+def _capture_pass2_prompt(session: Session) -> dict[str, str]:
+    captured: dict[str, str] = {}
+
+    def _capture(
+        client: object,
+        model: str,
+        system: str,
+        user: str,
+        *,
+        with_holdings: bool = False,
+        **kw: object,
+    ) -> str:
+        if with_holdings:
+            captured["system"] = system
+            captured["user"] = user
+            return _FAKE_LLM_PASS2
+        return _FAKE_LLM_PASS1
+
+    _seed_investment_context(session, _USER, locale="en", intel_focus="GEOPOLITICS")
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        stack.enter_context(patch("app.services.report_generator._call_llm", side_effect=_capture))
+        stack.enter_context(
+            patch("app.services.report_generator.intel_trade_date", return_value=_TODAY)
+        )
+        report = rg.generate_report(
+            session,
+            user_id=_USER,
+            report_date=_TODAY,
+            now=datetime(2026, 6, 4, 21, 0, tzinfo=UTC),
+        )
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    assert report.report_inputs["body_source"] == "pass2"
+    return captured
+
+
+def test_issue_640_pass2_prompt_matches_pre_removal_snapshot(db_session: Session) -> None:
+    captured = _capture_pass2_prompt(db_session)
+    expected = json.loads(_PASS2_SNAPSHOT.read_text(encoding="utf-8"))
+    assert captured == expected
