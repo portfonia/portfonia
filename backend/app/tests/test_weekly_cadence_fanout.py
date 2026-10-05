@@ -14,6 +14,7 @@ test seeds into.
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -21,7 +22,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.timezones import today_et
+from app.core.timezones import ET, today_et
 from app.models.forward_event import ForwardEvent
 from app.models.report import Report
 from app.tests.test_report_generator import _macro_hit, _mock_llm, _news_item
@@ -30,18 +31,21 @@ from app.tests.test_user_scope import _U1, _U2, _user
 
 
 @pytest.fixture(autouse=True)
-def _due_day(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Freeze only the batch and ET clock, leaving the generator independent.
-    from app.core.timezones import ET
-
+def _due_day(monkeypatch: pytest.MonkeyPatch) -> Generator[datetime, None, None]:
+    # Keep batch_now aligned with due-day selection and seeded event dates (#664).
+    # Leave the generator clock independent so a missing now argument is visible.
     now = datetime(2026, 10, 3, 19, tzinfo=ET)
     monkeypatch.setattr("app.tasks.report_tasks.today_et", lambda: now.date())
     monkeypatch.setattr("app.core.timezones.today_et", lambda: now.date())
     monkeypatch.setattr("app.tests.test_weekly_cadence_fanout.today_et", lambda: now.date())
+    with patch("app.tasks.report_tasks.datetime", wraps=datetime) as clock:
+        clock.now.return_value = now
+        yield now
 
 
 def test_weekly_zero_holdings_user_gets_empty_table_contract_via_beat_path(
     db_session: Session,
+    _due_day: datetime,
 ) -> None:
     """Not a quiet day (a macro hit is seeded, matching
     test_generate_report_empty_book_content_contract in
@@ -107,6 +111,8 @@ def test_weekly_zero_holdings_user_gets_empty_table_contract_via_beat_path(
     report = db_session.execute(
         select(Report).where(Report.user_id == _U1, Report.session_node == "weekend_snapshot")
     ).scalar_one()
+    assert report.report_date == _due_day.date()
+    assert report.period_end == _due_day
     assert report.report_md is not None
     assert "§1 Portfolio Snapshot" in report.report_md
     assert "USD 0" in report.report_md  # zero total, no crash on an empty book
@@ -117,6 +123,7 @@ def test_weekly_zero_holdings_user_gets_empty_table_contract_via_beat_path(
 
 def test_weekly_fanout_two_users_each_get_their_own_locale_after_the_first_users_commit(
     db_session: Session,
+    _due_day: datetime,
 ) -> None:
     """blacktomb42 PR #309 round-1 review, finding 2: the fan-out loop must
     read each recipient's locale from a snapshot taken ONCE before the
@@ -202,6 +209,11 @@ def test_weekly_fanout_two_users_each_get_their_own_locale_after_the_first_users
     zh_report = db_session.execute(
         select(Report).where(Report.user_id == _U2, Report.session_node == "weekend_snapshot")
     ).scalar_one()
+    for report in (en_report, zh_report):
+        assert report.report_date == _due_day.date()
+        assert report.period_end == _due_day
+        assert report.report_inputs is not None
+        assert report.report_inputs["forward_events"][0]["name"] == "FOMC Meeting"
     assert en_report.report_md is not None
     assert zh_report.report_md is not None
     # The real proof: translation only ran for the zh user. If U2's locale
