@@ -1,4 +1,4 @@
-# Subscription core and lifecycle (issues #595, #596, #600, #610 and #650)
+# Subscription core and lifecycle (issues #595, #596, #600, #610, #650 and #660)
 
 This backend implements user subscription operations and the scheduled
 lifecycle. Profile provides quote-backed plan, cancel and resume controls in #597,
@@ -145,6 +145,22 @@ snapshot access immediately; expired, cancelled and inactive subscriptions have
 no Advanced access. `GET /auth/session-status` returns HTTP 200 with
 `{"advanced": bool}` from the already-loaded principal; invalid sessions still
 return 401. The authenticated Advanced user's Get started trigger is gold.
+
+Issue #660: a successful Profile subscribe, change, cancel or resume calls
+`revalidateSession()` after `router.refresh()`, so the trigger re-probes
+`session-status` and turns gold or back to default in the same interaction.
+A failed write does not re-probe. Ends that happen without a Profile action
+(cancel-pending Daily reaching expiry, renewal falling to `expired`) are
+picked up by the existing mount/focus/visibility re-verification; there is
+no polling timer. `useSubscription` stores errors as a translation key plus
+values and translates at render, so a UI language switch re-translates the
+daily-lock notice with the countdown frozen at the click. Outside the
+confirmation dialog the notice renders directly below the plan select in
+Report management. In Simplified and Traditional Chinese the `mwf` plan is
+named "every other day" (plan title, plan select, report-history type,
+public copy and the subscription notice emails), with the Monday/Wednesday/
+Friday send days kept wherever copy describes delivery; English keeps
+"Mon/Wed/Fri" and no identifier changed.
 
 Migration `d64100000001`, after `d62200000001`, only widens the cadence and
 subscription-type CHECKs. It performs no data or balance mutation. Downgrade
