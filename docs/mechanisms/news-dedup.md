@@ -3,8 +3,9 @@
 ### Collection origins and headline records (issue #620)
 
 `news` remains globally unique by `url_hash`. RSS rows use `origin=pool`;
-per-instrument rows use `origin=instrument`. Both `load_day_news` and
-`load_news_window` select only pool rows, preserving the existing report feed.
+per-instrument rows use `origin=instrument`. `load_news_window` selects only
+pool rows, preserving the existing report feed (`load_day_news`, which did
+the same, was removed by issue #640).
 An instrument fetch conflicting with a pool hash links the existing row rather
 than changing its origin or inserting a duplicate. In the reverse order, an
 RSS fetch promotes an existing instrument row to pool while preserving its

@@ -28,7 +28,8 @@ constraints and structural writing rules. B1 closes that gap.
   composition remains). These became **functions, not module
   constants** — the pre-B1 `_PASS2_SYSTEM`/`_ASSEMBLY_SYSTEM` were frozen at
   import time, which would never pick up a config edit in a long-lived
-  Celery worker process. Both call the same `load_analysis_framework()` —
+  Celery worker process. Both called the same `load_analysis_framework()`
+  (only `_build_pass2_system()` remains since issue #640) —
   one philosophy, not two hand-copied texts (this module has twice paid for
   that class of drift: PR #117's two CSS strings, PR #157's two
   `_FORWARD_WINDOW_DAYS`).

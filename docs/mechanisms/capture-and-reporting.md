@@ -120,10 +120,10 @@ consumers of the identifier convention had been added since:
   producer — round 1 finding: this one was missed in the first PR revision,
   splitting PSH across two identifiers, correct in §1 but silently absent
   from anomaly detection and L1 facts)
-- `report_assembly._identifier` (holdings-listing print key, must match the
-  L1 block's key or the model can't connect prose to a listed holding)
-- `ticker_intel._holding_identifier` (feeds `large_weight_identifiers`) and
-  `ticker_intel.build_l1_facts`'s `technical_positions` join key
+- `portfolio_weights._holding_identifier` (feeds `large_weight_identifiers`
+  and the §3 proportionality key; moved here by issue #640, which removed
+  the former `report_assembly._identifier` and
+  `ticker_intel._holding_identifier`/`build_l1_facts` call sites)
 - `technical_position.compute_technical_position` (round 2 finding: this one
   queries `price_snapshots` directly with the raw ticker rather than joining
   against an already-normalized dict, so it needed the fix at the *query*
@@ -278,6 +278,9 @@ omitted these names from LLM-facing context on the per-report side —
 `report_sections.py` (section 1) is the distinct case that deliberately
 keeps the row, rendering `[market not supported]` rather than omitting it;
 this closes the shared-compute-layer sibling gap in the other two.
+Issue #640 later removed L1, the assembly path and `report_assembly.py`;
+`global_identifier_universe` and its `is_capture_supported()` filter
+remain for anomaly detection.
 
 **Bare ticker with no exchange suffix, resolved for the declared-market
 case by PR #310** (issue #313 item 5): a bare `VOD`/`PSH` uploaded without
@@ -662,7 +665,8 @@ up to three distinct stored samples; those original titles may be Chinese.
 It prints articles and filings separately, with their combined inserted count.
 
 Part 2 reports selections in words, per-unit/provider outcomes, paid run/month
-spend, cost per kept article, and weekday post-close shared-analysis counts.
+spend and cost per kept article (the weekday post-close shared-analysis
+counts were removed with that analysis by issue #640).
 The provider-less `nothing usable` line is omitted for a unit that kept
 articles through another provider.
 Macro display names come from each theme's `name_en`; matching keywords remain
@@ -1310,7 +1314,8 @@ this render actually needed (a holding's native currency, or the selected
 and a new shared `portfolio_calculator.format_fx_rates_as_of()` helper
 (`"CCY as of DATE, CCY as of DATE"`, or `"n/a"` when empty) used by
 `report_sections.py`'s §1 header / footer disclosure / data-window line,
-`report_assembly.py`, and `report_prompts.py` — all of which previously
+`report_assembly.py` (removed by issue #640), and `report_prompts.py` —
+all of which previously
 interpolated a single date string. `report_sections._fx_is_stale()` changed
 from a single bool to `list[str]` (stale currencies, sorted) since staleness
 is now inherently per-currency; `report_generator.py`'s FX-stale ops alert
