@@ -155,3 +155,15 @@ it("acceptance_16 agent copy and legal sections match #651", () => {
   expect(catalogs["zh-Hans"].menu.agent).toBe("\u0041\u0049\u667a\u80fd\u4f53");
   expect(catalogs["zh-Hant"].menu.agent).toBe("AI \u667a\u80fd\u9ad4");
 });
+
+
+describe("issue #652 agent documentation catalogs", () => {
+  it.each(LOCALE_VALUES)("acceptance_09 %s carries only the new getting-started and endpoint keys", locale => {
+    const agent = catalogs[locale].agent;
+    expect(Object.keys(agent.docs).sort()).toEqual(["gettingStartedTitle", "gettingStarted", "endpointsTitle", "reports", "snapshots", "intel"].sort());
+    for (const copy of Object.values(agent.docs)) {
+      expect(copy.trim().length).toBeGreaterThan(0);
+      expect([agent.intro, agent.limitsTitle, agent.limits, agent.quiet, agent.notice, agent.tokenRule]).not.toContain(copy);
+    }
+  });
+});

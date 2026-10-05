@@ -42,7 +42,7 @@ def _record(request: Request, status_code: int) -> None:
                 endpoint=endpoint.replace("\x00", "\ufffd"),
                 params={
                     key: request.query_params[key].replace("\x00", "\ufffd")
-                    for key in ("start", "end")
+                    for key in ("start", "end", "date")
                     if key in request.query_params
                 },
                 status_code=status_code,

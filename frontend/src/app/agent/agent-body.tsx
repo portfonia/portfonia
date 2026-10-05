@@ -9,6 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel } from "@/components/ui/alert-dialog";
 
+const AGENT_PATHS = {
+  llms: "llms.txt",
+  reference: "agent.md",
+  reports: "/agent/v1/reports?start=YYYY-MM-DD&end=YYYY-MM-DD",
+  snapshots: "/agent/v1/snapshots?start=YYYY-MM-DD&end=YYYY-MM-DD",
+  intel: "/agent/v1/intel?date=YYYY-MM-DD",
+};
+
 export function AgentBody() {
   const t = useTranslations("agent");
   const session = useSession();
@@ -16,10 +24,22 @@ export function AgentBody() {
     <h1 className="text-2xl font-semibold">{t("title")}</h1>
     <p>{t("intro")}</p>
     <section className="flex flex-col gap-2">
+      <h2 className="text-lg font-medium">{t("docs.gettingStartedTitle")}</h2>
+      <p>{t("docs.gettingStarted")}</p>
+      <p className="flex flex-wrap gap-4"><Link href="/llms.txt" className="underline">{AGENT_PATHS.llms}</Link><Link href="/agent.md" className="underline">{AGENT_PATHS.reference}</Link></p>
+    </section>
+    <section className="flex flex-col gap-3">
+      <h2 className="text-lg font-medium">{t("docs.endpointsTitle")}</h2>
+      <div><code className="break-all">{AGENT_PATHS.reports}</code><p>{t("docs.reports")}</p></div>
+      <div><code className="break-all">{AGENT_PATHS.snapshots}</code><p>{t("docs.snapshots")}</p></div>
+      <div><code className="break-all">{AGENT_PATHS.intel}</code><p>{t("docs.intel")}</p></div>
+    </section>
+    <section className="flex flex-col gap-2">
       <h2 className="text-lg font-medium">{t("limitsTitle")}</h2>
       <p>{t("limits")}</p>
       <p>{t("quiet")}</p>
       <p>{t("notice")}</p>
+      <p>{t("tokenRule")}</p>
     </section>
     {session.status === "guest" && <p><Link href="/login" className="underline">{t("signIn")}</Link> {t("signInNote")}</p>}
     {session.status === "authed" && <TokenSettings key={session.email} />}
@@ -81,7 +101,6 @@ function TokenSettings() {
 
   return <section className="flex flex-col gap-4">
     <h2 className="text-lg font-medium">{t("settingsTitle")}</h2>
-    <p className="text-sm text-foreground/70">{t("tokenRule")}</p>
     <form onSubmit={event => void create(event)} className="flex flex-col gap-3">
       <label htmlFor="agent-token-name">{t("name")}</label>
       <Input id="agent-token-name" required maxLength={50} value={name} onChange={event => setName(event.target.value)} />
