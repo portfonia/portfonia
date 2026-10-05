@@ -39,16 +39,18 @@ def _record(request: Request, status_code: int) -> None:
                 user_id=user_id,
                 token_id=token_id,
                 token_prefix=plaintext[:12] if plaintext else None,
-                endpoint=endpoint,
+                endpoint=endpoint.replace("\x00", "\ufffd"),
                 params={
-                    key: request.query_params[key]
+                    key: request.query_params[key].replace("\x00", "\ufffd")
                     for key in ("start", "end")
                     if key in request.query_params
                 },
                 status_code=status_code,
                 item_count=getattr(request.state, "agent_item_count", None),
                 client_ip=request.client.host if request.client else "unknown",
-                user_agent=user_agent[:512] if user_agent is not None else None,
+                user_agent=user_agent[:512].replace("\x00", "\ufffd")
+                if user_agent is not None
+                else None,
             )
         )
         session.commit()

@@ -43,8 +43,10 @@ def send_portfolio_overview_email_task(self: Any, user_id: str, base_currency: s
         session.close()
 
 
-@celery_app.task(name="app.tasks.notification_tasks.send_api_access_notice_task")  # type: ignore[untyped-decorator]
-def send_api_access_notice_task(user_id: str) -> None:
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.notification_tasks.send_api_access_notice_task", bind=True, max_retries=1
+)
+def send_api_access_notice_task(self: Any, user_id: str) -> None:
     """Resolve a verified address and send one claimed ET-day access notice."""
     from app.core.database import SessionLocal
     from app.models.user import User
@@ -60,4 +62,7 @@ def send_api_access_notice_task(user_id: str) -> None:
         user = session.get(User, uid)
         assert user is not None
         revoke_url = f"https://portfonia.com/agent/revoke?t={create_link(uid)}"
-        send_api_access_notice(recipient[0], revoke_url, locale=user.locale)
+        if not send_api_access_notice(recipient[0], revoke_url, locale=user.locale):
+            if self.request.retries < self.max_retries:
+                raise self.retry(countdown=300)
+            logger.error("API access notice delivery failed after retry user_id=%s", uid)

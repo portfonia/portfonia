@@ -1116,7 +1116,7 @@ _API_ACCESS_NOTICE_COPY: dict[str, dict[str, str]] = {
 }
 
 
-def send_api_access_notice(email: str, revoke_url: str, *, locale: str = "en") -> str | None:
+def send_api_access_notice(email: str, revoke_url: str, *, locale: str = "en") -> bool:
     """Send the metadata-only notice; never include holding values or API tokens."""
     try:
         settings = get_settings()
@@ -1134,8 +1134,6 @@ def send_api_access_notice(email: str, revoke_url: str, *, locale: str = "en") -
                 },
             )
             response.raise_for_status()
-        message_id = response.json().get("id")
-        return message_id if isinstance(message_id, str) else None
+        return True
     except Exception:
-        logger.warning("API access notice delivery failed")
-        return None
+        return False

@@ -92,7 +92,9 @@ Unhandled exceptions record 500 and propagate. Matched routes use the route
 template; otherwise the raw path is truncated to 200 characters. Only sent
 `start`/`end` parameters are recorded. Metadata also includes time, nullable
 user/token ids, 12-character bearer prefix, item count (days), peer IP and
-User-Agent (maximum 512 characters). No holding values or full credentials
+User-Agent (maximum 512 characters). NUL characters in endpoints, date
+parameters and User-Agent are replaced with U+FFFD before persistence. Audit
+write failures remain fail-closed. No holding values or full credentials
 are logged. Known expired/revoked credentials retain their attribution.
 
 For 404/405, where authentication did not run, middleware performs one
@@ -112,6 +114,9 @@ delivery email first, then verified account email; unresolved recipients
 are logged and skipped. `_API_ACCESS_NOTICE_COPY` supplies English,
 Simplified and Traditional Chinese. The notice contains no holding values
 or API credential; it explains the read and offers a revoke-all link.
+The sender returns delivery success to the bound task, which retries once
+after 300 seconds on failure (`max_retries=1`). A second failure emits one
+ERROR log containing the user id, without the email address or link.
 
 The link signs `api-token-revoke-v1:{user_id}:{expires_unix}` using the
 existing APP_SECRET_KEY HMAC and unsubscribe encoding, valid for 30 days.

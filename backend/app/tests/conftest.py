@@ -232,7 +232,7 @@ def _no_external_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         "app.tasks.notification_tasks.send_api_access_notice",
-        MagicMock(return_value="test-provider-id"),
+        MagicMock(return_value=True),
     )
     monkeypatch.setattr(
         "app.services.subscription.send_subscription_notice",

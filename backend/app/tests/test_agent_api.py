@@ -8,6 +8,7 @@ from typing import cast
 from unittest.mock import patch
 
 import pytest
+from celery.exceptions import Retry  # type: ignore[import-untyped]
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -436,7 +437,7 @@ def test_acceptance_14_ops_audit_and_revoke(
                 params={},
                 status_code=403,
                 client_ip="other",
-                occurred_at=NOW,
+                occurred_at=NOW + timedelta(seconds=2000),
             ),
         ]
     )
@@ -623,3 +624,141 @@ def test_notice_task_recipient_and_locale(db_session: Session, clock: list[datet
         from app.services.api_token_revoke_link import verify_link
 
         assert verify_link(send.call_args.args[1].split("t=", 1)[1]) == TEST_USER_ID
+
+
+@pytest.mark.parametrize(
+    ("url", "status", "field"),
+    [
+        ("/agent/v1/%00x", 404, "endpoint"),
+        ("/agent/v1/snapshots?start=%00&end=2026-10-01", 422, "params"),
+    ],
+)
+def test_audit_sanitizes_nul(
+    app_client: TestClient,
+    db_session: Session,
+    advanced: dict[str, object],
+    url: str,
+    status: int,
+    field: str,
+) -> None:
+    response = app_client.get(url, headers=bearer(advanced))
+    assert response.status_code == status
+    rows = audit_rows(db_session)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["status_code"] == status
+    assert row["user_id"] == TEST_USER_ID
+    value = (
+        cast(dict[str, str], row["params"])["start"]
+        if field == "params"
+        else cast(str, row["endpoint"])
+    )
+    assert "\x00" not in value
+    assert "\ufffd" in value
+
+
+def test_audit_sanitizes_nul_user_agent(
+    app_client: TestClient, db_session: Session, advanced: dict[str, object]
+) -> None:
+    headers = {**bearer(advanced), "User-Agent": "probe\x00agent"}
+    assert app_client.get("/agent/v1/nope", headers=headers).status_code == 404
+    assert audit_rows(db_session)[0]["user_agent"] == "probe\ufffdagent"
+
+
+def test_acceptance_13_rejects_unsubscribe_token(
+    app_client: TestClient, advanced: dict[str, object], clock: list[datetime]
+) -> None:
+    from app.services.unsubscribe_token import create_token
+
+    token = create_token(
+        user_id=TEST_USER_ID, purpose="account_email", email="agent@example.com", now=NOW
+    )
+    response = app_client.post("/api-tokens/revoke-by-link", json={"token": token})
+    assert response.status_code == 400
+    assert response.json() == {"detail": "invalid_link"}
+    assert app_client.get(AGENT, params=params(), headers=bearer(advanced)).status_code == 200
+
+
+def test_acceptance_13_rejects_wrong_prefix(
+    app_client: TestClient, advanced: dict[str, object], clock: list[datetime]
+) -> None:
+    from app.services.unsubscribe_token import _encode, _sign
+
+    payload = f"wrong-prefix:{TEST_USER_ID}:{int((NOW + timedelta(days=30)).timestamp())}"
+    token = _encode(payload, _sign(payload))
+    response = app_client.post("/api-tokens/revoke-by-link", json={"token": token})
+    assert response.status_code == 400
+    assert response.json() == {"detail": "invalid_link"}
+    assert app_client.get(AGENT, params=params(), headers=bearer(advanced)).status_code == 200
+
+
+@pytest.mark.parametrize("success", [False, True])
+def test_notice_task_retries_once_or_succeeds(
+    db_session: Session, clock: list[datetime], success: bool
+) -> None:
+
+    from app.tasks.notification_tasks import send_api_access_notice_task as task
+
+    user = seed_user(db_session, TEST_USER_ID)
+    user.email_verified_at = NOW
+    db_session.commit()
+    with (
+        patch("app.tasks.notification_tasks.send_api_access_notice", return_value=success),
+        patch.object(task, "retry", side_effect=Retry()) as retry,
+    ):
+        if success:
+            task.run(str(TEST_USER_ID))
+            retry.assert_not_called()
+        else:
+            with pytest.raises(Retry):
+                task.run(str(TEST_USER_ID))
+            retry.assert_called_once_with(countdown=300)
+    assert task.max_retries == 1
+
+
+def test_notice_task_final_failure_logs_user_id(
+    db_session: Session, clock: list[datetime], caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    from app.tasks import notification_tasks
+
+    task = notification_tasks.send_api_access_notice_task
+    user = seed_user(db_session, TEST_USER_ID)
+    user.email_verified_at = NOW
+    db_session.commit()
+    logger = logging.getLogger(notification_tasks.__name__)
+    logger.disabled = False
+    with (
+        patch("app.tasks.notification_tasks.send_api_access_notice", return_value=False) as send,
+        patch.object(task, "retry", side_effect=Retry()) as retry,
+        caplog.at_level(logging.ERROR, logger=logger.name),
+    ):
+        task.push_request(retries=0)
+        try:
+            with pytest.raises(Retry):
+                task.run(str(TEST_USER_ID))
+        finally:
+            task.pop_request()
+        task.push_request(retries=1)
+        try:
+            task.run(str(TEST_USER_ID))
+        finally:
+            task.pop_request()
+    assert send.call_count == 2
+    retry.assert_called_once_with(countdown=300)
+    errors = [record for record in caplog.records if record.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert str(TEST_USER_ID) in errors[0].getMessage()
+    assert user.email not in errors[0].getMessage()
+    assert "revoke?t=" not in errors[0].getMessage()
+
+
+@pytest.mark.parametrize("success", [False, True])
+def test_notice_sender_reports_delivery_result(success: bool) -> None:
+    from app.services.email_sender import send_api_access_notice
+
+    with patch("app.services.email_sender.httpx.Client") as client:
+        response = client.return_value.__enter__.return_value.post.return_value
+        response.raise_for_status.side_effect = None if success else RuntimeError("provider failed")
+        assert send_api_access_notice("agent@example.com", "https://example.com/revoke") is success
