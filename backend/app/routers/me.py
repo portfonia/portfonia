@@ -39,7 +39,7 @@ from app.services.auth_provider import AuthProviderError, delete_auth_user
 from app.services.email_sender import send_ops_alert
 from app.services.invites import signup_email_taken
 from app.services.report_currency import apply_report_currency_change
-from app.services.user_purge import _normalize_email, purge_user, refuse_protected_user
+from app.services.user_purge import _normalize_email, purge_user
 from app.tasks.admin_tasks import send_admin_alert_task
 
 router = APIRouter()
@@ -332,7 +332,6 @@ def delete_account(
 ) -> Response:
     """Relinquish and purge in one transaction, then delete Auth before commit."""
     user = credit_ledger._lock_user(session, principal.user_id)
-    refuse_protected_user(session, user)
     if _normalize_email(body.confirm_email) != _normalize_email(user.email):
         raise HTTPException(status_code=409, detail="confirm does not match account email")
     if body.relinquish_cash != user.credit_cash_balance:

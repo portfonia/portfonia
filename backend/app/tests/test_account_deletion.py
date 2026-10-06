@@ -339,7 +339,7 @@ def test_08_commit_failure_rolls_back_and_alerts_once(
 
 
 @pytest.mark.parametrize("kind", ["seed", "created-invites"])
-def test_09_shared_refusals(
+def test_09_seed_and_invite_creator_deletion_succeeds(
     app_client: TestClient,
     db_session: Session,
     user: User,
@@ -347,18 +347,19 @@ def test_09_shared_refusals(
     monkeypatch: pytest.MonkeyPatch,
     kind: str,
 ) -> None:
+    invite_id = None
     if kind != "seed":
-        create_invite(db_session, created_by=user.id)
+        invite = create_invite(db_session, created_by=user.id)
+        invite_id = invite.id
     response = app_client.post(PATH, json=body())
-    if kind == "seed":
-        assert response.status_code == 204
-        assert db_session.get(User, TEST_USER_ID) is None
-        auth.assert_called_once()
-    else:
-        assert response.status_code == 409
-        assert response.json()["detail"] == "user created invites; revoke or reassign first"
-        assert db_session.get(User, TEST_USER_ID) is not None
-        auth.assert_not_called()
+    assert response.status_code == 204
+    db_session.expire_all()
+    assert db_session.get(User, TEST_USER_ID) is None
+    auth.assert_called_once()
+    if invite_id is not None:
+        stored = db_session.get(Invite, invite_id)
+        assert stored is not None
+        assert stored.created_by == TEST_USER_ID
 
 
 def test_10_ops_cash_refusal_unchanged(

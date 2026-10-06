@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 from uuid import UUID
 
-from fastapi import HTTPException
-from sqlalchemy import delete, exists, func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
@@ -54,14 +53,6 @@ def _normalize_email(email: str | None) -> str | None:
     if email is None:
         return None
     return email.strip().lower() or None
-
-
-def refuse_protected_user(session: Session, user: User) -> None:
-    """Refuse users whose issued invites still need reassignment."""
-    if session.scalar(select(exists().where(Invite.created_by == user.id))):
-        raise HTTPException(
-            status_code=409, detail="user created invites; revoke or reassign first"
-        )
 
 
 def purge_user(session: Session, user_id: UUID) -> PurgeResult:

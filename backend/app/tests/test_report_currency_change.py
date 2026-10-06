@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.models.report_currency_change import ReportCurrencyChange
 from app.models.user import User
@@ -224,3 +225,33 @@ def test_user_purge_cascades_audit_rows(db_session: Session) -> None:
     db_session.expire_all()
     assert db_session.get(User, _ADMIN_UID) is None
     assert _audit_rows(db_session, _ADMIN_UID) == []
+
+
+def test_admin_change_uses_null_actor_even_when_admin_user_exists(
+    app_client: TestClient, db_session: Session
+) -> None:
+    admin_id = uuid.UUID(get_settings().ADMIN_ID)
+    db_session.add(_user(admin_id, "root-admin-audit@example.com"))
+    db_session.add(_user(_ADMIN_UID, "audit-currency@example.com"))
+    db_session.flush()
+
+    resp = app_client.post(
+        "/admin/users/by-email/report-currency",
+        headers=_headers(),
+        params={"email": "audit-currency@example.com"},
+        json={"report_currency": "EUR"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "user_id": str(_ADMIN_UID),
+        "email": "audit-currency@example.com",
+        "report_currency": "EUR",
+    }
+    db_session.expire_all()
+    rows = _audit_rows(db_session, _ADMIN_UID)
+    assert len(rows) == 1
+    assert rows[0].old_currency == "USD"
+    assert rows[0].new_currency == "EUR"
+    assert rows[0].source == "admin"
+    assert rows[0].actor_user_id is None
