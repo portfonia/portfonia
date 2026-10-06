@@ -32,6 +32,8 @@ REASONS = (
     "qa",
     "refund",
     "relinquish",
+    "referral_bonus",
+    "referral_clawback",
 )
 ACTOR_TYPES = ("system", "admin", "user")
 
@@ -45,7 +47,7 @@ class CreditLedgerEntry(Base):
     __table_args__ = (
         CheckConstraint(_in_list_sql("bucket", BUCKETS), name="bucket"),
         CheckConstraint("amount <> 0", name="amount_nonzero"),
-        CheckConstraint("balance_after >= 0", name="balance_after"),
+        CheckConstraint("bucket = 'cash' OR balance_after >= 0", name="balance_after"),
         CheckConstraint(_in_list_sql("reason", REASONS), name="reason"),
         CheckConstraint(_in_list_sql("actor_type", ACTOR_TYPES), name="actor_type"),
         UniqueConstraint("idempotency_key", "bucket"),

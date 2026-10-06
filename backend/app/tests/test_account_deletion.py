@@ -371,7 +371,7 @@ def test_10_ops_cash_refusal_unchanged(
         f"/admin/users/{user.id}", headers=_headers(), params={"confirm": user.email}
     )
     assert response.status_code == 409
-    assert response.json()["detail"] == "user has a cash balance; refund or adjust it to zero first"
+    assert response.json()["detail"] == "user has a non-zero cash balance; settle it to zero first"
     auth.assert_not_called()
 
 

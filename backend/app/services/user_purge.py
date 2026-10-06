@@ -40,6 +40,7 @@ class PurgeResult:
     user_investment_context: int
     email_verifications: int
     invites_used_by_cleared: int
+    users_grand_invited_by_cleared: int
     users_invited_by_cleared: int
     users: int
     credit_ledger_flagged: int
@@ -165,6 +166,16 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
             ),
         )
     )
+    users_grand_invited_by_cleared = _rowcount(
+        cast(
+            CursorResult[Any],
+            session.execute(
+                update(User)
+                .where(User.grand_invited_by == user_id, User.id != user_id)
+                .values(grand_invited_by=None)
+            ),
+        )
+    )
     credit_ledger_flagged = _rowcount(
         cast(
             CursorResult[Any],
@@ -195,6 +206,7 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
         email_verifications=email_verifications,
         invites_used_by_cleared=invites_used_by_cleared,
         users_invited_by_cleared=users_invited_by_cleared,
+        users_grand_invited_by_cleared=users_grand_invited_by_cleared,
         users=users,
         credit_ledger_flagged=credit_ledger_flagged,
     )

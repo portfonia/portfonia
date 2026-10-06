@@ -158,3 +158,14 @@ it("3 a thrown request error shows the failure and does not sign out", async () 
   expect(signOut).not.toHaveBeenCalled();
   expect(replace).not.toHaveBeenCalled();
 });
+it("shows the negative balance contact message without deleting or signing out", async () => {
+  summary.cash_balance = "-0.01";
+  result = Response.json({ detail: "account has a negative balance; contact info@portfonia.com" }, { status: 409 });
+  renderProfile();
+  const dialog = await open();
+  await userEvent.type(within(dialog).getByRole("textbox"), "user@example.com");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Delete account" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Your account has a negative credit balance. Please contact info@portfonia.com to delete your account.");
+  expect(signOut).not.toHaveBeenCalled();
+  expect(replace).not.toHaveBeenCalled();
+});

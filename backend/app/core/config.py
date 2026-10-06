@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     # App
     APP_ENV: str = "development"
     SIGNUP_GRANT_CREDITS: Decimal = Decimal("5.00")
+    REFERRAL_FIRST_SUBSCRIPTION_RATE: Decimal = Field(default=Decimal("0.20"), ge=0, le=1)
+    REFERRAL_RECHARGE_RATE: Decimal = Field(default=Decimal("0.15"), ge=0, le=1)
+    REFERRAL_DAILY_LIMIT: int = Field(default=50, ge=0)
     PADDLE_ENVIRONMENT: Literal["sandbox", "production"] | None = None
     PADDLE_API_KEY: SecretStr | None = None
     PADDLE_CLIENT_SIDE_TOKEN: str | None = None

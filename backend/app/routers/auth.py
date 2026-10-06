@@ -42,6 +42,7 @@ from app.services.invites import (
     InviteRejected,
     hash_invite_token,
     redeem_invite,
+    resolve_attribution,
     signup_email_taken,
 )
 from app.services.window_data import backfill_news_surfaced_before, cold_start_watermark
@@ -100,7 +101,7 @@ def signup(
         guard_known_invite_token(session, req.invite_token)
         if signup_email_taken(session, email):
             raise InviteRejected(INVITE_REJECTED_MESSAGE)
-        redeem_invite(session, req.invite_token, used_by=new_id, email=email)
+        invite_id = redeem_invite(session, req.invite_token, used_by=new_id, email=email)
         sub = create_auth_user(email, req.password.get_secret_value())
         user = User(
             id=new_id,
@@ -116,6 +117,10 @@ def signup(
             tos_accepted_at=datetime.now(UTC),
         )
         session.add(user)
+        session.flush()
+        user.invited_by, user.grand_invited_by = resolve_attribution(
+            session, invite_id, root_id=uuid.UUID(get_settings().ADMIN_ID)
+        )
         session.flush()
         if grant_signup_credits(session, user) is None:
             logger.info("signup grant skipped user=%s", new_id)

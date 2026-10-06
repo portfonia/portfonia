@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.timezones import today_et
 from app.models.invite import Invite
 from app.services.invites import hash_invite_token
 from app.tasks.admin_tasks import send_admin_alert_task
@@ -646,3 +647,9 @@ def release_report_resend_cooldown(email: str) -> None:
             "rate_limit: could not release report resend cooldown for the resolved "
             "recipient (store unavailable) — it will expire naturally"
         )
+
+
+def rate_limit_referral(user_id: str) -> None:
+    key = f"referral:{user_id}:{today_et()}"
+    if _protecting_incr(key, 86400) > get_settings().REFERRAL_DAILY_LIMIT:
+        raise HTTPException(status_code=429, detail=RATE_LIMIT_DETAIL)

@@ -8,15 +8,18 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import exists, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
 from app.core.deps import Principal, current_principal
+from app.core.rate_limit import rate_limit_referral
 from app.core.timezones import ET, today_et
 from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
 from app.models.user import User
 from app.models.user_investment_context import UserInvestmentContext
+from app.models.waitlist_entry import WaitlistEntry
 from app.schemas.holdings import VALID_CURRENCIES
 from app.schemas.me import (
     MeOut,
@@ -34,8 +37,10 @@ from app.services.altcha_challenge import (
 )
 from app.services.auth_provider import AuthProviderError, delete_auth_user
 from app.services.email_sender import send_ops_alert
+from app.services.invites import signup_email_taken
 from app.services.report_currency import apply_report_currency_change
 from app.services.user_purge import _normalize_email, purge_user, refuse_protected_user
+from app.tasks.admin_tasks import send_admin_alert_task
 
 router = APIRouter()
 
@@ -332,6 +337,10 @@ def delete_account(
         raise HTTPException(status_code=409, detail="confirm does not match account email")
     if body.relinquish_cash != user.credit_cash_balance:
         raise HTTPException(status_code=409, detail="balance_changed")
+    if user.credit_cash_balance < 0:
+        raise HTTPException(
+            status_code=409, detail="account has a negative balance; contact info@portfonia.com"
+        )
     user_id, auth_subject = user.id, user.auth_subject
     if user.credit_cash_balance > 0:
         if not verify_account_deletion_solution(body.altcha):
@@ -364,3 +373,61 @@ def delete_account(
             status_code=500, detail="failed to delete account; contact support"
         ) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+class ReferralBody(BaseModel):
+    email: str
+    locale: Literal["en", "zh-Hans", "zh-Hant"]
+
+
+@router.post("/referrals")
+def refer_someone(
+    body: ReferralBody,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> dict[str, bool]:
+    email = body.email.strip().lower()
+    if not email:
+        raise HTTPException(status_code=422, detail="email is required")
+    rate_limit_referral(str(principal.user_id))
+    user = session.get(User, principal.user_id)
+    assert user is not None
+    if (
+        email == user.email.strip().lower()
+        or signup_email_taken(session, email)
+        or session.scalar(select(WaitlistEntry.id).where(WaitlistEntry.email == email)) is not None
+    ):
+        return {"received": True}
+    referrer_email = user.email
+    entry = WaitlistEntry(
+        email=email,
+        locale=body.locale,
+        status="pending",
+        source="referral",
+        referrer_user_id=user.id,
+    )
+    session.add(entry)
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        if getattr(exc.orig, "sqlstate", None) != "23505":
+            raise
+        return {"received": True}
+    language = {"en": "English", "zh-Hans": "Simplified Chinese", "zh-Hant": "Traditional Chinese"}[
+        entry.locale
+    ]
+    notice = (
+        "Someone joined the waitlist.\n\n"
+        f"Email: {entry.email}\nLanguage: {language}\n"
+        f"Submitted: {entry.created_at.astimezone(ET).strftime('%Y-%m-%d %H:%M ET')}\n\n"
+        "Nothing has been done with this request yet.\n"
+        f"Referred by: {referrer_email}"
+    )
+    try:
+        send_admin_alert_task.delay(
+            f"Portfonia waitlist: new request from {entry.email}", notice, severity="INFO"
+        )
+    except Exception:
+        logging.getLogger(__name__).exception("referral: failed to enqueue admin notice")
+    return {"received": True}

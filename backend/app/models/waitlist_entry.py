@@ -15,9 +15,13 @@ from app.models.base import Base
 class WaitlistEntry(Base):
     __tablename__ = "waitlist_entries"
     __table_args__ = (
+        CheckConstraint("source IN ('organic', 'referral')", name="source"),
         CheckConstraint("locale IN ('en', 'zh-Hans', 'zh-Hant')", name="locale"),
         CheckConstraint("status IN ('pending', 'invited', 'rejected')", name="status"),
     )
+
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'organic'"))
+    referrer_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")

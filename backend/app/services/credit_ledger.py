@@ -6,9 +6,9 @@ import hashlib
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -28,6 +28,8 @@ _REASON_RULES = {
     "qa": ({"cash", "gift"}, "-"),
     "refund": ({"cash"}, "±"),
     "relinquish": ({"cash"}, "-"),
+    "referral_bonus": ({"gift", "cash"}, "+"),
+    "referral_clawback": ({"cash"}, "±"),
 }
 
 
@@ -97,6 +99,7 @@ def _post(
     idempotency_key: str,
     note: str | None = None,
     reference: str | None = None,
+    allow_negative: bool = False,
 ) -> CreditLedgerEntry:
     if (
         not _valid_amount(amount)
@@ -114,7 +117,11 @@ def _post(
         raise ValueError("invalid bucket or sign for reason")
     column = f"credit_{bucket}_balance"
     balance_after = getattr(user, column) + amount
-    if balance_after < 0:
+    if (
+        amount < 0
+        and balance_after < 0
+        and not (allow_negative and bucket == "cash" and reason == "referral_clawback")
+    ):
         raise InsufficientCredits
     setattr(user, column, balance_after)
     entry = CreditLedgerEntry(
@@ -439,4 +446,185 @@ def relinquish_cash(
         actor_type="user",
         idempotency_key=f"relinquish:{user.id}",
         note=f"Relinquished by user at account deletion; refundable within 120 days at that time: {refundable_part}",
+    )
+
+
+def _referrer(session: Session, referee: User) -> User | None:
+    if referee.invited_by is None:
+        return None
+    return session.execute(
+        select(User)
+        .where(User.id == referee.invited_by)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+
+
+def referral_subscription_bonus(session: Session, referee: User) -> LedgerWrite | None:
+    charges = session.scalar(
+        select(func.count(func.distinct(CreditLedgerEntry.idempotency_key))).where(
+            CreditLedgerEntry.user_id == referee.id, CreditLedgerEntry.reason == "subscription"
+        )
+    )
+    if charges != 1:
+        return None
+    key = (
+        "referral_subscription:"
+        + hashlib.sha256((_normalize_email(referee.email) or "").encode()).hexdigest()
+    )
+    if _rows_for_key(session, key):
+        return None
+    referrer = _referrer(session, referee)
+    amount = (
+        get_settings().SIGNUP_GRANT_CREDITS * get_settings().REFERRAL_FIRST_SUBSCRIPTION_RATE
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if referrer is None or amount == 0:
+        return None
+    return LedgerWrite(
+        [
+            _post(
+                session,
+                referrer,
+                bucket="gift",
+                amount=amount,
+                reason="referral_bonus",
+                actor_type="system",
+                idempotency_key=key,
+                reference=str(referee.id),
+            )
+        ],
+        replayed=False,
+    )
+
+
+def referral_recharge_bonus(
+    session: Session, referee_id: uuid.UUID, transaction_id: str, credits: Decimal
+) -> LedgerWrite | None:
+    referee = session.get(User, referee_id)
+    if referee is None:
+        return None
+    referrer = _referrer(session, referee)
+    key = f"referral_recharge:{transaction_id}"
+    if _rows_for_key(session, key):
+        return None
+    amount = (credits * get_settings().REFERRAL_RECHARGE_RATE).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    if referrer is None or amount == 0:
+        return None
+    return LedgerWrite(
+        [
+            _post(
+                session,
+                referrer,
+                bucket="cash",
+                amount=amount,
+                reason="referral_bonus",
+                actor_type="system",
+                idempotency_key=key,
+                reference=transaction_id,
+            )
+        ],
+        replayed=False,
+    )
+
+
+@dataclass(frozen=True)
+class ClawbackResult:
+    write: LedgerWrite | None = None
+    unrecovered: Decimal = Decimal("0.00")
+
+
+def referral_clawback(session: Session, transaction_id: str, refund_key: str) -> ClawbackResult:
+    bonus_rows = _rows_for_key(session, f"referral_recharge:{transaction_id}")
+    if not bonus_rows:
+        return ClawbackResult()
+    bonus = bonus_rows[0]
+    referrer = session.execute(
+        select(User)
+        .where(User.id == bonus.user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    purchase, remaining = purchase_refundable(session, transaction_id)
+    target = (bonus.amount * (purchase.amount - remaining) / purchase.amount).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    already = -sum(
+        session.scalars(
+            select(CreditLedgerEntry.amount).where(
+                CreditLedgerEntry.reason == "referral_clawback",
+                CreditLedgerEntry.reference.startswith(f"refund:{transaction_id}:"),
+            )
+        ),
+        Decimal("0.00"),
+    )
+    amount = target - already
+    if amount <= 0:
+        return ClawbackResult()
+    if referrer is None:
+        return ClawbackResult(unrecovered=amount)
+    request_key = refund_key.split(":", 2)[2]
+    key = f"referral_clawback:{transaction_id}:{request_key}"
+    existing = _rows_for_key(session, key)
+    if existing:
+        return ClawbackResult(write=LedgerWrite(existing, replayed=True))
+    return ClawbackResult(
+        write=LedgerWrite(
+            [
+                _post(
+                    session,
+                    referrer,
+                    bucket="cash",
+                    amount=-amount,
+                    reason="referral_clawback",
+                    actor_type="system",
+                    idempotency_key=key,
+                    reference=refund_key,
+                    allow_negative=True,
+                )
+            ],
+            replayed=False,
+        )
+    )
+
+
+def reverse_referral_clawback(
+    session: Session, refund_key: str, transaction_id: str, adjustment_id: str
+) -> LedgerWrite | None:
+    debit = session.scalar(
+        select(CreditLedgerEntry).where(
+            CreditLedgerEntry.reason == "referral_clawback",
+            CreditLedgerEntry.reference == refund_key,
+            CreditLedgerEntry.amount < 0,
+        )
+    )
+    if debit is None:
+        return None
+    referrer = session.execute(
+        select(User)
+        .where(User.id == debit.user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if referrer is None:
+        return None
+    key = f"referral_clawback_reversal:{transaction_id}:{adjustment_id}"
+    existing = _rows_for_key(session, key)
+    if existing:
+        return LedgerWrite(existing, replayed=True)
+    return LedgerWrite(
+        [
+            _post(
+                session,
+                referrer,
+                bucket="cash",
+                amount=-debit.amount,
+                reason="referral_clawback",
+                actor_type="system",
+                idempotency_key=key,
+                reference=refund_key,
+            )
+        ],
+        replayed=False,
     )

@@ -427,9 +427,8 @@
     "reportLanguageError": "无法更新报告语言，请重试。",
     "reportCurrencyLabel": "报告货币",
     "reportCurrencyError": "无法更新报告货币，请重试。",
-    "inviteHeading": "生成邀请",
-    "inviteBody": "生成绑定指定邮箱的邀请链接。",
-    "invitePlaceholder": "暂未实现。",
+    "inviteHeading": "生成推荐邀请",
+    "inviteBody": "输入您想推荐的人的邮箱，我们会按顺序向对方发出邀请函。对方注册后首次订阅，以及之后每次购买 credits，您都会获得一定数量的 credits 作为推荐奖励。奖励规则可能调整，详见服务条款。",
     "deleteAccountHeading": "删除账户",
     "deleteAccountBody": "关闭账户并清除你的账户数据。",
     "errorLoadFailed": "无法加载账户信息。",
@@ -508,7 +507,12 @@
     "deleteAccountBalanceChanged": "你的余额发生了变化，请重新开始。",
     "deleteAccountInvalidCaptcha": "验证已失效，请重新开始。",
     "deleteAccountFailed": "删除失败，账户未做任何更改，请重试。",
-    "deleteAccountIncomplete": "删除未能完成，请联系 info@portfonia.com。"
+    "deleteAccountIncomplete": "删除未能完成，请联系 info@portfonia.com。",
+    "referralThanks": "感谢您的推荐",
+    "referralEmailRequired": "请输入邮箱地址。",
+    "referralDailyLimit": "今日推荐次数已达上限，请明天再试。",
+    "deleteAccountNegativeBalance": "您的账户 credits 余额为负，请联系 info@portfonia.com 处理账户删除。",
+    "referralError": "无法提交推荐，请重试。"
   },
   "portfolio": {
     "riskPanel": {
@@ -1176,7 +1180,7 @@
     "resellerNotice": "我们的订单流程由在线经销商 Paddle.com 执行。Paddle.com 是我们所有订单的记录商户（Merchant of Record），负责处理所有客户服务咨询及退货。",
     "terms": {
       "title": "服务条款",
-      "lastUpdated": "最后更新：2026-10-04",
+      "lastUpdated": "2026-10-05",
       "intro": "本服务条款规范您对 Portfonia 的使用。请与我们的隐私政策及退款政策一并阅读。",
       "sections": [
         {
@@ -1208,6 +1212,7 @@
             "如果您退订某个地址的报告邮件，且账户中不再有已验证的地址，您的订阅将视为已取消：订阅持续有效至已付费周期结束，不返还任何费用，重新验证地址后也不会恢复。",
             "余额提醒和到期通知仅发送至已验证的地址。",
             "Credits 不会过期，仅可用于 Portfonia 订阅，不可转让，除退款政策规定外无现金价值。",
+            "推荐。您推荐的人加入 Portfonia 并在之后订阅或购买 credits 时，您可能获得 credits 作为推荐奖励。奖励数额由 Portfonia 确定，并可随时调整。与某笔购买相关的奖励，在该笔购买退款时会被撤回，即使这会使您的余额低于零。对于通过滥用推荐计划获得的奖励，Portfonia 可以不予发放或予以撤回。",
             "{resellerNotice}您的购买同时受 {merchantOfRecord} 买方条款约束。"
           ]
         },

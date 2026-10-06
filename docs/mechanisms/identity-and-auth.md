@@ -990,10 +990,11 @@ emails; validation, bad captcha, limit, and Redis errors retain 422/400/429/503.
 
 `waitlist_entries` stores one unique normalized email, its UI locale,
 manual `pending|invited|rejected` status, `link_sent_at`, and timestamps.
-`invites.waitlist_entry_id` is nullable: a redeemed invite with this marker
-is organic; NULL means referred. Invite rows remain after user purge. A
+`invites.waitlist_entry_id` is nullable. Since #675, attribution comes from
+the linked waitlist entry's `source` and `referrer_user_id`; an organic entry
+or an invite without an entry attributes signup to the root Admin. Invite rows remain after user purge. A
 waitlist invite uses the existing email-bound signup and five-credit grant;
-signup, redeem, and purge behavior are unchanged.
+signup and purge now apply the referral rules below (#675).
 
 The ops view derives `registered` from an invite's `used_at` and `activated`
 from the linked user's `email_verified_at`; both verified and activated
@@ -1138,6 +1139,9 @@ stateless three-minute Altcha challenge. All three deletion endpoints use
 (default null). It takes the same refreshed user row lock as every ledger
 writer, applies the shared created-invite refusal (no seed-user refusal), compares normalized
 email, and requires the submitted amount to equal the locked cash balance.
+After the protected-user, email and exact-balance checks, negative cash
+returns 409 `account has a negative balance; contact info@portfonia.com`,
+without deleting anything. Profile shows the localized support message.
 For positive cash, a valid deletion proof is required and the full amount
 is recorded as a cash `relinquish` debit with actor type `user`. Gift needs
 no separate ledger write; unused subscription time is not returned.
@@ -1179,3 +1183,47 @@ API-token/waitlist removal, and self-service deletion on Profile.
 Deployment includes a ledger CHECK-constraint migration. Downgrade fails
 while retained rows use `relinquish` or actor type `user`. Implementation
 and tests do not authorize merge, deployment, or a production deletion.
+
+
+### User referrals (issue #675)
+
+Profile submits `POST /me/referrals` with the caller JWT and an email plus UI
+locale (`en`, `zh-Hans`, `zh-Hant`). Normalize with strip/lowercase and reject
+only blank email with 422, matching public waitlist behavior. The browser
+input is `type="email"`. The fixed-window key
+`referral:{user_id}:{today_et()}` allows `REFERRAL_DAILY_LIMIT` submissions
+(default 50) per ET day; excess returns 429, Redis failure 503. Own email,
+existing user email and existing waitlist email are no-ops. A unique insert
+race is rolled back and treated as a no-op. Every accepted request returns
+`200 {"received": true}` without revealing account or referral progress.
+
+New entries are pending, `source='referral'`, with nullable UUID
+`referrer_user_id` pointing at the caller (no FK). Existing entries default to
+`source='organic'`. Only a new entry queues the public waitlist's plain-English
+notice, adding `Referred by: {referrer email}`, after commit. Enqueue errors
+are logged without changing success. There is no Altcha or user history
+endpoint. The public waitlist endpoint and #672 sender, eligibility, quota
+and digest are unchanged. Sent invites retain `created_by` as the root Admin;
+never put the referrer there, because created-invite owners cannot be purged.
+
+Signup saves the redeemed invite id and calls `resolve_attribution` after
+flushing the new user. The router supplies the root UUID explicitly. A
+linked referral entry whose referrer still exists sets `invited_by` to that
+user and `grand_invited_by` to that user's `invited_by`, or root if NULL.
+Organic/plain invites and deleted referrers set both to root. Invite creator
+is never read for attribution. Neither field has a FK, and attribution is
+immutable except purge clearing. No root user row is created. Migration
+`d67500000001` backfills both fields on every existing user to `ADMIN_ID`.
+
+Purge clears both attribution fields on other users pointing at the deleted
+user, exposing `users_grand_invited_by_cleared` beside the existing count.
+Ops purge requires exactly zero cash; non-zero cash returns 409
+`user has a non-zero cash balance; settle it to zero first`. Existing cash
+credit-adjustments support manual settlement. Self-service negative cash
+is refused with the support message; positive cash keeps #644 relinquishment.
+Both retain accounting history and unlink the account's waitlist/invite email
+bindings. Ops waitlist list/by-email/id views add `source` and
+`referrer_email`, which is NULL when the referrer has been purged.
+
+First-subscription and purchase rewards, negative cash and refund handling
+are specified in [Credit ledger](credit-ledger.md#referral-rewards-and-refund-clawbacks-issue-675).

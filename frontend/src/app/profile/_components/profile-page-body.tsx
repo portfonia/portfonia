@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogFooter, AlertDialogCancel } from "@/components/ui/alert-dialog";
 
 import { BASE_CURRENCIES, type BaseCurrency } from "@/app/portfolio/_components/currencies";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +35,35 @@ const planLabelKeys: Record<SubscriptionType, string> = {
 // heading-only.
 export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError: boolean }) {
   const t = useTranslations("profile");
+  const tAuth = useTranslations("auth");
+  const locale = useLocale();
+  const [referralEmail, setReferralEmail] = useState("");
+  const [referralPending, setReferralPending] = useState(false);
+  const [referralError, setReferralError] = useState<string | null>(null);
+  const [referralThanks, setReferralThanks] = useState(false);
+
+  async function submitReferral(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!referralEmail.trim() || referralPending) return;
+    setReferralPending(true);
+    setReferralError(null);
+    try {
+      const response = await fetch("/api/me/referrals", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: referralEmail, locale }),
+      });
+      if (response.ok) {
+        setReferralEmail("");
+        setReferralThanks(true);
+      } else {
+        setReferralError(response.status === 422 ? "referralEmailRequired" : response.status === 429 ? "referralDailyLimit" : "referralError");
+      }
+    } catch {
+      setReferralError("referralError");
+    } finally {
+      setReferralPending(false);
+    }
+  }
   // Issue #107 review (blacktomb42, PR #271): the landing-page footer is the
   // only other place these link from, so a signed-in user — the population
   // actually governed by them — had no in-app path to either document after
@@ -390,7 +422,18 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
           <CardDescription>{t("inviteBody")}</CardDescription>
         </CardHeader>
         <CardContent className="px-4">
-          <p className="text-sm text-muted-foreground">{t("invitePlaceholder")}</p>
+          <form onSubmit={(event) => void submitReferral(event)} className="flex flex-col gap-3">
+            <label htmlFor="referral-email" className="text-sm font-medium">{tAuth("emailLabel")}</label>
+            <Input id="referral-email" type="email" value={referralEmail} disabled={referralPending} onChange={(event) => setReferralEmail(event.target.value)} />
+            <Button type="submit" disabled={!referralEmail.trim() || referralPending}>{t("subscriptionConfirm")}</Button>
+            {referralError && <p role="alert" className="text-sm text-destructive">{t(referralError)}</p>}
+          </form>
+          <AlertDialog open={referralThanks} onOpenChange={setReferralThanks}>
+            <AlertDialogContent aria-describedby={undefined}>
+              <AlertDialogHeader><AlertDialogTitle>{t("referralThanks")}</AlertDialogTitle></AlertDialogHeader>
+              <AlertDialogFooter><AlertDialogCancel>{t("subscriptionConfirm")}</AlertDialogCancel></AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </CardContent>
       </Card>
 

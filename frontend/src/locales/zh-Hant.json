@@ -427,9 +427,8 @@
     "reportLanguageError": "無法更新報告語言，請重試。",
     "reportCurrencyLabel": "報告貨幣",
     "reportCurrencyError": "無法更新報告貨幣，請重試。",
-    "inviteHeading": "產生邀請",
-    "inviteBody": "產生綁定指定電子郵件的邀請連結。",
-    "invitePlaceholder": "尚未實作。",
+    "inviteHeading": "產生推薦邀請",
+    "inviteBody": "輸入您想推薦的人的電子郵件，我們會依序向對方發出邀請函。對方註冊後首次訂閱，以及之後每次購買 credits，您都會獲得一定數量的 credits 作為推薦獎勵。獎勵規則可能調整，詳見服務條款。",
     "deleteAccountHeading": "刪除帳戶",
     "deleteAccountBody": "關閉帳戶並清除您的帳戶資料。",
     "errorLoadFailed": "無法載入帳戶資訊。",
@@ -508,7 +507,12 @@
     "deleteAccountBalanceChanged": "您的餘額已有變動，請重新開始。",
     "deleteAccountInvalidCaptcha": "驗證已失效，請重新開始。",
     "deleteAccountFailed": "刪除失敗，帳戶未做任何變更，請重試。",
-    "deleteAccountIncomplete": "刪除未能完成，請聯絡 info@portfonia.com。"
+    "deleteAccountIncomplete": "刪除未能完成，請聯絡 info@portfonia.com。",
+    "referralThanks": "感謝您的推薦",
+    "referralEmailRequired": "請輸入電子郵件地址。",
+    "referralDailyLimit": "今日推薦次數已達上限，請明天再試。",
+    "deleteAccountNegativeBalance": "您的帳戶 credits 餘額為負，請聯絡 info@portfonia.com 處理帳戶刪除。",
+    "referralError": "無法提交推薦，請重試。"
   },
   "portfolio": {
     "riskPanel": {
@@ -1176,7 +1180,7 @@
     "resellerNotice": "我們的訂單流程由線上經銷商 Paddle.com 執行。Paddle.com 是我們所有訂單的記錄商戶（Merchant of Record），負責處理所有客戶服務詢問及退貨。",
     "terms": {
       "title": "服務條款",
-      "lastUpdated": "最後更新：2026-10-04",
+      "lastUpdated": "2026-10-05",
       "intro": "本服務條款規範您對 Portfonia 的使用。請與我們的隱私政策及退款政策一併閱讀。",
       "sections": [
         {
@@ -1208,6 +1212,7 @@
             "如果您退訂某個地址的報告郵件，且帳戶中不再有已驗證的地址，您的訂閱將視為已取消：訂閱持續有效至已付費週期結束，不退回任何費用，重新驗證地址後也不會恢復。",
             "餘額提醒和到期通知僅寄送至已驗證的地址。",
             "Credits 不會過期，僅可用於 Portfonia 訂閱，不可轉讓，除退款政策規定外無現金價值。",
+            "推薦。您推薦的人加入 Portfonia 並在之後訂閱或購買 credits 時，您可能獲得 credits 作為推薦獎勵。獎勵數額由 Portfonia 決定，並可隨時調整。與某筆購買相關的獎勵，在該筆購買退款時會被撤回，即使這會使您的餘額低於零。對於透過濫用推薦計畫取得的獎勵，Portfonia 可以不予發放或予以撤回。",
             "{resellerNotice}您的購買同時受 {merchantOfRecord} 買方條款約束。"
           ]
         },
