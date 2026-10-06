@@ -225,7 +225,9 @@
       "watch": "Watch",
       "focus": "Focus",
       "critical": "Critical"
-    }
+    },
+    "exportDescription": "Current holdings export (re-importable)",
+    "templateDescription": "Holdings upload template"
   },
   "questionnaire": {
     "pageTitle": "Investment style",
@@ -729,7 +731,12 @@
       "COMMODITY": "Commodities",
       "BOND_FUND": "Bond fund",
       "CASH_EQUIV": "Cash & equivalents"
-    }
+    },
+    "exportDescription": "Holdings snapshot, base currency {currency}, {language}",
+    "sendOverviewConfirmTitle": "Send holdings overview?",
+    "sendOverviewConfirmBody": "A holdings overview in {currency} will be emailed to your report delivery address.",
+    "sendOverviewConfirmAction": "Send",
+    "sendOverviewCancel": "Cancel"
   },
   "home": {
     "hero": {
@@ -1497,7 +1504,8 @@
       "manual": "Manual",
       "report": "Report",
       "daily": "Daily"
-    }
+    },
+    "downloadDescription": "Holdings briefing for {date}"
   },
   "agent": {
     "title": "AI Agent",
@@ -1550,6 +1558,18 @@
       "reports": "Reports: all plans. Specify start and end dates (inclusive, Eastern Time). Returns at most the 5 newest available reports in the range, with Markdown, total_in_range and truncated.",
       "snapshots": "Holding snapshots: Advanced plan. Specify start and end dates (inclusive, Eastern Time), covering at most 30 days.",
       "intel": "Intelligence: Advanced plan. Specify one Eastern Time date within the last 7 days, including today. Returns your holding headlines and accepted article bodies, plus macro articles for the themes of your latest available report on or before that date. No source links."
+    }
+  },
+  "downloadConfirm": {
+    "title": "Download this file?",
+    "fileName": "File",
+    "fileSize": "Size",
+    "confirm": "Download",
+    "cancel": "Cancel",
+    "languages": {
+      "en": "English",
+      "zh": "Simplified Chinese",
+      "zh-Hant": "Traditional Chinese"
     }
   }
 }

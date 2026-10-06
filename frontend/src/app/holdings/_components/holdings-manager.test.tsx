@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -334,6 +334,10 @@ describe("HoldingsManager", () => {
       ]);
       await user.click(screen.getByRole("button", { name: /download template/i }));
       await waitFor(() => expect(downloadHoldingsTemplate).toHaveBeenCalledWith("en"));
+      // #679: the confirmation dialog is modal; dismiss it before the next click.
+      await screen.findByRole("alertdialog");
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
 
       await user.click(screen.getByRole("button", { name: /export current holdings/i }));
       await waitFor(() => expect(exportHoldings).toHaveBeenCalledWith("en"));
@@ -369,8 +373,59 @@ describe("HoldingsManager", () => {
       ]);
       await user.click(screen.getByRole("button", { name: catalogs[locale].holdings.downloadTemplate }));
       await waitFor(() => expect(downloadHoldingsTemplate).toHaveBeenCalledWith(expected));
+      await screen.findByRole("alertdialog");
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
       await user.click(screen.getByRole("button", { name: catalogs[locale].holdings.exportButton }));
       await waitFor(() => expect(exportHoldings).toHaveBeenCalledWith(expected));
     });
+  });
+  it("export and template each ask for confirmation before saving (#679)", async () => {
+    const holding: HoldingOut = {
+      id: "h1", name: "Apple", ticker: "AAPL", fund_code: null, currency: "USD",
+      shares: "1", avg_cost: "1", current_value: null, pricing_mode: "auto",
+      asset_type: "stock", capture_supported: true, broker: null, account: null,
+      portfolio: null, notes: null, last_manual_update: null,
+      created_at: "2026-10-06T00:00:00Z", updated_at: "2026-10-06T00:00:00Z",
+    };
+    // Earlier locale tests leave a zh-* store installed; pin English here.
+    withLocaleStorage();
+    const exportBlob = new Blob(["x"]);
+    exportHoldings.mockResolvedValue({ blob: exportBlob, filename: "holdings-export.md" });
+    const user = userEvent.setup();
+    renderManager("normal", [holding]);
+
+    await user.click(screen.getByRole("button", { name: /export current holdings/i }));
+    let dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Current holdings export (re-importable)");
+    expect(dialog).toHaveTextContent("holdings-export.md");
+    expect(downloadFile).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: /^download$/i }));
+    expect(downloadFile).toHaveBeenCalledExactlyOnceWith(exportBlob, "holdings-export.md");
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: /download template/i }));
+    dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Holdings upload template");
+    expect(dialog).toHaveTextContent("holdings-template.md");
+    await user.click(within(dialog).getByRole("button", { name: /cancel/i }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(downloadFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("template saves the fetched blob as holdings-template.md only on confirm (#679)", async () => {
+    withLocaleStorage();
+    const templateBlob = new Blob(["template"]);
+    downloadHoldingsTemplate.mockResolvedValue(templateBlob);
+    const user = userEvent.setup();
+    renderManager("normal");
+
+    await user.click(screen.getByRole("button", { name: /download template/i }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(downloadFile).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: /^download$/i }));
+
+    expect(downloadFile).toHaveBeenCalledExactlyOnceWith(templateBlob, "holdings-template.md");
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   });
 });

@@ -70,7 +70,8 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <LocaleContext.Provider value={{ locale, setLocale }}>
-      <NextIntlClientProvider locale={locale} messages={catalogs[locale]}>
+      {/* Project-wide ET default; also silences next-intl's ENVIRONMENT_FALLBACK during prerender. */}
+      <NextIntlClientProvider locale={locale} messages={catalogs[locale]} timeZone="America/New_York">
         {children}
       </NextIntlClientProvider>
     </LocaleContext.Provider>

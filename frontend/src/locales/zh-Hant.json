@@ -225,7 +225,9 @@
       "watch": "關注",
       "focus": "重點關注",
       "critical": "緊盯"
-    }
+    },
+    "exportDescription": "目前持倉匯出（可重新匯入）",
+    "templateDescription": "持倉上傳範本"
   },
   "questionnaire": {
     "pageTitle": "投資風格",
@@ -729,7 +731,12 @@
       "COMMODITY": "大宗商品",
       "BOND_FUND": "債券基金",
       "CASH_EQUIV": "現金等價物"
-    }
+    },
+    "exportDescription": "持倉快照，基準貨幣 {currency}，{language}",
+    "sendOverviewConfirmTitle": "寄送持倉總覽？",
+    "sendOverviewConfirmBody": "將以 {currency} 計價的持倉總覽寄送到你的報告收件信箱。",
+    "sendOverviewConfirmAction": "寄送",
+    "sendOverviewCancel": "取消"
   },
   "home": {
     "hero": {
@@ -1497,7 +1504,8 @@
       "manual": "手動",
       "report": "報告",
       "daily": "每日"
-    }
+    },
+    "downloadDescription": "{date} 的持倉簡報"
   },
   "agent": {
     "title": "AI 智能體",
@@ -1550,6 +1558,18 @@
       "reports": "簡報：所有方案均可存取。指定起訖日期（含首尾，美東時間），回傳範圍內最新的最多 5 份可用簡報，包括 Markdown 正文、total_in_range 和 truncated。",
       "snapshots": "持倉快照：需要進階方案。指定起訖日期（含首尾，美東時間），最多涵蓋 30 天。",
       "intel": "情報：需要進階方案。指定最近 7 天內的一個美東日期（含今天），回傳您的持倉標題和已接受的文章正文，以及該日或之前最新可用簡報主題對應的總體經濟文章。不含來源連結。"
+    }
+  },
+  "downloadConfirm": {
+    "title": "下載此檔案？",
+    "fileName": "檔名",
+    "fileSize": "大小",
+    "confirm": "下載",
+    "cancel": "取消",
+    "languages": {
+      "en": "英文",
+      "zh": "簡體中文",
+      "zh-Hant": "繁體中文"
     }
   }
 }

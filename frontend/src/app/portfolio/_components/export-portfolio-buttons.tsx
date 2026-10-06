@@ -5,8 +5,8 @@ import { useTranslations } from "next-intl";
 
 import { useLocale } from "@/app/_components/locale-provider";
 import { exportPortfolio, type PortfolioExportFormat } from "@/lib/api";
-import { downloadFile } from "@/lib/template";
 import { Button } from "@/components/ui/button";
+import { DownloadConfirmDialog, type PendingDownload } from "@/components/download-confirm-dialog";
 
 // UI locales map to export codes: zh-Hans -> "zh", zh-Hant -> "zh-Hant".
 // Other values pass through; unrecognized codes fall back to English server-side.
@@ -14,6 +14,12 @@ function exportLocaleParam(locale: string): string {
   if (locale === "zh-Hans") return "zh";
   if (locale === "zh-Hant") return "zh-Hant";
   return locale;
+}
+
+// Unrecognized export codes fall back to English server-side, so the dialog
+// names English for them too.
+function exportLanguageKey(exportLocale: string): "en" | "zh" | "zh-Hant" {
+  return exportLocale === "zh" || exportLocale === "zh-Hant" ? exportLocale : "en";
 }
 
 export function ExportPortfolioButtons({
@@ -24,20 +30,26 @@ export function ExportPortfolioButtons({
   disabled?: boolean;
 }) {
   const t = useTranslations("portfolio");
+  const tConfirm = useTranslations("downloadConfirm");
   const { locale } = useLocale();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState(false);
+  const [pending, setPending] = useState<PendingDownload | null>(null);
 
   function handleDownload(format: PortfolioExportFormat) {
     setError(false);
     startTransition(async () => {
       try {
-        const { blob, filename } = await exportPortfolio(
-          format,
-          baseCurrency,
-          exportLocaleParam(locale),
-        );
-        downloadFile(blob, filename);
+        const exportLocale = exportLocaleParam(locale);
+        const { blob, filename } = await exportPortfolio(format, baseCurrency, exportLocale);
+        setPending({
+          blob,
+          filename,
+          description: t("exportDescription", {
+            currency: baseCurrency,
+            language: tConfirm(`languages.${exportLanguageKey(exportLocale)}`),
+          }),
+        });
       } catch {
         setError(true);
       }
@@ -46,7 +58,7 @@ export function ExportPortfolioButtons({
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <div className="flex gap-2">
+      <div className="flex flex-wrap justify-end gap-2">
         <Button
           variant="outline"
           size="sm"
@@ -69,6 +81,7 @@ export function ExportPortfolioButtons({
           {t("exportError")}
         </p>
       )}
+      <DownloadConfirmDialog pending={pending} onClose={() => setPending(null)} />
     </div>
   );
 }

@@ -225,7 +225,9 @@
       "watch": "关注",
       "focus": "重点关注",
       "critical": "紧盯"
-    }
+    },
+    "exportDescription": "当前持仓导出（可重新导入）",
+    "templateDescription": "持仓上传模板"
   },
   "questionnaire": {
     "pageTitle": "投资风格",
@@ -729,7 +731,12 @@
       "COMMODITY": "大宗商品",
       "BOND_FUND": "债券基金",
       "CASH_EQUIV": "现金等价物"
-    }
+    },
+    "exportDescription": "持仓快照，基准货币 {currency}，{language}",
+    "sendOverviewConfirmTitle": "发送持仓总览？",
+    "sendOverviewConfirmBody": "将以 {currency} 计价的持仓总览发送到你的报告投递邮箱。",
+    "sendOverviewConfirmAction": "发送",
+    "sendOverviewCancel": "取消"
   },
   "home": {
     "hero": {
@@ -1497,7 +1504,8 @@
       "manual": "手动",
       "report": "报告",
       "daily": "每日"
-    }
+    },
+    "downloadDescription": "{date} 的持仓简报"
   },
   "agent": {
     "title": "AI智能体",
@@ -1550,6 +1558,18 @@
       "reports": "报告：所有套餐均可访问。指定起止日期（含首尾，美东时间），返回范围内最新的最多 5 份可用报告，包括 Markdown 正文、total_in_range 和 truncated。",
       "snapshots": "持仓快照：需要进阶套餐。指定起止日期（含首尾，美东时间），最多涵盖 30 天。",
       "intel": "情报：需要进阶套餐。指定最近 7 天内的一个美东日期（含今天），返回您的持仓标题和已接受的文章正文，以及该日或之前最新可用报告主题对应的宏观文章。不含来源链接。"
+    }
+  },
+  "downloadConfirm": {
+    "title": "下载此文件？",
+    "fileName": "文件名",
+    "fileSize": "大小",
+    "confirm": "下载",
+    "cancel": "取消",
+    "languages": {
+      "en": "英文",
+      "zh": "简体中文",
+      "zh-Hant": "繁体中文"
     }
   }
 }

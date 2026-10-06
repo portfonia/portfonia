@@ -17,7 +17,7 @@ import {
   type UploadPreview,
 } from "@/lib/api";
 import { isNextRedirectError } from "@/lib/next-redirect-error";
-import { downloadFile } from "@/lib/template";
+import { DownloadConfirmDialog, type PendingDownload } from "@/components/download-confirm-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -61,6 +61,7 @@ export function HoldingsManager({
   const router = useRouter();
   const { locale } = useLocale();
   const [holdings, setHoldings] = useState<HoldingOut[]>(initialHoldings);
+  const [pendingDownload, setPendingDownload] = useState<PendingDownload | null>(null);
   const [preview, setPreview] = useState<UploadPreview | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadSeconds, setUploadSeconds] = useState(0);
@@ -152,7 +153,7 @@ export function HoldingsManager({
   async function onExport() {
     try {
       const exported = await exportHoldings(exportLocaleParam(locale));
-      downloadFile(exported.blob, exported.filename);
+      setPendingDownload({ ...exported, description: t("exportDescription") });
     } catch (err) {
       if (isNextRedirectError(err)) throw err;
       setError(err instanceof ApiError ? err.message : String(err));
@@ -161,10 +162,11 @@ export function HoldingsManager({
 
   async function onDownloadTemplate() {
     try {
-      downloadFile(
-        await downloadHoldingsTemplate(exportLocaleParam(locale)),
-        "holdings-template.md",
-      );
+      setPendingDownload({
+        blob: await downloadHoldingsTemplate(exportLocaleParam(locale)),
+        filename: "holdings-template.md",
+        description: t("templateDescription"),
+      });
     } catch (err) {
       if (isNextRedirectError(err)) throw err;
       setError(err instanceof ApiError ? err.message : String(err));
@@ -337,7 +339,7 @@ export function HoldingsManager({
           <CardHeader>
             <CardTitle>{t("currentHeading")}</CardTitle>
             <CardAction>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap justify-end gap-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -382,6 +384,7 @@ export function HoldingsManager({
         </AlertDialogContent>
       </AlertDialog>
 
+      <DownloadConfirmDialog pending={pendingDownload} onClose={() => setPendingDownload(null)} />
       <AlertDialog open={replaceConfirmOpen} onOpenChange={setReplaceConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

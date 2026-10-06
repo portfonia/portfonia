@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,7 +19,31 @@ beforeEach(() => {
   sendPortfolioOverview.mockReset();
 });
 
+async function confirmSend(user: ReturnType<typeof userEvent.setup>) {
+  const dialog = await screen.findByRole("alertdialog");
+  expect(sendPortfolioOverview).not.toHaveBeenCalled();
+  await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+}
+
 describe("SendOverviewButton", () => {
+  it("asks for confirmation naming the currency, and cancel sends nothing (#679)", async () => {
+    const user = userEvent.setup();
+    render(
+      <LocaleProvider>
+        <SendOverviewButton baseCurrency="HKD" />
+      </LocaleProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /send holdings overview/i }));
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("HKD");
+    expect(dialog).toHaveTextContent(/report delivery address/i);
+    await user.click(within(dialog).getByRole("button", { name: /cancel/i }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(sendPortfolioOverview).not.toHaveBeenCalled();
+  });
+
   it("shows a success message when the send is dispatched", async () => {
     sendPortfolioOverview.mockResolvedValue({ sent: true, retry_after_seconds: null });
     const user = userEvent.setup();
@@ -30,9 +54,10 @@ describe("SendOverviewButton", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /send holdings overview/i }));
+    await confirmSend(user);
 
     await waitFor(() => expect(screen.getByText(/sent to your email/i)).toBeInTheDocument());
-    expect(sendPortfolioOverview).toHaveBeenCalledWith("USD");
+    expect(sendPortfolioOverview).toHaveBeenCalledExactlyOnceWith("USD");
   });
 
   it("shows remaining cooldown time instead of an error when still in cooldown", async () => {
@@ -45,6 +70,7 @@ describe("SendOverviewButton", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /send holdings overview/i }));
+    await confirmSend(user);
 
     // 610s rounds up to 11 minutes — never claim "0 min" for a real cooldown.
     await waitFor(() => expect(screen.getByText(/11 min/)).toBeInTheDocument());
@@ -65,6 +91,7 @@ describe("SendOverviewButton", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /send holdings overview/i }));
+    await confirmSend(user);
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
     expect(screen.queryByText(/min\.?$/)).not.toBeInTheDocument();
@@ -80,6 +107,7 @@ describe("SendOverviewButton", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /send holdings overview/i }));
+    await confirmSend(user);
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
   });
