@@ -15,7 +15,6 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.models.account import Account
 from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
@@ -159,8 +158,6 @@ def test_purge_seed_user_succeeds(
     app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seed_id = _A
-    if hasattr(get_settings(), "DEV_USER_ID"):
-        monkeypatch.setattr(get_settings(), "DEV_USER_ID", str(seed_id))
     db_session.add(_user(seed_id, "seed@example.com"))
     db_session.flush()
     resp = app_client.delete(
@@ -939,8 +936,6 @@ def test_purge_by_email_seed_user_succeeds(
     app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seed_id = _A
-    if hasattr(get_settings(), "DEV_USER_ID"):
-        monkeypatch.setattr(get_settings(), "DEV_USER_ID", str(seed_id))
     db_session.add(_user(seed_id, "seed@example.com"))
     db_session.flush()
     resp = app_client.delete(

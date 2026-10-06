@@ -105,6 +105,7 @@ def auto_invite_waitlist() -> str:
                 attempts += 1
                 failed.append(email)
             except LetterConflict as exc:
+                session.rollback()
                 logger.warning(
                     "waitlist automatic invitation skipped for %s: %s", email, exc.detail
                 )

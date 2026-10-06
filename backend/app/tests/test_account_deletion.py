@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.core.deps import current_principal
 from app.core.timezones import ET
 from app.main import app
@@ -348,10 +347,7 @@ def test_09_shared_refusals(
     monkeypatch: pytest.MonkeyPatch,
     kind: str,
 ) -> None:
-    if kind == "seed":
-        if hasattr(get_settings(), "DEV_USER_ID"):
-            monkeypatch.setattr(get_settings(), "DEV_USER_ID", str(user.id))
-    else:
+    if kind != "seed":
         create_invite(db_session, created_by=user.id)
     response = app_client.post(PATH, json=body())
     if kind == "seed":

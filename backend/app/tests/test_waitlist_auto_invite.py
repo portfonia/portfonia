@@ -746,3 +746,67 @@ def test_pre_mint_database_failure_is_listed_and_retried(
         assert _run() == "reported"
     db_session.refresh(first)
     assert first.status == "invited" and first.link_sent_at is not None
+
+
+def test_conflict_releases_row_lock_before_next_candidate(
+    session_test_db: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.core.database import get_engine
+    from app.services.invitation_letters import send_letter
+    from app.tasks import waitlist_tasks
+
+    _limit(monkeypatch, 1)
+    engine = get_engine()
+    base = datetime.now(tz=ET) - timedelta(days=1)
+    emails = ["conflict-lock-first@example.com", "conflict-lock-next@example.com"]
+    with Session(engine) as setup:
+        first = _entry(setup, emails[0], created_at=base)
+        _entry(setup, emails[1], created_at=base + timedelta(hours=1))
+        setup.commit()
+        first_id = first.id
+    probes: list[uuid.UUID] = []
+    lock_errors: list[str] = []
+
+    def before_send(session: Session, email: str, **kwargs: object) -> object:
+        if email == emails[0]:
+            with Session(engine) as other:
+                other.execute(
+                    update(WaitlistEntry)
+                    .where(WaitlistEntry.id == first_id)
+                    .values(status="rejected")
+                )
+                other.commit()
+        else:
+            # The first conflict has been handled, but the next send has not started.
+            try:
+                with Session(engine) as probe:
+                    locked_id = probe.scalar(
+                        select(WaitlistEntry.id)
+                        .where(WaitlistEntry.id == first_id)
+                        .with_for_update(nowait=True)
+                    )
+                    assert locked_id is not None
+                    probes.append(locked_id)
+            except OperationalError as exc:
+                lock_errors.append(str(exc.orig))
+        return send_letter(session, email, **kwargs)  # type: ignore[arg-type]
+
+    try:
+        with (
+            patch("app.core.database.SessionLocal", side_effect=lambda: Session(engine)),
+            patch.object(waitlist_tasks, "send_letter", side_effect=before_send),
+            patch(
+                "app.services.invitation_letters.send_invitation_letter", return_value="provider"
+            ) as send,
+            patch("app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"),
+        ):
+            assert _run() == "reported"
+        assert lock_errors == []
+        assert probes == [first_id]
+        assert [call.args[0] for call in send.call_args_list] == [emails[1]]
+    finally:
+        with Session(engine) as cleanup:
+            ids = select(WaitlistEntry.id).where(WaitlistEntry.email.in_(emails))
+            cleanup.execute(delete(Invite).where(Invite.waitlist_entry_id.in_(ids)))
+            cleanup.execute(delete(WaitlistEntry).where(WaitlistEntry.email.in_(emails)))
+            cleanup.commit()
