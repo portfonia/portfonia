@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.invite import Invite
 from app.models.user import User
+from app.models.waitlist_entry import WaitlistEntry
 from app.services.user_purge import _normalize_email as _normalize_email
 
 INVITE_REJECTED_MESSAGE = "invalid invite"
@@ -126,3 +127,20 @@ def revoke_invite(session: Session, invite_id: uuid.UUID) -> None:
 
 def list_invites(session: Session) -> list[Invite]:
     return list(session.execute(select(Invite).order_by(Invite.created_at.desc())).scalars().all())
+
+
+def resolve_attribution(
+    session: Session, invite_id: uuid.UUID, *, root_id: uuid.UUID
+) -> tuple[uuid.UUID, uuid.UUID]:
+    invite = session.get(Invite, invite_id)
+    entry = (
+        session.get(WaitlistEntry, invite.waitlist_entry_id)
+        if invite and invite.waitlist_entry_id
+        else None
+    )
+    referrer = (
+        session.get(User, entry.referrer_user_id)
+        if entry and entry.source == "referral" and entry.referrer_user_id
+        else None
+    )
+    return (referrer.id, referrer.invited_by or root_id) if referrer else (root_id, root_id)

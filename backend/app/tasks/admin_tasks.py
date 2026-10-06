@@ -36,5 +36,9 @@ def send_admin_alert_task(
     subject: str,
     body: str,
     severity: Literal["INFO", "WARNING", "ALERT"] = "ALERT",
+    idempotency_key: str | None = None,
 ) -> None:
-    send_ops_alert(subject, body, severity=severity)
+    if idempotency_key is None:
+        send_ops_alert(subject, body, severity=severity)
+    else:
+        send_ops_alert(subject, body, severity=severity, idempotency_key=idempotency_key)

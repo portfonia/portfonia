@@ -281,3 +281,19 @@ The script defaults to a read-only dry run and commits one user at a time
 under `--apply`; re-running cannot charge again. See
 [Deployment](../deployment.md#subscription-launch-activation-issue-596)
 for sequencing and authorization.
+
+
+## First-subscription referral reward (issue #675)
+
+`_fresh_subscribe` calls `referral_subscription_bonus` immediately after
+`consume_credits` and before editing subscription state. The caller commits
+the charge, reward and state together. This helper also serves plan changes,
+expired resumes and late renewals, so eligibility is decided from the ledger:
+exactly one distinct subscription charge key for the referee, including the
+newly posted charge. A gift/cash split counts once. The first reward is the
+signup grant setting times the configured rate, rounded half up to cents;
+a zero result consumes first-charge eligibility. Later charges never qualify.
+The email-hash reward key prevents another issued reward after purge and
+re-registration. Missing referrer accounts, including root Admin, receive
+nothing. There are no reward notifications or grand-referrer rewards.
+See [Credit ledger](credit-ledger.md#referral-rewards-and-refund-clawbacks-issue-675).

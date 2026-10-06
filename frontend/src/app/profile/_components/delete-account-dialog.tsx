@@ -94,6 +94,8 @@ export function DeleteAccountDialog({ email }: { email: string }) {
       if (response.status === 409 && detail === "balance_changed") {
         setError(t("deleteAccountBalanceChanged"));
         discard();
+      } else if (response.status === 409 && detail === "account has a negative balance; contact info@portfonia.com") {
+        setError(t("deleteAccountNegativeBalance"));
       } else if (response.status === 400 && detail === "invalid captcha") {
         setError(t("deleteAccountInvalidCaptcha"));
         discard();

@@ -427,9 +427,8 @@
     "reportLanguageError": "Could not update your report language. Try again.",
     "reportCurrencyLabel": "Report currency",
     "reportCurrencyError": "Could not update your report currency. Try again.",
-    "inviteHeading": "Invite someone",
-    "inviteBody": "Generate an invite link bound to a specific email.",
-    "invitePlaceholder": "Not implemented yet.",
+    "inviteHeading": "Refer someone",
+    "inviteBody": "Enter the email of someone you'd like to refer, and we'll send them an invitation letter in turn. When they sign up and subscribe for the first time, and each time they later buy credits, you receive credits as a referral reward. Reward rules may change; see the Terms of Service.",
     "deleteAccountHeading": "Delete account",
     "deleteAccountBody": "Close your account and clear your account data.",
     "errorLoadFailed": "Could not load your account.",
@@ -508,7 +507,12 @@
     "deleteAccountBalanceChanged": "Your balance changed. Please start again.",
     "deleteAccountInvalidCaptcha": "Verification expired or is invalid. Please start again.",
     "deleteAccountFailed": "Deletion failed. Nothing was changed; please retry.",
-    "deleteAccountIncomplete": "Deletion could not be completed. Please contact info@portfonia.com."
+    "deleteAccountIncomplete": "Deletion could not be completed. Please contact info@portfonia.com.",
+    "referralThanks": "Thank you for your referral",
+    "referralEmailRequired": "Please enter an email address.",
+    "referralDailyLimit": "You've reached today's referral limit. Please try again tomorrow.",
+    "deleteAccountNegativeBalance": "Your account has a negative credit balance. Please contact info@portfonia.com to delete your account.",
+    "referralError": "Could not submit your referral. Try again."
   },
   "portfolio": {
     "riskPanel": {
@@ -1176,7 +1180,7 @@
     "resellerNotice": "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.",
     "terms": {
       "title": "Terms of Service",
-      "lastUpdated": "Last updated: 2026-10-04",
+      "lastUpdated": "Last updated: 2026-10-05",
       "intro": "These Terms of Service govern your use of Portfonia. Please read them together with our Privacy Policy and Refund Policy.",
       "sections": [
         {
@@ -1208,6 +1212,7 @@
             "If you unsubscribe an address from report email and no verified address remains on your account, your subscription is treated as cancelled: it stays active until the end of the period already paid, nothing is returned, and it does not resume when you verify an address again.",
             "Balance reminders and expiry notices are sent only to a verified address.",
             "Credits do not expire. They are usable only for Portfonia subscriptions, are non-transferable, and have no cash value except as provided in the Refund Policy.",
+            "Referrals. When someone you refer joins Portfonia and later subscribes or buys credits, you may receive credits as a referral reward. Portfonia sets and may change the amount of these rewards at any time. A reward tied to a purchase is reversed if that purchase is refunded, even if this leaves your balance below zero. Portfonia may withhold or reverse rewards obtained through misuse of the referral program.",
             "{resellerNotice} Your purchase is also subject to {merchantOfRecord}'s Buyer Terms."
           ]
         },

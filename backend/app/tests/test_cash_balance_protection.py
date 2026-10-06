@@ -85,7 +85,7 @@ def test_purge_refuses_cash_without_touching_rows(
     before = _snapshot(db_session)
     response = _purge(app_client, cash_user, route)
     assert response.status_code == 409
-    assert response.json()["detail"] == "user has a cash balance; refund or adjust it to zero first"
+    assert response.json()["detail"] == "user has a non-zero cash balance; settle it to zero first"
     auth_delete.assert_not_called()
     assert _snapshot(db_session) == before
 

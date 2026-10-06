@@ -129,7 +129,7 @@ describe("subscription public billing copy (#597)", () => {
     expect(catalogs[locale].profile).not.toHaveProperty("reportSchedulePlaceholder");
     expect(Object.keys(catalogs[locale].profile.reportScheduleOptions)).toEqual(["weekly", "everyOtherDay", "daily"]);
     expect(catalogs[locale].welcome).not.toHaveProperty("cadence");
-    expect(catalogs[locale].legal.terms.sections[3].body).toHaveLength(7);
+    expect(catalogs[locale].legal.terms.sections[3].body).toHaveLength(8);
   });
 });
 
@@ -166,4 +166,21 @@ describe("issue #652 agent documentation catalogs", () => {
       expect([agent.intro, agent.limitsTitle, agent.limits, agent.quiet, agent.notice, agent.tokenRule]).not.toContain(copy);
     }
   });
+});
+
+
+it.each(LOCALE_VALUES)("%s referral copy and Terms preserve the required layout (#675)", locale => {
+  const catalog = catalogs[locale];
+  expect(catalog.profile).not.toHaveProperty("invitePlaceholder");
+  for (const key of ["referralThanks", "referralEmailRequired", "referralDailyLimit", "referralError", "deleteAccountNegativeBalance"]) {
+    expect(catalog.profile).toHaveProperty(key);
+  }
+  expect(catalog.profile.inviteBody).not.toMatch(/\d|%/);
+  expect(catalog.profile.deleteAccountNegativeBalance).toContain("info@portfonia.com");
+  const expectedUpdated = locale === "en" ? "Last updated: 2026-10-05"
+    : locale === "zh-Hans" ? "\u6700\u540e\u66f4\u65b0\uff1a2026-10-05"
+      : "\u6700\u5f8c\u66f4\u65b0\uff1a2026-10-05";
+  expect(catalog.legal.terms.lastUpdated).toBe(expectedUpdated);
+  expect(catalog.legal.terms.sections[3].body[6]).not.toMatch(/\d|%/);
+  expect(catalog.legal.terms.sections[3].body[7]).toContain("{resellerNotice}");
 });

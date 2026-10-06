@@ -8,13 +8,21 @@ from typing import cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_session
 from app.core.timezones import today_et
+from app.models.credit_ledger import CreditLedgerEntry
 from app.models.user import User
-from app.services.credit_ledger import IdempotencyConflict, record_purchase, reverse_refund
+from app.services.credit_ledger import (
+    IdempotencyConflict,
+    record_purchase,
+    referral_recharge_bonus,
+    reverse_referral_clawback,
+    reverse_refund,
+)
 from app.services.email_sender import send_ops_alert
 from app.services.paddle_client import verify_signature
 from app.services.subscription import maybe_send_low_balance_reminder
@@ -107,6 +115,8 @@ def paddle_webhook(
                 transaction_id=txn,
                 note=f"{data.get('currency_code')} {totals.get('total')}",
             )
+            if not purchase.replayed:
+                referral_recharge_bonus(session, user_id, txn, credits)
             session.commit()
             if not purchase.replayed:
                 maybe_send_low_balance_reminder(session, user_id)
@@ -117,6 +127,9 @@ def paddle_webhook(
                 f"transaction={txn}",
                 idempotency_key=f"paddle-txn-conflict:{txn}",
             )
+        except Exception:
+            session.rollback()
+            raise
     elif event_type == "adjustment.created":
         adjustment_id = _string(data.get("id"))
         if not _string(data.get("reason")).startswith("portfonia-refund:"):
@@ -129,7 +142,23 @@ def paddle_webhook(
         adjustment_id = _string(data.get("id"))
         write = reverse_refund(session, adjustment_id=adjustment_id)
         if write and not write.replayed:
-            session.commit()
+            debit = session.scalar(
+                select(CreditLedgerEntry).where(
+                    CreditLedgerEntry.reason == "refund",
+                    CreditLedgerEntry.amount < 0,
+                    CreditLedgerEntry.reference == adjustment_id,
+                )
+            )
+            assert debit is not None
+            transaction_id = debit.idempotency_key.split(":", 2)[1]
+            try:
+                reverse_referral_clawback(
+                    session, debit.idempotency_key, transaction_id, adjustment_id
+                )
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
             send_ops_alert(
                 "Paddle rejected refund; credits restored",
                 f"adjustment={adjustment_id}",

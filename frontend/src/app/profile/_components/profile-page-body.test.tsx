@@ -188,8 +188,8 @@ describe("ProfilePageBody", () => {
 
     expect(screen.getByRole("combobox", { name: /report schedule/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Delete account" })).toBeEnabled();
-    // Other unfinished sections retain their existing placeholder.
-    expect(screen.getAllByText(/not implemented yet/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByLabelText("Email")).toHaveAttribute("type", "email");
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeDisabled();
     const danger = screen.getByRole("button", { name: "Delete account" }).closest('[data-slot="card"]');
     expect(danger).not.toHaveTextContent(/not implemented yet/i);
   });
@@ -287,7 +287,7 @@ describe("Section order (issue #269 §1/§4, issue #308)", () => {
       "Account",
       "Holdings",
       "Report management",
-      "Invite someone",
+      "Refer someone",
       "Change password",
       "Delete account",
     ]);
@@ -721,4 +721,50 @@ it("polish_660_acceptance_3 retranslates the lock with frozen countdown values",
   } finally {
     clock.mockRestore();
   }
+});
+
+describe("referrals (#675)", () => {
+  it.each([
+    ["en", en],
+    ["zh-Hans", zhHans],
+    ["zh-Hant", zhHant],
+  ])("renders the referral card in %s without rates or amounts", async (locale, messages) => {
+    const { NextIntlClientProvider } = await import("next-intl");
+    render(<NextIntlClientProvider locale={locale} messages={messages}><ProfilePageBody me={BASE_ME} hadLoadError={false} /></NextIntlClientProvider>);
+    const title = await screen.findByText(messages.profile.inviteHeading);
+    const card = title.closest('[data-slot="card"]');
+    expect(card).not.toBeNull();
+    expect(card?.textContent).not.toMatch(/\d|%/);
+    expect(card?.querySelector('input[type="email"]')).toBeInTheDocument();
+  });
+
+  it("submits the email and locale, thanks the user, and clears the input", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200, ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    renderBody(BASE_ME);
+    const input = screen.getByLabelText("Email");
+    const user = userEvent.setup();
+    const button = screen.getByRole("button", { name: "Confirm" });
+    expect(button).toBeDisabled();
+    await user.type(input, "friend@example.com");
+    await user.click(button);
+    await screen.findByText("Thank you for your referral");
+    expect(input).toHaveValue("");
+    expect(fetchMock).toHaveBeenCalledWith("/api/me/referrals", expect.objectContaining({ method: "POST", body: JSON.stringify({ email: "friend@example.com", locale: "en" }) }));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("Thank you for your referral");
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    [422, "Please enter an email address."],
+    [429, "You've reached today's referral limit. Please try again tomorrow."],
+  ])("shows the %s submission message", async (status, message) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status, ok: false }));
+    renderBody(BASE_ME);
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Email"), "friend@example.com");
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    vi.unstubAllGlobals();
+  });
 });

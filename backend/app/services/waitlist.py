@@ -34,7 +34,8 @@ def views(session: Session, entries: list[WaitlistEntry]) -> list[dict[str, obje
         for invite in invites
         if invite.used_at is not None and invite.used_by_user_id is not None
     ]
-    users = session.scalars(select(User).where(User.id.in_(used_ids))).all()
+    referrer_ids = [entry.referrer_user_id for entry in entries if entry.referrer_user_id]
+    users = session.scalars(select(User).where(User.id.in_(used_ids + referrer_ids))).all()
     by_user = {user.id: user for user in users}
     now = datetime.now(tz=ET)
     result: list[dict[str, object]] = []
@@ -61,6 +62,10 @@ def views(session: Session, entries: list[WaitlistEntry]) -> list[dict[str, obje
         result.append(
             {
                 "id": entry.id,
+                "source": entry.source,
+                "referrer_email": by_user[entry.referrer_user_id].email
+                if entry.referrer_user_id in by_user
+                else None,
                 "email": entry.email,
                 "locale": entry.locale,
                 "stage": stage,

@@ -75,6 +75,7 @@ from app.services.credit_ledger import (
     adjust_by_admin,
     debit_refund,
     purchase_refundable,
+    referral_clawback,
     refund_key,
 )
 from app.services.credit_ledger_export import build_balances_csv, build_ledger_csv
@@ -361,6 +362,8 @@ def send_invitation_letter_endpoint(
 
 
 class WaitlistEntryOut(BaseModel):
+    source: str
+    referrer_email: str | None
     id: UUID
     email: str
     locale: str
@@ -939,6 +942,7 @@ class PurgeDeletedCounts(BaseModel):
     user_investment_context: int
     email_verifications: int
     invites_used_by_cleared: int
+    users_grand_invited_by_cleared: int
     users_invited_by_cleared: int
     users: int
     credit_ledger_flagged: int
@@ -958,6 +962,7 @@ _NO_LOCAL_ROWS = PurgeDeletedCounts(
     email_verifications=0,
     invites_used_by_cleared=0,
     users_invited_by_cleared=0,
+    users_grand_invited_by_cleared=0,
     users=0,
     credit_ledger_flagged=0,
 )
@@ -1043,10 +1048,10 @@ def _purge_local_user(session: Session, user: User, confirm: str | None) -> Purg
     if _normalize_email(confirm) != _normalize_email(user.email):
         raise HTTPException(status_code=409, detail="confirm does not match user email")
 
-    if user.credit_cash_balance > 0:
+    if user.credit_cash_balance != 0:
         raise HTTPException(
             status_code=409,
-            detail="user has a cash balance; refund or adjust it to zero first",
+            detail="user has a non-zero cash balance; settle it to zero first",
         )
 
     auth_deleted = False
@@ -1074,6 +1079,7 @@ def _purge_local_user(session: Session, user: User, confirm: str | None) -> Purg
             email_verifications=result.email_verifications,
             invites_used_by_cleared=result.invites_used_by_cleared,
             users_invited_by_cleared=result.users_invited_by_cleared,
+            users_grand_invited_by_cleared=result.users_grand_invited_by_cleared,
             users=result.users,
             credit_ledger_flagged=result.credit_ledger_flagged,
         ),
@@ -1323,7 +1329,13 @@ def refund_payment(
 
     adjustment_id = str(adjustment.get("id"))
     entry.reference = adjustment_id
+    referee = session.get(User, purchase.user_id)
+    assert referee is not None
+    referee_email = referee.email
     try:
+        clawback = referral_clawback(
+            session, body.transaction_id, refund_key(body.transaction_id, body.idempotency_key)
+        )
         session.commit()
     except Exception as exc:
         session.rollback()
@@ -1332,6 +1344,18 @@ def refund_payment(
             f"adjustment={adjustment_id} transaction={body.transaction_id} credits={body.credits} error={type(exc).__name__}",
         )
         raise HTTPException(status_code=500, detail="refund commit failed") from exc
+    if clawback.unrecovered > 0:
+        try:
+            send_admin_alert_task.delay(
+                "Portfonia referral: reward not recovered after refund",
+                f"Referee: {referee_email}\nPaddle transaction: {body.transaction_id}\n"
+                f"Refunded credits: {body.credits:.2f}\nUnrecovered reward: {clawback.unrecovered:.2f}\n"
+                "The referrer's account was deleted, so nothing was clawed back.",
+                severity="INFO",
+                idempotency_key=f"referral-clawback-skipped:{body.transaction_id}:{body.idempotency_key}",
+            )
+        except Exception:
+            logger.exception("referral: failed to enqueue skipped clawback notice")
     return RefundOut(
         transaction_id=body.transaction_id,
         adjustment_id=adjustment_id,

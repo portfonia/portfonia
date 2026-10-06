@@ -18,6 +18,7 @@ from app.schemas.me import SubscriptionOut, SubscriptionQuoteOut
 from app.services.credit_ledger import (
     InsufficientCredits,
     consume_credits,
+    referral_subscription_bonus,
     return_subscription_credits,
 )
 from app.services.email_sender import send_ops_alert, send_subscription_notice
@@ -223,6 +224,7 @@ def _fresh_subscribe(session: Session, user: User, today: date, plan: str) -> No
         idempotency_key=charge_key(user.id, today, plan),
         reference=plan,
     )
+    referral_subscription_bonus(session, user)
     user.subscription_status = "active"
     user.subscription_type = user.report_cadence = plan
     user.subscription_period_start = today

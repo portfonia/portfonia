@@ -146,6 +146,9 @@ No open owner decisions remain for this copy.
 
 | Locale key | Change |
 |---|---|
+| `profile.inviteHeading`, `profile.inviteBody`, `profile.referralThanks`, `profile.referralEmailRequired`, `profile.referralDailyLimit`, `profile.referralError` | #675: referral email form, thank-you dialog and submission errors; remove `invitePlaceholder` |
+| `profile.deleteAccountNegativeBalance` | #675: negative cash deletion refusal with info@portfonia.com |
+| `legal.terms.sections[3].body`, `legal.terms.lastUpdated` | #675: referral paragraph before reseller notice, dated 2026-10-05 in all three locales |
 | `legal.nav.pricing`, `legal.nav.refund` | new: "Pricing", "Refund Policy" |
 | `legal.pricing` | new document (below) |
 | `legal.refund` | new document (below) |
@@ -294,6 +297,7 @@ existing text for them verbatim.
    - Credits do not expire. They are usable only for Portfonia
      subscriptions, are non-transferable, and have no cash value except as
      provided in the Refund Policy.
+   - Referrals. When someone you refer joins Portfonia and later subscribes or buys credits, you may receive credits as a referral reward. Portfonia sets and may change the amount of these rewards at any time. A reward tied to a purchase is reversed if that purchase is refunded, even if this leaves your balance below zero. Portfonia may withhold or reverse rewards obtained through misuse of the referral program.
    - Our order process is conducted by our online reseller Paddle.com.
      Paddle.com is the Merchant of Record for all our orders. Paddle
      provides all customer service inquiries and handles returns. Your

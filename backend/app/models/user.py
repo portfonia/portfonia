@@ -59,7 +59,6 @@ class User(Base):
             name="subscription_type",
         ),
         CheckConstraint("subscription_anchor_day BETWEEN 1 AND 31", name="subscription_anchor_day"),
-        CheckConstraint("credit_cash_balance >= 0", name="credit_cash_balance"),
         CheckConstraint("credit_gift_balance >= 0", name="credit_gift_balance"),
     )
 
@@ -108,6 +107,7 @@ class User(Base):
     # the only writer, not implemented yet as of this column landing.
     tos_accepted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     invited_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    grand_invited_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     last_login_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False

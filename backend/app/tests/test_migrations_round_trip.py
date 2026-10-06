@@ -159,7 +159,6 @@ def test_users_migration_binds_existing_dev_user(alembic_cfg: Config) -> None:
 
     from app.core.config import get_settings as _gs
     from app.core.encryption import encrypt_value
-    from app.models.user import User
 
     command.upgrade(alembic_cfg, "d6e7f8a9b0c1")
     engine = create_engine(get_settings().database_url)
@@ -182,14 +181,12 @@ def test_users_migration_binds_existing_dev_user(alembic_cfg: Config) -> None:
         conn.commit()
 
     command.upgrade(alembic_cfg, "e8f9a0b1c2d3")
-    # The binding behavior under test is fully decided by this one
-    # migration; upgrading the rest of the way to head before the ORM read
-    # avoids this test breaking every time a later migration adds a nullable
-    # User column (e.g. issue #220's tos_accepted_at) that the ORM model —
-    # but not yet the DB at this exact revision — expects to select.
-    command.upgrade(alembic_cfg, "head")
-    with Session(engine) as check:
-        row = check.get(User, uid)
+    # Read only the historical migration's columns at its own revision.
+    # Later migrations require ADMIN_ID to be a non-account root UUID.
+    with engine.connect() as check:
+        row = check.execute(
+            text("SELECT email, auth_subject FROM users WHERE id = :id"), {"id": uid}
+        ).fetchone()
         assert row is not None
         assert row.email == _gs().DEV_USER_EMAIL.strip().lower()
         assert row.auth_subject is None
