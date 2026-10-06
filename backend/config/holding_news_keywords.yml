@@ -87,12 +87,19 @@ entity_aliases:
     - "Micron"
   AMZN:
     - "Amazon"
+    - "AWS"
   GOOGL:
     - "Alphabet"
     - "Google"
+    - "Waymo"
+    - "YouTube"
+    - "DeepMind"
   SPCX:
     - "SpaceX"
     - "Space Exploration Technologies"
+    - "Starlink"
+    - "Starship"
+    - "SpaceXAI"
   AMD:
     - "Advanced Micro Devices"
   ASML:
@@ -100,8 +107,11 @@ entity_aliases:
   "2333.HK":
     - "Great Wall Motor"
     - "長城汽車"
+    - "Great Wall Motors"
+    - "GWM"
   PSH.L:
     - "Pershing Square Holdings"
+    - "Pershing Square"
   INTC:
     - "Intel"
   NVDA:
@@ -110,15 +120,43 @@ entity_aliases:
     - "Tesla"
   QCOM:
     - "Qualcomm"
+    - "Snapdragon"
   AMKR:
     - "Amkor"
   "0700.HK":
     - "Tencent"
     - "騰訊"
+    - "WeChat"
+    - "微信"
   TSM:
     - "TSMC"
     - "Taiwan Semiconductor"
+    - "Taiwan Semi"
+    - "台积电"
+    - "台積電"
   AAOI:
     - "Applied Optoelectronics"
+    - "Applied Opto"
   MUU:
     - "Micron"
+  # Issue #681: names the alias gate missed; for a new key the first entry is
+  # the canonical display name (it replaces the provider-resolved name).
+  AVGO:
+    - "Broadcom"
+    - "VMware"
+  SKHY:
+    - "SK hynix"
+    - "Hynix"
+    - "SK海力士"
+  "601689.SS":
+    - "Ningbo Tuopu Group"
+    - "Tuopu"
+    - "拓普"
+  "300394.SZ":
+    - "Suzhou TFC Optical Communication"
+    - "TFC Optical"
+    - "天孚"
+  "002460.SZ":
+    - "Ganfeng Lithium Group"
+    - "Ganfeng"
+    - "赣锋"

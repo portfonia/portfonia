@@ -4,7 +4,7 @@ import re
 import threading
 from collections import defaultdict
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from math import ceil
@@ -38,6 +38,7 @@ from app.services.intel_leads import (
     excluded,
     select_headlines,
     select_leads,
+    stored_headlines,
     url_key,
 )
 from app.services.intel_records import build_article_record
@@ -474,7 +475,11 @@ class DeepenRun:
                     leads = kept
             else:
                 leads = []
-            return chosen, leads[:1]
+            # The extracted article records the searched headline's news row, so a
+            # stored headline is not searched again once its body is accepted (#681).
+            return chosen, [
+                replace(lead, news_id=lead.news_id or headline.news_id) for lead in leads[:1]
+            ]
         return provider, []
 
     def run_wave(
@@ -539,6 +544,15 @@ class DeepenRun:
                     if not leads and unit.identifier
                     else []
                 )
+                if not leads and not headlines and unit.identifier:
+                    # #681: a price move reported in an earlier batch is searched by title.
+                    headlines = stored_headlines(
+                        session,
+                        unit,
+                        aliases.get(unit.identifier, [unit.identifier]),
+                        self.cfg,
+                        self.now,
+                    )
                 if not leads and not headlines:
                     self._outcome(unit, None, "none")["note"] = "no_news"
                     continue

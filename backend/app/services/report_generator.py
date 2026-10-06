@@ -121,6 +121,7 @@ from app.services.window_data import (
     latest_window_close_date,
     load_instrument_news_by_identifier,
     load_news_window,
+    load_related_news_by_identifier,
     mark_news_surfaced,
     resolve_global_moves,
     unmark_news_surfaced,
@@ -369,6 +370,42 @@ def _merge_holding_news(
     return by_identifier, all_hashes
 
 
+MAX_RELATED_PER_HOLDING = 2
+
+
+def _append_related(
+    direct: dict[str, list[NewsItem]],
+    related: dict[str, list[tuple[NewsItem, str, str]]],
+    identifiers: list[str],
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[str]]]:
+    """Serialized holding headlines in `identifiers` order: direct items first, then
+    up to two related-company items labelled with entity and relation (#681).
+
+    A holding with only related items is included. Returns the shown related URL
+    hashes per holding so they are marked surfaced with the report.
+    """
+    result: dict[str, list[dict[str, Any]]] = {}
+    shown: dict[str, list[str]] = {}
+    for identifier in identifiers:
+        items = direct.get(identifier, [])
+        seen_hashes = {item.url_hash for item in items}
+        seen_titles = {_normalized_news_title(item.title) for item in items}
+        extra: list[dict[str, Any]] = []
+        for item, related_to, relation in related.get(identifier, []):
+            normalized = _normalized_news_title(item.title)
+            if item.url_hash in seen_hashes or (normalized and normalized in seen_titles):
+                continue
+            seen_hashes.add(item.url_hash)
+            seen_titles.add(normalized)
+            extra.append({**_serialize_news([item])[0], "related": f"{related_to} ({relation})"})
+            shown.setdefault(identifier, []).append(item.url_hash)
+            if len(extra) == MAX_RELATED_PER_HOLDING:
+                break
+        if items or extra:
+            result[identifier] = [*_serialize_news(items), *extra]
+    return result, shown
+
+
 # ---------------------------------------------------------------------------
 # Assembly / rendering (shared by live generation and re-render)
 # ---------------------------------------------------------------------------
@@ -510,6 +547,8 @@ def _build_holding_check_inputs(
             continue
         material_parts: list[str] = []
         for item in holding_news.get(ident, []):
+            if item.get("related"):
+                continue  # another company's news is not evidence about this holding (#681)
             material_parts.append(str(item.get("title") or ""))
             material_parts.append(str(item.get("summary") or ""))
         for anomaly in anomalies_by_identifier.get(ident, []):
@@ -1455,18 +1494,15 @@ def generate_report(
             session, period_start, period_end, user_id, headline_ids
         )
         recalled, _ = _merge_holding_news(news_items, linked_news, headline_ids)
-        recalled = {
-            identifier: recalled[identifier]
-            for identifier in headline_ids
-            if identifier in recalled
-        }
-        recalled = dict(list(recalled.items())[:MAX_HOLDINGS_WITH_HEADLINES])
+        related_news = load_related_news_by_identifier(
+            session, period_start, period_end, user_id, headline_ids
+        )
+        holding_news, related_hashes = _append_related(recalled, related_news, headline_ids)
+        holding_news = dict(list(holding_news.items())[:MAX_HOLDINGS_WITH_HEADLINES])
         recalled_hashes = {
-            item.url_hash for identifier in recalled for item in linked_news.get(identifier, [])
-        }
-        ctx.holding_news = {
-            identifier: _serialize_news(items) for identifier, items in recalled.items()
-        }
+            item.url_hash for identifier in holding_news for item in linked_news.get(identifier, [])
+        } | {h for identifier in holding_news for h in related_hashes.get(identifier, [])}
+        ctx.holding_news = holding_news
         window_moves, _ = resolve_global_moves(session, period_start, period_end, moves_cache)
         ctx.large_holding_moves = {
             identifier: _serialize_holding_move(window_moves[identifier])

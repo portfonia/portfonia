@@ -31,3 +31,5 @@ low_value_title_patterns:
   - '^form 4\b'
 near_duplicate_jaccard: 0.8
 near_duplicate_hours: 48
+# Issue #681: kept related-company headlines per instrument per attempt.
+related_per_instrument: 3

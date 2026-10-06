@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 import httpx
+import yaml
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -23,7 +24,9 @@ from app.services.headline_cleaning import (
     EarningsCache,
     block_reason,
     classify_headlines,
+    classify_related,
     load_cleaning_config,
+    tokens,
 )
 from app.services.instrument_news_sources import (
     CollectedItem,
@@ -34,9 +37,15 @@ from app.services.instrument_news_sources import (
     fetch_yahoo,
     reset_run_cache,
 )
-from app.services.instrument_profiles import resolve_profiles
+from app.services.instrument_profiles import match_instruments, resolve_profiles
+from app.services.instrument_relations import Relation, load_relations
 from app.services.instrument_universe import UniverseEntry, intel_universe
-from app.services.intel_records import headline_from_row, link_instrument, store_headline
+from app.services.intel_records import (
+    headline_from_row,
+    link_instrument,
+    link_related,
+    store_headline,
+)
 from app.services.news_fetcher import LATE_INGEST_WINDOW
 
 logger = logging.getLogger(__name__)
@@ -118,14 +127,16 @@ def collect_instrument_news(
     config: CleaningConfig,
     *,
     earnings_cache: EarningsCache | None = None,
+    relations: list[Relation] | None = None,
+    unmatched: list[CollectedItem] | None = None,
 ) -> InstrumentResult:
     result = InstrumentResult()
     earnings_cache = earnings_cache or EarningsCache()
     p = session.get(InstrumentProfile, entry.identifier)
     aliases = p.aliases if p else [entry.ticker.split(".")[0]]
-    stored = list(
+    rows_with_relation = list(
         session.execute(
-            select(News, NewsInstrument.created_at)
+            select(News, NewsInstrument.created_at, NewsInstrument.relation)
             .join(NewsInstrument, NewsInstrument.news_id == News.id)
             .where(
                 NewsInstrument.identifier == entry.identifier,
@@ -134,6 +145,17 @@ def collect_instrument_news(
             )
         )
     )
+    # Related-company links (#681) never seed the direct chain's duplicate checks
+    # or EXISTING context; they only deduplicate later related candidates.
+    stored = [(row, linked_at) for row, linked_at, rel in rows_with_relation if rel is None]
+    related_stored = [
+        (headline_from_row(row).title, linked_at)
+        for row, linked_at, rel in rows_with_relation
+        if rel is not None
+    ]
+    related_earlier = [title for title, linked_at in related_stored if linked_at < now]
+    related_previous = [title for title, linked_at in related_stored if linked_at >= now]
+    related_candidates: list[tuple[CollectedItem, list[Relation]]] = []
     earlier = [headline_from_row(row).title for row, linked_at in stored if linked_at < now]
     previous = [headline_from_row(row).title for row, linked_at in stored if linked_at >= now]
     stored_recent = [
@@ -167,6 +189,28 @@ def collect_instrument_news(
             fetched.append((name, item))
     for name, item in sorted(fetched, key=lambda pair: pair[1].published_at):
         reason = block_reason(item, aliases, previous, config, earlier=earlier)
+        if reason == "unrelated_rule" and item.kind != "filing":
+            text = item.title + " " + (item.summary or "")
+            hits = [r for r in relations or [] if match_instruments(text, {r.name: r.aliases})]
+            if hits:
+                related_reason = block_reason(
+                    item,
+                    [*aliases, *(a for r in hits for a in r.aliases)],
+                    [*previous, *related_previous],
+                    config,
+                    earlier=[*earlier, *related_earlier],
+                )
+                if related_reason:
+                    key = "related_" + related_reason
+                    result.cleaning[key] = result.cleaning.get(key, 0) + 1
+                    sample = result.samples.setdefault(related_reason, [])
+                    if len(sample) < 3:
+                        sample.append(item.title)
+                else:
+                    related_candidates.append((item, hits))
+                continue
+            if unmatched is not None:
+                unmatched.append(item)
         if reason:
             result.cleaning[reason] = result.cleaning.get(reason, 0) + 1
             sample = result.samples.setdefault(reason, [])
@@ -232,9 +276,8 @@ def collect_instrument_news(
             for i, (_, item) in enumerate(chunk)
             if batch.get(i) not in ("promo", "unrelated", "duplicate", "stale")
         )
-    for i, (name, item) in sorted(
-        enumerate(candidates), key=lambda candidate: candidate[1][1].headline().url_hash
-    ):
+    direct: list[tuple[str, CollectedItem, str | None]] = []
+    for i, (name, item) in enumerate(candidates):
         label = labels.get(i)
         if label in ("promo", "unrelated", "duplicate", "stale"):
             llm_reason = label + "_llm"
@@ -242,6 +285,21 @@ def collect_instrument_news(
             sample = result.samples.setdefault(llm_reason, [])
             if len(sample) < 3:
                 sample.append(item.title)
+            continue
+        direct.append((name, item, label))
+    # Every classifier call finishes before the first write, and direct and related
+    # headlines are written in one URL-hash order: parallel workers that share
+    # headlines then take row locks in the same order and cannot deadlock (#681).
+    related = select_related(entry, aliases, related_candidates, related_previous, config, result)
+    writes: list[tuple[str, CollectedItem, str | None, Relation | None]] = [
+        *((name, item, label, None) for name, item, label in direct),
+        *(("", item, "keep", relation) for item, relation in related),
+    ]
+    for name, item, label, relation in sorted(writes, key=lambda w: w[1].headline().url_hash):
+        if relation is not None:
+            nid, _ = store_headline(session, item.headline(), "instrument", "article", "keep")
+            link_related(session, nid, entry.identifier, relation.relation, relation.name)
+            result.cleaning["related_kept"] = result.cleaning.get("related_kept", 0) + 1
             continue
         if item.kind == "filing":
             result.cleaning["filings_stored"] = result.cleaning.get("filings_stored", 0) + 1
@@ -266,6 +324,70 @@ def collect_instrument_news(
     p.updated_at = now
     session.flush()
     return result
+
+
+def select_related(
+    entry: UniverseEntry,
+    aliases: list[str],
+    candidates: list[tuple[CollectedItem, list[Relation]]],
+    seen: list[str],
+    config: CleaningConfig,
+    result: InstrumentResult,
+) -> list[tuple[CollectedItem, Relation]]:
+    """Classify headlines naming only a related entity and return those to store (#681).
+
+    A failed or unlabelled batch keeps nothing: unlike direct headlines, these
+    have passed no relevance check of their own. Near-duplicates are resolved
+    among kept titles only, so a dropped title never blocks its rewording.
+    """
+    if not candidates:
+        return []
+    count = result.cleaning.get
+    result.cleaning["related_candidates"] = count("related_candidates", 0) + len(candidates)
+    size = min(100, max(1, get_settings().INTEL_CLASSIFIER_BATCH))
+    kept: list[tuple[CollectedItem, Relation]] = []
+    for start in range(0, len(candidates), size):
+        chunk = candidates[start : start + size]
+        labels, cost, failed = classify_related(
+            [item for item, _ in chunk], entry.ticker, aliases, [hits for _, hits in chunk]
+        )
+        result.classifier["batches"] += 1
+        result.classifier["items"] += len(chunk)
+        result.classifier["cost_usd"] += cost
+        result.classifier["failed_batches"] += int(failed is not None)
+        if failed:
+            result.errors.append(failed)
+        for i, (item, hits) in enumerate(chunk):
+            row = labels.get(i)
+            if row is None:
+                result.cleaning["related_dropped_failed"] = count("related_dropped_failed", 0) + 1
+            elif row["label"] != "keep":
+                result.cleaning["related_dropped_llm"] = count("related_dropped_llm", 0) + 1
+            else:
+                named = [r for r in hits if r.name.casefold() == row["entity"].casefold()]
+                kept.append((item, (named or hits)[0]))
+    # Candidates arrive oldest first; a kept title that rewords an earlier kept or
+    # stored related title is a duplicate.
+    accepted: list[tuple[CollectedItem, Relation]] = []
+    titles = [tokens(title) for title in seen]
+    for item, relation in kept:
+        current = tokens(item.title)
+        if any(
+            (current | other) and len(current & other) / len(current | other) >= config.threshold
+            for other in titles
+        ):
+            result.cleaning["related_duplicate"] = count("related_duplicate", 0) + 1
+            sample = result.samples.setdefault("duplicate", [])
+            if len(sample) < 3:
+                sample.append(item.title)
+            continue
+        titles.append(current)
+        accepted.append((item, relation))
+    accepted.sort(key=lambda pair: pair[0].published_at, reverse=True)
+    overflow = len(accepted) - config.related_per_instrument
+    if overflow > 0:
+        result.cleaning["related_capped"] = count("related_capped", 0) + overflow
+    return accepted[: config.related_per_instrument]
 
 
 def create_instrument_run(
@@ -297,6 +419,7 @@ def collect_slot_news(
     profile_errors: list[str] | None = None,
     priority: list[str] | None = None,
     earnings_cache: EarningsCache | None = None,
+    unmatched: dict[str, list[CollectedItem]] | None = None,
 ) -> IntelCollectionRun:
     earnings_cache = earnings_cache or EarningsCache()
     start = time.monotonic()
@@ -345,6 +468,12 @@ def collect_slot_news(
         run.finished_at = datetime.now(UTC)
         session.commit()
         return run
+    try:
+        relations = load_relations()
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        # Collection continues with direct headlines only (#681).
+        relations = {}
+        errors.append(f"relations: {type(exc).__name__}")
     session.commit()
     reset_run_cache()
     processed = 0
@@ -352,10 +481,19 @@ def collect_slot_news(
     failed = False
 
     def job(entry: UniverseEntry) -> InstrumentResult:
+        dropped: list[CollectedItem] | None = [] if unmatched is not None else None
         with SessionLocal() as worker:
             result = collect_instrument_news(
-                worker, entry, now, config, earnings_cache=earnings_cache
+                worker,
+                entry,
+                now,
+                config,
+                earnings_cache=earnings_cache,
+                relations=relations.get(entry.identifier, []),
+                unmatched=dropped,
             )
+            if unmatched is not None and dropped:
+                unmatched[entry.identifier] = dropped
             worker.commit()
             on_instrument_done(entry.identifier, result.leads)
             return result

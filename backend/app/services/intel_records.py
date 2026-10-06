@@ -106,6 +106,22 @@ def link_instrument(session: Session, news_id: uuid.UUID, identifier: str) -> in
     )
 
 
+def link_related(
+    session: Session, news_id: uuid.UUID, identifier: str, relation: str, related_to: str
+) -> int:
+    """A headline about a configured related entity of `identifier` (#681)."""
+    return len(
+        session.execute(
+            insert(NewsInstrument)
+            .values(
+                news_id=news_id, identifier=identifier, relation=relation, related_to=related_to
+            )
+            .on_conflict_do_nothing(constraint="uq_news_instruments_key")
+            .returning(NewsInstrument.id)
+        ).all()
+    )
+
+
 def headline_from_row(row: News) -> NewsItem:
     summary = row.record.get("summary")
     return NewsItem(

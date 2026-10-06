@@ -14,12 +14,18 @@ from sqlalchemy.orm import Session
 
 from app.core.timezones import ET
 from app.models.intel import NewsInstrument
+from app.models.news import News
 from app.models.paid_intel import IntelArticle
 from app.services.instrument_news_sources import CollectedItem
 from app.services.instrument_profiles import match_instruments
 from app.services.intel_deepen_config import DeepenConfig
 from app.services.intel_http import quiet_transport
+from app.services.intel_records import headline_from_row
 from app.services.intel_selection import WorkUnit
+
+# Direct instrument leads prefer explanatory headlines (#681): unlabelled pool
+# links and classifier failures sit between keep and passing mentions.
+LABEL_RANK: dict[str | None, int] = {"keep": 0, None: 1, "mention": 2}
 
 
 @dataclass(frozen=True)
@@ -116,6 +122,7 @@ def select_leads(
                     NewsInstrument.news_id == item.news_id,
                     NewsInstrument.identifier == unit.identifier,
                     NewsInstrument.created_at >= now,
+                    NewsInstrument.relation.is_(None),
                 )
             )
             is None
@@ -125,11 +132,12 @@ def select_leads(
     candidates.sort(
         key=lambda item: (
             (
+                LABEL_RANK.get(item.label, 1),
                 "finance.yahoo.com" in (urlsplit(item.url).hostname or ""),
                 -item.published_at.timestamp(),
             )
             if unit.identifier
-            else (False, -item.published_at.timestamp())
+            else (0, False, -item.published_at.timestamp())
         )
     )
     limit = (
@@ -178,6 +186,7 @@ def select_headlines(
                     NewsInstrument.news_id == item.news_id,
                     NewsInstrument.identifier == unit.identifier,
                     NewsInstrument.created_at >= now,
+                    NewsInstrument.relation.is_(None),
                 )
             )
             is None
@@ -191,3 +200,59 @@ def select_headlines(
         )
     )
     return candidates[: cfg.caps.headlines_per_unit]
+
+
+def stored_headlines(
+    session: Session,
+    unit: WorkUnit,
+    aliases: list[str],
+    cfg: DeepenConfig,
+    now: datetime,
+) -> list[CollectedItem]:
+    """Earlier-batch keep headlines for a price-signal unit with no fresh material (#681).
+
+    Only the stored title and publication time are used; the search that follows
+    finds the article again, so no URL is read or reconstructed.
+    """
+    if not unit.identifier or not (unit.kind == "mover" or unit.reason.startswith("near_")):
+        return []
+    accepted = select(IntelArticle.news_id).where(
+        IntelArticle.status == "accepted", IntelArticle.news_id.is_not(None)
+    )
+    query = (
+        select(News)
+        .join(NewsInstrument, NewsInstrument.news_id == News.id)
+        .where(
+            NewsInstrument.identifier == unit.identifier,
+            NewsInstrument.relation.is_(None),
+            NewsInstrument.created_at < now,
+            News.kind == "article",
+            News.intel_label == "keep",
+            News.published_at <= now,
+            News.id.not_in(accepted),
+        )
+        .order_by(News.published_at.desc())
+    )
+    if unit.window_start:
+        query = query.where(
+            News.published_at >= datetime.combine(unit.window_start, datetime.min.time(), tzinfo=ET)
+        )
+    result = []
+    for row in session.scalars(query):
+        headline = headline_from_row(row)
+        if not match_instruments(headline.title, {unit.identifier: aliases}):
+            continue
+        result.append(
+            CollectedItem(
+                headline.title,
+                row.published_at,
+                "",
+                url_kind="stored",
+                identifier=unit.identifier,
+                news_id=row.id,
+                label="keep",
+            )
+        )
+        if len(result) >= cfg.caps.headlines_per_unit:
+            break
+    return result

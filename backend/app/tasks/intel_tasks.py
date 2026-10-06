@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
@@ -19,11 +20,14 @@ from app.services.instrument_news_capture import (
     create_instrument_run,
     error_text,
 )
+from app.services.instrument_news_sources import CollectedItem
 from app.services.instrument_profiles import resolve_profiles
-from app.services.instrument_universe import intel_universe
+from app.services.instrument_relations import load_relations
+from app.services.instrument_universe import UniverseEntry, intel_universe
 from app.services.intel_deepen import DeepenRun
 from app.services.intel_deepen_config import load_intel_deepen_config
 from app.services.intel_digest import batch_subject, build_batch_report
+from app.services.intel_name_check import run_weekly_check, weekly_due
 from app.services.intel_selection import select_units
 from app.services.intel_signals import compute_signals
 from app.services.news_capture import capture_news
@@ -35,6 +39,17 @@ logger = logging.getLogger(__name__)
 
 def now_et() -> datetime:
     return datetime.now(ET)
+
+
+def weekly_check(
+    session: Session, unmatched: dict[str, list[CollectedItem]], universe: list[UniverseEntry]
+) -> dict[str, object]:
+    """The weekly name and relation check (#681); a failure is reported, never raised."""
+    try:
+        return run_weekly_check(session, unmatched, universe, load_relations())
+    except Exception as exc:
+        logger.error("weekly name and relation check failed: %s", type(exc).__name__)
+        return {"errors": [f"cleaning: {type(exc).__name__}"]}
 
 
 @celery_app.task(name="app.tasks.intel_tasks.intel_slot_task")  # type: ignore[untyped-decorator]
@@ -130,6 +145,9 @@ def intel_slot_task(slot: str) -> dict[str, str]:
                 if slot == "pre_open"
                 else settings.INTEL_COLLECT_BUDGET_POST_CLOSE_S
             )
+            unmatched: dict[str, list[CollectedItem]] | None = (
+                {} if weekly_due(slot, run_date) else None
+            )
             collection = collect_slot_news(
                 session,
                 run,
@@ -140,6 +158,7 @@ def intel_slot_task(slot: str) -> dict[str, str]:
                 profile_errors=profile_errors,
                 priority=priority,
                 earnings_cache=earnings_cache,
+                unmatched=unmatched,
             )
             if deepen is not None:
                 try:
@@ -166,6 +185,8 @@ def intel_slot_task(slot: str) -> dict[str, str]:
                 except Exception as exc:
                     deepen.close()
                     deepen_errors.append(f"deepening: {type(exc).__name__}")
+            if unmatched is not None:
+                evidence["weekly_check"] = weekly_check(session, unmatched, universe)
             rss = session.scalar(
                 select(IntelCollectionRun)
                 .where(IntelCollectionRun.slot_run_id == run.id, IntelCollectionRun.kind == "rss")
