@@ -105,12 +105,15 @@ verification (next section); the seam itself is unchanged.
   `current_principal` would leave those 6 routes serving `DEV_USER_ID`
   forever.
 - **`generate_report`/`regenerate_report` require `user_id`, no fallback.**
-  A structural test bans `get_current_user_id`/`DEV_USER_ID` from
-  `app/services/**` and `app/tasks/**` entirely. B3's one documented
-  exception was `app/services/user_directory.py`'s `recipient_email` shim
-  (`DEV_USER_ID` → `DEV_USER_EMAIL`); B4 replaced that body with a `users`
-  table lookup (same signature) and the `DEV_USER_ID` ban has no remaining
-  exception.
+  Structural tests ban ambient caller resolution and the retired
+  `DEV_USER_ID` setting from application code outside tests. Issue #672
+  renames that setting to required `ADMIN_ID`, a non-account root actor
+  representing info@portfonia.com. Tasks may resolve this system actor;
+  services receive `created_by` explicitly and never import routers or
+  read `ADMIN_ID`. It is not a JWT principal or a `users` row.
+  The sole owner-approved exception is the historical B4 binding branch
+  exercised in the throwaway migration test database; persistent databases
+  must not create an Admin account. Migration logic is unchanged.
 - **`send_report_email` fails closed on an unresolved recipient**: no send,
   an ops alert, `email_sent_at` stays null — never falls back to
   `ADMIN_EMAIL` or any other default. A report belongs to a specific user;
@@ -171,7 +174,7 @@ secret or the Supabase database password (business Postgres is self-hosted).
   bound **or** another row already holds that `sub`; 422 for whitespace-only
   input. The B4 migration leaves the production seed row's `auth_subject`
   NULL on purpose.
-- **Ops hard-purge** (issue #199, extended by issue #225, checkpoint B7, and issue #260): `DELETE /admin/users/{id}?confirm={email}` removes the `users` row and that user's own data, in `purge_user()`'s actual delete order (`news_surfaced`, `reports`, `holdings`, `accounts`, `upload_jobs`, `user_investment_context`, `email_verifications`), **and now also the hosted Auth account** — the previous "operator deletes it in the Supabase Dashboard" manual step is gone, closing the exact gap that produced a real production orphan (a `users` row cleaned up during 2026-08-25 UAT before this endpoint existed, leaving a live Supabase Auth account nobody found for two days). Auth deletion is sequenced strictly before any local delete and before `session.commit()`: a 404 (already gone) is treated as idempotent success; any other `AuthProviderError` aborts with `502` and touches nothing local, so a failed call is always safely retryable — never a half purge. Response gains `auth_deleted: bool`. When the local row is already gone but a matching Auth user remains (the orphan case above), the endpoint no longer 404s immediately — it looks the Auth user up by id and, if found, purges it directly (`confirm` compared against the Auth user's email, seed-user/`created_invites` guards skipped since they're local-row-scoped); only when neither side has anything does it 404. Soft-delete via `users.status = "deleted"` is unused here. **Email-first sibling (issue #274)**: `DELETE /admin/users/by-email?email={email}&confirm={email}` removes the SSH+psql "resolve the email to a user_id first" step — both params are required and normalized, mismatch → `422`; a local hit runs the exact same guards/purge via the shared `_purge_local_user`, a local miss orphans to `get_auth_user_by_email` (GoTrue list endpoint does not filter by email — the helper passes the address as the substring `filter` param, pages through hits, and returns only an exact normalized-email match), with an `auth_subject` occupancy check before any Auth delete so email drift can't Auth-delete a live account. Full detail: `docs/mechanisms/admin-surface.md`.
+- **Ops hard-purge** (issue #199, extended by issue #225, checkpoint B7, and issue #260): `DELETE /admin/users/{id}?confirm={email}` removes the `users` row and that user's own data, in `purge_user()`'s actual delete order (`news_surfaced`, `reports`, `holdings`, `accounts`, `upload_jobs`, `user_investment_context`, `email_verifications`), **and now also the hosted Auth account** — the previous "operator deletes it in the Supabase Dashboard" manual step is gone, closing the exact gap that produced a real production orphan (a `users` row cleaned up during 2026-08-25 UAT before this endpoint existed, leaving a live Supabase Auth account nobody found for two days). Auth deletion is sequenced strictly before any local delete and before `session.commit()`: a 404 (already gone) is treated as idempotent success; any other `AuthProviderError` aborts with `502` and touches nothing local, so a failed call is always safely retryable — never a half purge. Response gains `auth_deleted: bool`. When the local row is already gone but a matching Auth user remains (the orphan case above), the endpoint no longer 404s immediately — it looks the Auth user up by id and, if found, purges it directly (`confirm` compared against the Auth user's email, `created_invites` guard skipped since they're local-row-scoped); only when neither side has anything does it 404. Soft-delete via `users.status = "deleted"` is unused here. **Email-first sibling (issue #274)**: `DELETE /admin/users/by-email?email={email}&confirm={email}` removes the SSH+psql "resolve the email to a user_id first" step — both params are required and normalized, mismatch → `422`; a local hit runs the exact same guards/purge via the shared `_purge_local_user`, a local miss orphans to `get_auth_user_by_email` (GoTrue list endpoint does not filter by email — the helper passes the address as the substring `filter` param, pages through hits, and returns only an exact normalized-email match), with an `auth_subject` occupancy check before any Auth delete so email drift can't Auth-delete a live account. Full detail: `docs/mechanisms/admin-surface.md`.
   - **Cash-balance guard (issue #599)**: `_purge_local_user`, shared by the by-id and by-email routes, checks `credit_cash_balance > 0` after the confirm checks and before any Auth delete. It returns 409 `user has a cash balance; refund or adjust it to zero first` without changing Auth or local rows. Existing confirm errors keep their precedence. Cash 0.00 with gift credit remains purgeable and ledger rows are flagged; the Auth-only orphan path is unchanged. Ops refunds or an explicit cash adjustment must reduce cash to zero before purge; there is no automatic zeroing in Ops purge. Self-service deletion uses the explicit relinquishment flow described below.
 - **Ops user directory read** (issue #278): `GET /admin/users` is the read-only sibling of the two purge routes above — all query params optional, `require_ops_token` like every `/admin/*` route. `email` (optional) is exact-match after `_normalize_email` (strip + lowercase, same as signup; whitespace-only input normalizes to None and behaves like the param being absent); `status` / `report_cadence` filter on the `users` columns with the same hand-kept `Literal` validation as the cadence endpoint (out-of-set value → `422`); `limit` defaults 50, caps 200, `offset` pages the unfiltered/broad-filter case. Response is an array of `{id, email, status, created_at, report_cadence, auth_subject_bound, has_investment_context, holdings_count}` — a deliberately narrow summary shape, not the `PurgeUserOut` shape (read-only, no `deleted{}` block). **Why it exists (not a generic "list users for troubleshooting" surface)**: after issue #274/PR #275, the delete-by-email pre-delete confirmation policy (report `created_at`, whether questionnaire/investment-context data exists, holdings count; get human re-confirmation of the email) had no API to satisfy — it still required SSH+psql, the exact step #274 was built to remove. `auth_subject_bound` (=`auth_subject` non-NULL), `has_investment_context` (a `user_investment_context` row exists) and `holdings_count` (`COUNT(*)` on `holdings`) are exactly that policy's facts, exposed as one read-only query; the confirmation flow itself stays operator-side, out of this endpoint's scope.
 - **`recipient_email(session, user_id)`** reads `users` (`delivery_email`
@@ -1026,22 +1029,24 @@ Waitlist `en` maps to letter `en` / signup `en`, `zh-Hans` to letter `zh` /
 signup `zh-Hans`, and `zh-Hant` to letter `zh-Hant` / signup `zh-Hant`.
 Unknown stored waitlist locales fall back to English. Non-waitlist invitations
 use the explicit language or English by default. Fixed Traditional copy is
-hand-authored. A send failure leaves the committed invite unsent; a later call revokes its live waitlist link and mints another.
-If the waitlist entry changes while Resend is sending, the delivery record is
-saved on that invite but `link_sent_at` is left unchanged. The completion
-write locks the entry again and checks that it is still `invited` and the
-sent invite is not revoked.
-This lost-race path still returns 201 with the letter's `invite_url`, even
-though that URL has been revoked by the intervening ops change. If the
-waitlist lookup still shows `invited` after a 201, inspect the live link
-before treating the letter as the sent link.
+hand-authored. Issue #672 uses one transaction for old-link revocation,
+invitation creation, the provider call, and the accepted-send record. The
+initial waitlist row lock is refreshed and held until the final commit;
+a concurrent Ops status change waits, then applies after the send commits.
+The former lost-race 201 branch and second completion lock are removed.
 
-A client timeout is not proof that Resend failed. Do not immediately retry:
-for a waitlist address, first check `GET /admin/waitlist/by-email`; for an
-address outside the waitlist, inspect `GET /admin/invites` and the send logs.
-A second call creates a new link and can leave the first email pointing at a
-revoked link. Non-waitlist calls do not create waitlist rows, and repeated
-calls may leave multiple live email-bound invites by design.
+A provider response without an id rolls back and returns 502
+`invitation email send failed; no invite was saved`. Other exceptions,
+including a final commit failure, are logged and re-raised (500); closing
+the request session rolls back. No new invite or revocation from the failed
+call persists. An automatic candidate remains pending; a failed manual
+re-send restores its invited state and old link. The delivery poll is
+queued only after commit, and an enqueue failure is logged and swallowed.
+A provider timeout or failed commit can leave the recipient with a dead
+link: this is an owner-accepted consequence of rollback, and a later
+automatic run can issue a valid letter. Non-waitlist manual calls still do
+not create waitlist rows; repeated successful calls may leave multiple
+live email-bound invites by design.
 
 The letter shows the signup URL and carries RFC 8058 one-click unsubscribe
 headers. `GET /invitation-letters/unsubscribe` only renders a confirmation;
@@ -1067,32 +1072,54 @@ later pages; this does not introduce URL-based locale routing.
 
 ### Waitlist automatic invitations (issue #672)
 
-`waitlist-auto-invite-daily` runs at 10:00 ET every day, including weekends.
-`WAITLIST_AUTO_INVITE_DAILY_LIMIT` defaults to 10. A value of 0 returns
-`disabled` without querying, sending, or emailing.
+`waitlist-auto-invite-daily` runs at 10:00 ET every day, including weekends,
+with quiet classification `False`. `WAITLIST_AUTO_INVITE_DAILY_LIMIT`
+defaults to 10; 0 returns `disabled` before opening a session, sending, or
+emailing. `ADMIN_ID` is the explicit creator passed to the shared letter
+service by both Ops and the task.
 
-Eligible entries are `pending`, their email is not already a user, and no
-invite for that email has `letter_unsubscribed_at` set. The task sends to the
-oldest `created_at`, then `id`, using the same letter path as
-`POST /admin/invitation-letters`: the entry locale, a 14-day email-bound
-invite, and the one-shot delivery poll. The quota is global. It is the limit
-minus the number of `invites.letter_sent_at` values on the current ET date,
-manual letters included. One run makes at most that many send attempts. A
-Resend miss and any other send exception both count; neither is retried. The
-entry stays in the manual endpoint's unconfirmed state (`invited`,
-`link_sent_at` NULL). A conflict because the entry changed between selection
-and the lock is logged and does not count.
+Eligible entries are pending, their email is not already a user, and no
+invite for that email has `letter_unsubscribed_at` set. Candidates are
+ordered by first `created_at`, then `id`. Before issuance the shared service
+locks and refreshes the entry with `populate_existing`; automatic calls
+require it to remain pending. A changed entry is skipped without consuming
+an attempt. Manual calls may still re-send to invited entries.
 
-Bounced, complained, failed, and suppressed letters are not sent again. The
-existing per-letter delivery alert is unchanged. The digest lists non-registered
-entries that are already users, unsubscribed, unconfirmed or otherwise unsent,
-expired without signup, or whose latest letter has one of those delivery
-events. A pending entry whose old link was revoked by a manual status reset is
-eligible for a new letter and is not listed as expired.
+The quota is the daily limit minus all `invites.letter_sent_at` values in
+the ET calendar day's half-open interval, including manual letters. This
+is a run-start snapshot: concurrent manual sends or runs can overshoot,
+as accepted by the owner. No quota lock or counter is added. One run makes
+at most the remaining number of attempts, including failures.
 
-The digest goes out when this run attempted at least one send or the attention
-list is non-empty. It is plain English, dated in ET, and contains no ids. The
-same ET day uses one idempotency key.
+The single send transaction rolls back failures to the pre-call state.
+Failed automatic candidates remain pending and are retried on a later run;
+the digest counts and lists those failures separately and includes them in
+eligible applicants still waiting. A database failure before invitation
+creation follows the same task handling. No Celery retry mechanism is added.
+
+The attention list includes pending entries whose emails belong to users
+or have unsubscribed; invited entries whose link was generated but not
+recorded as sent, whose latest link expired without signup, or whose latest
+letter bounced, complained, failed, or was suppressed. Reasons are merged
+in that order. Registered, activated, and rejected entries are excluded.
+The latest letter is selected by `created_at`. Reasons about unsent,
+expired, or undeliverable links never apply to pending entries; a manual
+reset with a revoked old link is eligible for a fresh letter.
+
+The digest is sent when at least one attempt occurred or the attention
+list is non-empty. It contains the ET date, sent count, earlier-today count,
+limit, failed count, waiting count, sent recipients with language names,
+failed emails, and attention reasons. Empty sections say `- none`; there
+are no ids. It calls `send_ops_alert` with INFO severity and one key per ET
+date. Actual provider behavior, including a same-day key with changed body,
+is verified only in a separately owner-authorized deployment test.
+
+Deployment must rename the production `DEV_USER_ID` variable to required
+`ADMIN_ID` and use the owner's new root UUID before startup. Local shared
+`.env.local` may temporarily retain the old extra variable for other
+worktrees. No Admin users row, new migration, or foreign-key change is
+part of this feature. Historical invite ownership and referral behavior
+are unchanged; report-currency actor changes beyond the rename belong to #674.
 
 ### Self-service account deletion (issue #644)
 
@@ -1109,7 +1136,7 @@ stateless three-minute Altcha challenge. All three deletion endpoints use
 `POST /me/account-deletion` accepts `confirm_email: string`,
 `relinquish_cash: Decimal` (default zero), and `altcha: string | null`
 (default null). It takes the same refreshed user row lock as every ledger
-writer, applies the shared seed/created-invite refusals, compares normalized
+writer, applies the shared created-invite refusal (no seed-user refusal), compares normalized
 email, and requires the submitted amount to equal the locked cash balance.
 For positive cash, a valid deletion proof is required and the full amount
 is recorded as a cash `relinquish` debit with actor type `user`. Gift needs

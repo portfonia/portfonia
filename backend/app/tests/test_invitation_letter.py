@@ -39,11 +39,7 @@ def _resend_success(client_class: MagicMock, provider_id: str = "resend-test") -
     response.status_code = 200
 
 
-@pytest.mark.parametrize("intervention", ["remint", "rejected", "pending"])
-def test_send_completion_does_not_overwrite_concurrent_ops_change(
-    session_test_db: None, intervention: str
-) -> None:
-    """The second request commits on a separate connection while the sender is in flight."""
+def _assert_send_lock_blocks_ops(intervention: str) -> None:
     from app.routers.admin import (
         InvitationLetterBody,
         WaitlistInviteBody,
@@ -53,29 +49,41 @@ def test_send_completion_does_not_overwrite_concurrent_ops_change(
         set_waitlist_status,
     )
 
-    email = f"race-{intervention}@example.com"
     engine = get_engine()
+    email = f"locked-{intervention}@example.com"
+    started, finished = threading.Event(), threading.Event()
+    errors: list[Exception] = []
+    worker: threading.Thread | None = None
     with Session(engine) as seed:
         entry = WaitlistEntry(email=email, locale="en", status="pending")
         seed.add(entry)
         seed.commit()
         entry_id = entry.id
-    try:
 
-        def during_send(*_args: object, **_kwargs: object) -> str:
-            with Session(engine) as second:
+    def edit() -> None:
+        try:
+            with Session(engine) as other:
+                started.set()
                 if intervention == "remint":
-                    mint_waitlist_invite(entry_id, WaitlistInviteBody(), session=second, _=None)
+                    mint_waitlist_invite(entry_id, WaitlistInviteBody(), session=other, _=None)
                 else:
                     set_waitlist_status(
-                        entry_id,
-                        WaitlistStatusBody(
-                            status="rejected" if intervention == "rejected" else "pending"
-                        ),
-                        session=second,
+                        entry_id, WaitlistStatusBody(status=intervention), session=other
                     )
-            return "resend-race"
+        except Exception as exc:
+            errors.append(exc)
+        finally:
+            finished.set()
 
+    def during_send(*args: object, **kwargs: object) -> str:
+        nonlocal worker
+        worker = threading.Thread(target=edit, daemon=True)
+        worker.start()
+        assert started.wait(2)
+        assert not finished.wait(0.2), "Ops change passed the send transaction lock"
+        return "resend-locked"
+
+    try:
         with (
             Session(engine) as first,
             patch(
@@ -83,102 +91,39 @@ def test_send_completion_does_not_overwrite_concurrent_ops_change(
             ),
             patch("app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"),
         ):
-            response = send_invitation_letter_endpoint(
+            sent = send_invitation_letter_endpoint(
                 InvitationLetterBody(email=email), session=first, _=None
             )
-            letter_id = response.invite_id
-        with Session(engine) as check:
-            current = check.get(WaitlistEntry, entry_id)
-            sent_invite = check.get(Invite, letter_id)
-            assert current is not None and current.link_sent_at is None
-            assert sent_invite is not None
-            assert sent_invite.letter_provider_message_id == "resend-race"
-            assert sent_invite.letter_sent_at is not None
-            if intervention == "remint":
-                assert current.status == "invited"
-                assert sent_invite.revoked_at is not None
-            else:
-                assert current.status == intervention
-    finally:
-        with Session(engine) as cleanup:
-            cleanup.execute(delete(Invite).where(Invite.waitlist_entry_id == entry_id))
-            cleanup.execute(delete(WaitlistEntry).where(WaitlistEntry.id == entry_id))
-            cleanup.commit()
-
-
-def test_completion_lock_blocks_status_change_until_sent_commit(session_test_db: None) -> None:
-    """A status edit started after the re-check must wait for the completion commit."""
-    from app.routers.admin import (
-        InvitationLetterBody,
-        WaitlistStatusBody,
-        send_invitation_letter_endpoint,
-        set_waitlist_status,
-    )
-
-    engine = get_engine()
-    with Session(engine) as seed:
-        entry = WaitlistEntry(email="race-after-recheck@example.com", locale="en", status="pending")
-        seed.add(entry)
-        seed.commit()
-        entry_id = entry.id
-
-    started = threading.Event()
-    finished = threading.Event()
-    errors: list[Exception] = []
-
-    def edit_status() -> None:
-        started.set()
-        try:
-            with Session(engine) as second:
-                set_waitlist_status(entry_id, WaitlistStatusBody(status="rejected"), session=second)
-        except Exception as exc:
-            errors.append(exc)
-        finally:
-            finished.set()
-
-    worker: threading.Thread | None = None
-    try:
-        with Session(engine) as first:
-            original_refresh = first.refresh
-
-            def refresh_then_start_status_edit(instance: object) -> None:
-                nonlocal worker
-                original_refresh(instance)
-                worker = threading.Thread(target=edit_status, daemon=True)
-                worker.start()
-                assert started.wait(2)
-                assert not finished.wait(0.5), "status edit passed the completion lock"
-
-            with (
-                patch.object(first, "refresh", side_effect=refresh_then_start_status_edit),
-                patch(
-                    "app.services.invitation_letters.send_invitation_letter",
-                    return_value="resend-locked",
-                ),
-                patch(
-                    "app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"
-                ),
-            ):
-                sent = send_invitation_letter_endpoint(
-                    InvitationLetterBody(email="race-after-recheck@example.com"),
-                    session=first,
-                    _=None,
-                )
         assert finished.wait(5)
         assert errors == []
         with Session(engine) as check:
             current = check.get(WaitlistEntry, entry_id)
             invite = check.get(Invite, sent.invite_id)
-            assert current is not None and current.status == "rejected"
-            assert current.link_sent_at is None
+            assert current is not None and current.link_sent_at is None
+            assert current.status == ("invited" if intervention == "remint" else intervention)
             assert invite is not None and invite.letter_provider_message_id == "resend-locked"
+            assert invite.letter_sent_at is not None and invite.revoked_at is not None
     finally:
         if worker is not None:
-            worker.join(timeout=5)
+            worker.join(5)
         with Session(engine) as cleanup:
             cleanup.execute(delete(Invite).where(Invite.waitlist_entry_id == entry_id))
             cleanup.execute(delete(WaitlistEntry).where(WaitlistEntry.id == entry_id))
             cleanup.commit()
+
+
+@pytest.mark.parametrize("intervention", ["remint", "rejected", "pending"])
+def test_send_completion_does_not_overwrite_concurrent_ops_change(
+    session_test_db: None,
+    intervention: str,
+) -> None:
+    """An Ops change waits for the single send transaction, then applies."""
+    _assert_send_lock_blocks_ops(intervention)
+
+
+def test_completion_lock_blocks_status_change_until_sent_commit(session_test_db: None) -> None:
+    """The initial row lock is held throughout the provider call and commit."""
+    _assert_send_lock_blocks_ops("rejected")
 
 
 def test_invite_email_lookup(app_client: TestClient, db_session: Session) -> None:
@@ -319,6 +264,7 @@ def test_waitlist_locale_and_send_failure(app_client: TestClient, db_session: Se
     entry = WaitlistEntry(email="waiting@example.com", locale="zh-Hant", status="pending")
     db_session.add(entry)
     db_session.commit()
+    before_status_changed_at = entry.status_changed_at
     headers = {"Authorization": f"Bearer {get_settings().ADMIN_API_TOKEN.get_secret_value()}"}
     with (
         patch("app.services.email_sender.httpx.Client") as client_class,
@@ -346,9 +292,10 @@ def test_waitlist_locale_and_send_failure(app_client: TestClient, db_session: Se
         )
         poll.assert_not_called()
     db_session.refresh(entry)
-    assert entry.status == "invited" and entry.link_sent_at is None
-    old = db_session.scalar(select(Invite).where(Invite.waitlist_entry_id == entry.id))
-    assert old is not None and old.letter_sent_at is None and old.revoked_at is None
+    assert entry.status == "pending" and entry.link_sent_at is None
+    assert entry.status_changed_at == before_status_changed_at
+    assert response.json()["detail"] == "invitation email send failed; no invite was saved"
+    assert db_session.scalar(select(Invite).where(Invite.waitlist_entry_id == entry.id)) is None
     with (
         patch("app.services.email_sender.httpx.Client") as client_class,
         patch(
@@ -370,8 +317,6 @@ def test_waitlist_locale_and_send_failure(app_client: TestClient, db_session: Se
         == "Portfonia 邀請函"
     )
     db_session.refresh(entry)
-    db_session.refresh(old)
-    assert old.revoked_at is not None
     assert entry.link_sent_at is not None
     new_id = uuid.UUID(response.json()["invite_id"])
     new = db_session.get(Invite, new_id)
@@ -587,3 +532,38 @@ def test_delivery_poll_retries_on_unusable_provider_response(
         retry.assert_called_once()
     db_session.refresh(row)
     assert row.letter_delivery_event is None
+
+
+def test_manual_resend_failure_keeps_old_link_and_entry(
+    app_client: TestClient,
+    db_session: Session,
+) -> None:
+    entry = WaitlistEntry(
+        email="resend-rollback@example.com",
+        locale="en",
+        status="invited",
+        link_sent_at=datetime.now(tz=ET),
+    )
+    db_session.add(entry)
+    db_session.flush()
+    old = create_invite(
+        db_session, created_by=uuid.uuid4(), email=entry.email, waitlist_entry_id=entry.id
+    )
+    db_session.commit()
+    before = (entry.status, entry.link_sent_at, entry.status_changed_at)
+    with (
+        patch("app.services.invitation_letters.send_invitation_letter", return_value=None),
+        patch(
+            "app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"
+        ) as poll,
+    ):
+        response = app_client.post(
+            "/admin/invitation-letters", json={"email": entry.email}, headers=_ops_headers()
+        )
+    assert response.status_code == 502
+    assert response.json()["detail"] == "invitation email send failed; no invite was saved"
+    db_session.refresh(entry)
+    assert (entry.status, entry.link_sent_at, entry.status_changed_at) == before
+    invites = db_session.scalars(select(Invite).where(Invite.waitlist_entry_id == entry.id)).all()
+    assert len(invites) == 1 and invites[0].id == old.id and invites[0].revoked_at is None
+    poll.assert_not_called()

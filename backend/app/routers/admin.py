@@ -324,11 +324,6 @@ class InvitationLetterOut(BaseModel):
     provider_message_id: str
 
 
-def ops_invite_created_by() -> UUID:
-    """Ops invite rows record the bootstrap actor. The identity-seam test keeps this read in the admin router."""
-    return UUID(get_settings().DEV_USER_ID)
-
-
 @router.post("/invitation-letters", response_model=InvitationLetterOut, status_code=201)
 def send_invitation_letter_endpoint(
     body: InvitationLetterBody,
@@ -343,13 +338,15 @@ def send_invitation_letter_endpoint(
             body.email,
             language=body.language,
             expires_days=body.expires_days,
+            created_by=UUID(get_settings().ADMIN_ID),
+            require_pending=False,
         )
     except LetterConflict as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from None
     except LetterSendFailed:
         raise HTTPException(
             status_code=502,
-            detail="invitation email send failed; the link was created but not sent and will expire unused",
+            detail="invitation email send failed; no invite was saved",
         ) from None
     return InvitationLetterOut(
         invite_id=result.invite_id,
@@ -455,7 +452,7 @@ def mint_waitlist_invite(
     try:
         issued = create_invite(
             session,
-            created_by=UUID(get_settings().DEV_USER_ID),
+            created_by=UUID(get_settings().ADMIN_ID),
             email=entry.email,
             expires_days=body.expires_days,
             waitlist_entry_id=entry.id,
@@ -530,7 +527,7 @@ def create_invite_endpoint(
     try:
         issued = create_invite(
             session,
-            created_by=UUID(get_settings().DEV_USER_ID),
+            created_by=UUID(get_settings().ADMIN_ID),
             email=body.email,
             expires_days=body.expires_days,
         )
@@ -1040,7 +1037,7 @@ def _purge_local_user(session: Session, user: User, confirm: str | None) -> Purg
     sequence live in exactly one place — the by-id route's original
     behavior is preserved verbatim; the by-email route passes its (already
     boundary-validated) confirm through the same checks."""
-    refuse_protected_user(session, user, seed_user_id=UUID(get_settings().DEV_USER_ID))
+    refuse_protected_user(session, user)
     if confirm is None:
         raise HTTPException(status_code=422, detail="confirm query param is required")
     if _normalize_email(confirm) != _normalize_email(user.email):
@@ -1493,7 +1490,7 @@ def update_report_currency_by_email(
     user = session.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="user not found")
-    ops_id = UUID(get_settings().DEV_USER_ID)
+    ops_id = UUID(get_settings().ADMIN_ID)
     apply_report_currency_change(
         session,
         user,
@@ -1772,7 +1769,7 @@ def create_ticker_leverage_endpoint(
             leverage_multiple=body.leverage_multiple,
             direction=body.direction,
             notes=body.notes,
-            created_by=UUID(get_settings().DEV_USER_ID),
+            created_by=UUID(get_settings().ADMIN_ID),
         )
     except LeverageOverrideAlreadyExists:
         raise HTTPException(

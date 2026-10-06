@@ -71,9 +71,11 @@ comment (issue #645).
   existing `PATCH /me/report-currency` and
   `POST /admin/users/by-email/report-currency` — a real change appends
   one row (`source=self` with `actor_user_id` = caller, or `source=admin`
-  with `actor_user_id` = `Settings.DEV_USER_ID` when that users row
+  with `actor_user_id` = `Settings.ADMIN_ID` when that users row
   exists — ops token has no JWT principal, same stand-in as
   ticker-leverage `created_by`). Same-currency writes are 200 with no row.
+  `ADMIN_ID` is a non-account root actor with no users row, so the audit
+  currently stores null; #674 owns any audit actor representation change.
   No product UI. Does not rewrite `portfolio_value_snapshots`. SQL
   equivalent is in `docs/mechanisms/portfolio-performance.md`.
 - **Cadence change** (issue #191): `POST /admin/users/{user_id}/cadence`
@@ -87,7 +89,7 @@ comment (issue #645).
   is explicitly out of scope for the PR that added this endpoint. See the
   "Cadence" bullet in `docs/mechanisms/capture-and-reporting.md` for how
   `report_cadence` actually drives scheduling.
-- **User hard-purge** (issue #199, extended by issue #225, checkpoint B7, and issue #260): `DELETE /admin/users/{user_id}?confirm={email}` hard-deletes one user's own rows (`news_surfaced`, `reports`, `holdings`, `accounts`, `upload_jobs`, `user_investment_context`, `email_verifications`, then `users`) and clears invite pointers (`invites.used_by_user_id` nulled without touching `used_at`/`revoked_at`; other users' `invited_by` nulled). Refuses the seed `DEV_USER_ID`, any user who still has `invites.created_by` rows, a missing `confirm` query param, and a `confirm` that does not match the row's normalized email (strip + lowercase, same as signup). Does not touch global capture tables, and does not soft-delete via `users.status`. Spec: issue #199 comment dated 2026-08-27.
+- **User hard-purge** (issue #199, extended by issue #225, checkpoint B7, and issue #260): `DELETE /admin/users/{user_id}?confirm={email}` hard-deletes one user's own rows (`news_surfaced`, `reports`, `holdings`, `accounts`, `upload_jobs`, `user_investment_context`, `email_verifications`, then `users`) and clears invite pointers (`invites.used_by_user_id` nulled without touching `used_at`/`revoked_at`; other users' `invited_by` nulled). Refuses any user who still has `invites.created_by` rows, a missing `confirm` query param, and a `confirm` that does not match the row's normalized email (strip + lowercase, same as signup). Does not touch global capture tables, and does not soft-delete via `users.status`. Spec: issue #199 comment dated 2026-08-27.
   - **Cash-balance protection (issue #599)**: both purge routes share a guard in `_purge_local_user`, after the missing/mismatched `confirm` checks and before Auth deletion. A local user with `credit_cash_balance > 0` receives 409 `user has a cash balance; refund or adjust it to zero first`; Auth deletion is not called and all local rows remain untouched. Cash zero with gift credit still succeeds and flags ledger history. Auth-only orphan handling is unchanged. Ops must refund or explicitly adjust cash to zero first; purge never zeroes balances itself.
   - **Ops credit adjustments (issue #599)**: `POST /admin/users/by-email/credit-adjustments` accepts `bucket: "gift" | "cash"`, defaulting to `gift`, with the existing signed nonzero two-decimal amount, mandatory non-blank note, idempotency key and optional reference. Cash notes state where the value went. Replays must match user, reason, amount and bucket; a different bucket returns 409 idempotency conflict. Overdrafts return 409 `insufficient balance`. Response shape stays unchanged and `entry.bucket` identifies the bucket. See [Credit ledger](credit-ledger.md).
   - **`accounts` deletion (issue #129 B7) runs after `holdings`, before `upload_jobs`/`user_investment_context`/`users`** — `holdings.account_id` FKs to `accounts.id` `ON DELETE RESTRICT`, so an account row can't be deleted while a holding still points at it; holdings are always gone by the time this step runs. Response's `deleted` object gains an `accounts` count.

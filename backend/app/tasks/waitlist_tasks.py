@@ -88,15 +88,22 @@ def auto_invite_waitlist() -> str:
         queued = [entry.email for entry in pending if _eligible(session, entry)]
         attempts = 0
         sent: list[tuple[str, LetterLanguage]] = []
-        unconfirmed_today: set[str] = set()
+        failed: list[str] = []
         for email in queued:
             if attempts >= remaining:
                 break
             try:
-                result = send_letter(session, email, language=None, expires_days=14)
+                result = send_letter(
+                    session,
+                    email,
+                    language=None,
+                    expires_days=14,
+                    created_by=UUID(get_settings().ADMIN_ID),
+                    require_pending=True,
+                )
             except LetterSendFailed:
                 attempts += 1
-                unconfirmed_today.add(email)
+                failed.append(email)
             except LetterConflict as exc:
                 logger.warning(
                     "waitlist automatic invitation skipped for %s: %s", email, exc.detail
@@ -105,7 +112,7 @@ def auto_invite_waitlist() -> str:
                 session.rollback()
                 logger.exception("waitlist automatic invitation failed for %s", email)
                 attempts += 1
-                unconfirmed_today.add(email)
+                failed.append(email)
             else:
                 attempts += 1
                 sent.append((email, result.language))
@@ -146,12 +153,7 @@ def auto_invite_waitlist() -> str:
             if entry.status == "pending" and _unsubscribed(session, entry.email):
                 reasons.append("unsubscribed from invitation letters")
             if entry.status == "invited" and entry.link_sent_at is None:
-                if entry.email in unconfirmed_today:
-                    reasons.append(
-                        "today's automatic send was not confirmed; check Resend before resending"
-                    )
-                else:
-                    reasons.append("link generated but not recorded as sent")
+                reasons.append("link generated but not recorded as sent")
             if entry.status == "invited" and state["link_expired"] is True:
                 reasons.append("link expired without signup")
             newest = latest.get(entry.id)
@@ -165,6 +167,7 @@ def auto_invite_waitlist() -> str:
         noun = "letter" if len(sent) == 1 else "letters"
         subject = f"Portfonia waitlist: {len(sent)} invitation {noun} sent on {today.isoformat()}"
         letter_lines = [f"- {email} ({_LANGUAGE_NAMES[language]})" for email, language in sent]
+        failed_lines = [f"- {email}" for email in failed]
         attention_lines = [f"- {email}: {'; '.join(reasons)}" for email, reasons in attention]
         body = (
             f"Daily waitlist invitations for {today.isoformat()} (ET).\n"
@@ -172,12 +175,15 @@ def auto_invite_waitlist() -> str:
             f"Sent by this run: {len(sent)}\n"
             f"Sent earlier today (before this run): {sent_count}\n"
             f"Daily limit: {limit}\n"
-            "Not confirmed (link created, the letter may or may not have gone out): "
-            f"{len(unconfirmed_today)}\n"
+            "Failed this run (nothing was saved; retried on a later run): "
+            f"{len(failed)}\n"
             f"Still waiting on the waitlist: {waiting}\n"
             "\n"
             "Letters sent:\n"
             f"{_section(letter_lines)}\n"
+            "\n"
+            "Failed this run:\n"
+            f"{_section(failed_lines)}\n"
             "\n"
             "Needs your attention:\n"
             f"{_section(attention_lines)}"

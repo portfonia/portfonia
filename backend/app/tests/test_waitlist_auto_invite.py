@@ -5,10 +5,11 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -228,7 +229,7 @@ def test_ineligible_pending_entries_need_attention(
     assert "Still waiting on the waitlist: 0" in body
 
 
-def test_unconfirmed_send_counts_as_an_attempt(
+def test_send_failure_rolls_back_and_counts_as_an_attempt(
     monkeypatch: pytest.MonkeyPatch, db_session: Session
 ) -> None:
     _limit(monkeypatch, 2)
@@ -251,21 +252,21 @@ def test_unconfirmed_send_counts_as_an_attempt(
         assert _run() == "reported"
     assert send.call_count == 2
     db_session.expire_all()
-    assert first.status == "invited" and first.link_sent_at is None
+    assert first.status == "pending" and first.link_sent_at is None
+    assert first.status_changed_at == base
     first_invite = db_session.scalar(select(Invite).where(Invite.waitlist_entry_id == first.id))
-    assert first_invite is not None and first_invite.letter_sent_at is None
+    assert first_invite is None
     assert second.status == "invited" and second.link_sent_at is not None
     assert third.status == "pending"
     body = _body()
-    assert "Not confirmed (link created, the letter may or may not have gone out): 1" in body
-    assert (
-        "miss-1@example.com: today's automatic send was not confirmed; "
-        "check Resend before resending"
-    ) in body
+    assert "Failed this run (nothing was saved; retried on a later run): 1" in body
+    assert "Still waiting on the waitlist: 2" in body
+    assert "Failed this run:\n- miss-1@example.com" in body
+    assert "miss-1@example.com" not in body.split("Needs your attention:")[1]
     poll.assert_called_once()
 
 
-def test_unexpected_send_exception_counts_as_unconfirmed(
+def test_unexpected_send_exception_rolls_back(
     monkeypatch: pytest.MonkeyPatch, db_session: Session
 ) -> None:
     _limit(monkeypatch, 2)
@@ -286,17 +287,17 @@ def test_unexpected_send_exception_counts_as_unconfirmed(
         assert _run() == "reported"
     assert send.call_count == 2
     db_session.expire_all()
-    assert first.status == "invited" and first.link_sent_at is None
+    assert first.status == "pending" and first.link_sent_at is None
+    assert first.status_changed_at == base
     first_invite = db_session.scalar(select(Invite).where(Invite.waitlist_entry_id == first.id))
-    assert first_invite is not None and first_invite.letter_sent_at is None
+    assert first_invite is None
     assert second.status == "invited" and second.link_sent_at is not None
     assert third.status == "pending"
     body = _body()
-    assert "Not confirmed (link created, the letter may or may not have gone out): 1" in body
-    assert (
-        "boom-1@example.com: today's automatic send was not confirmed; "
-        "check Resend before resending"
-    ) in body
+    assert "Failed this run (nothing was saved; retried on a later run): 1" in body
+    assert "Still waiting on the waitlist: 2" in body
+    assert "Failed this run:\n- boom-1@example.com" in body
+    assert "boom-1@example.com" not in body.split("Needs your attention:")[1]
 
 
 def test_nothing_to_report_skips_digest(
@@ -512,7 +513,17 @@ def test_digest_format(monkeypatch: pytest.MonkeyPatch, db_session: Session) -> 
     subject = _subject()
     body = _body()
     assert subject == f"Portfonia waitlist: 1 invitation letter sent on {today}"
-    assert f"Daily waitlist invitations for {today} (ET)." in body
+    assert body == (
+        f"Daily waitlist invitations for {today} (ET).\n\n"
+        "Sent by this run: 1\n"
+        "Sent earlier today (before this run): 0\n"
+        "Daily limit: 1\n"
+        "Failed this run (nothing was saved; retried on a later run): 0\n"
+        "Still waiting on the waitlist: 2\n\n"
+        "Letters sent:\n- english@example.com (English)\n\n"
+        "Failed this run:\n- none\n\n"
+        "Needs your attention:\n- none"
+    )
     assert "english@example.com (English)" in body
     assert _UUID_RE.search(subject) is None
     assert _UUID_RE.search(body) is None
@@ -544,3 +555,194 @@ def test_waitlist_auto_invite_beat_schedule() -> None:
     assert schedule.minute == {0}
     assert schedule.day_of_week == set(range(7))
     assert API_QUIET_BEAT_ENTRIES["waitlist-auto-invite-daily"] is False
+
+
+@pytest.mark.parametrize("intervention", ["rejected", "manual"])
+def test_selected_entry_is_rechecked_under_lock(
+    session_test_db: None, monkeypatch: pytest.MonkeyPatch, intervention: str
+) -> None:
+    from app.core.database import get_engine
+    from app.routers.admin import (
+        InvitationLetterBody,
+        send_invitation_letter_endpoint,
+    )
+    from app.services.invitation_letters import send_letter
+    from app.tasks import waitlist_tasks
+
+    _limit(monkeypatch, 1)
+    engine = get_engine()
+    base = datetime.now(tz=ET) - timedelta(days=1)
+    emails = [f"recheck-{intervention}-{i}@example.com" for i in range(2)]
+    with Session(engine) as setup:
+        first = _entry(setup, emails[0], created_at=base)
+        _entry(setup, emails[1], created_at=base + timedelta(hours=1))
+        prior = create_invite(
+            setup, created_by=uuid.uuid4(), email=first.email, waitlist_entry_id=first.id
+        )
+        setup.commit()
+        first_id, prior_id = first.id, prior.id
+    original = send_letter
+    manual_id: uuid.UUID | None = None
+
+    def before_send(session: Session, email: str, **kwargs: object) -> object:
+        nonlocal manual_id
+        if email == emails[0]:
+            with Session(engine) as other:
+                if intervention == "rejected":
+                    other.execute(
+                        update(WaitlistEntry)
+                        .where(WaitlistEntry.id == first_id)
+                        .values(status="rejected")
+                    )
+                    other.commit()
+                else:
+                    result = send_invitation_letter_endpoint(
+                        InvitationLetterBody(email=email), session=other, _=None
+                    )
+                    manual_id = result.invite_id
+        return original(session, email, **kwargs)  # type: ignore[arg-type]
+
+    try:
+        with (
+            patch("app.core.database.SessionLocal", side_effect=lambda: Session(engine)),
+            patch.object(waitlist_tasks, "send_letter", side_effect=before_send),
+            patch(
+                "app.services.invitation_letters.send_invitation_letter", return_value="provider"
+            ) as send,
+            patch("app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"),
+        ):
+            assert _run() == "reported"
+        expected = [emails[1]] if intervention == "rejected" else emails
+        assert [call.args[0] for call in send.call_args_list] == expected
+        with Session(engine) as check:
+            current_first = check.get(WaitlistEntry, first_id)
+            assert current_first is not None
+            assert current_first.status == ("rejected" if intervention == "rejected" else "invited")
+            linked = check.scalars(select(Invite).where(Invite.waitlist_entry_id == first_id)).all()
+            assert len(linked) == (1 if intervention == "rejected" else 2)
+            if manual_id is not None:
+                manual = check.get(Invite, manual_id)
+                assert manual is not None and manual.revoked_at is None
+            prior_row = check.get(Invite, prior_id)
+            assert prior_row is not None
+            assert (prior_row.revoked_at is None) == (intervention == "rejected")
+        assert "Sent by this run: 1" in _body()
+    finally:
+        with Session(engine) as cleanup:
+            ids = select(WaitlistEntry.id).where(WaitlistEntry.email.in_(emails))
+            cleanup.execute(delete(Invite).where(Invite.waitlist_entry_id.in_(ids)))
+            cleanup.execute(delete(WaitlistEntry).where(WaitlistEntry.email.in_(emails)))
+            cleanup.commit()
+
+
+@pytest.mark.parametrize(
+    "events,reported", [(("bounced", "delivered"), False), (("delivered", "bounced"), True)]
+)
+def test_latest_invite_decides_delivery_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session: Session,
+    events: tuple[str, str],
+    reported: bool,
+) -> None:
+    _limit(monkeypatch, 1)
+    now = datetime.now(tz=ET)
+    entry = _entry(
+        db_session, "latest@example.com", status="invited", created_at=now, link_sent_at=now
+    )
+    for i, event in enumerate(events):
+        issued = create_invite(
+            db_session, created_by=uuid.uuid4(), email=entry.email, waitlist_entry_id=entry.id
+        )
+        row = db_session.get(Invite, issued.id)
+        assert row is not None
+        row.created_at = now + timedelta(seconds=i)
+        row.letter_delivery_event = event
+    db_session.commit()
+    with patch("app.services.invitation_letters.send_invitation_letter") as send:
+        assert _run() == ("reported" if reported else "nothing_to_report")
+    send.assert_not_called()
+    if reported:
+        assert "latest@example.com: last invitation letter bounced" in _body()
+    else:
+        _alert().assert_not_called()
+
+
+def test_pending_revoked_link_with_exhausted_quota_is_not_expired(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session: Session,
+) -> None:
+    _limit(monkeypatch, 1)
+    now = datetime.now(tz=ET)
+    entry = _entry(db_session, "pending-revoked@example.com", created_at=now)
+    issued = create_invite(
+        db_session, created_by=uuid.uuid4(), email=entry.email, waitlist_entry_id=entry.id
+    )
+    row = db_session.get(Invite, issued.id)
+    assert row is not None
+    row.revoked_at = now
+    row.letter_sent_at = now
+    db_session.commit()
+    with patch("app.services.invitation_letters.send_invitation_letter") as send:
+        assert _run() == "nothing_to_report"
+    db_session.refresh(entry)
+    assert entry.status == "pending"
+    send.assert_not_called()
+    _alert().assert_not_called()
+
+
+def test_admin_id_creates_manual_and_automatic_letters(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session: Session,
+) -> None:
+    from app.routers.admin import InvitationLetterBody, send_invitation_letter_endpoint
+
+    _limit(monkeypatch, 2)
+    entry = _entry(db_session, "auto-actor@example.com", created_at=datetime.now(tz=ET))
+    db_session.commit()
+    with (
+        patch("app.services.invitation_letters.send_invitation_letter", return_value="provider"),
+        patch("app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"),
+    ):
+        manual = send_invitation_letter_endpoint(
+            InvitationLetterBody(email="manual-actor@example.com"), session=db_session, _=None
+        )
+        assert _run() == "reported"
+    rows = db_session.scalars(
+        select(Invite).where(Invite.email.in_([entry.email, manual.email]))
+    ).all()
+    assert len(rows) == 2
+    assert all(row.created_by == uuid.UUID(get_settings().ADMIN_ID) for row in rows)
+    from app.models.user import User
+
+    assert db_session.get(User, uuid.UUID(get_settings().ADMIN_ID)) is None
+
+
+def test_pre_mint_database_failure_is_listed_and_retried(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session: Session,
+) -> None:
+    _limit(monkeypatch, 1)
+    base = datetime.now(tz=ET)
+    first = _entry(db_session, "premint@example.com", created_at=base)
+    db_session.commit()
+    with patch(
+        "app.services.invitation_letters.create_invite",
+        side_effect=OperationalError("INSERT invites", {}, RuntimeError("fixture")),
+    ):
+        assert _run() == "reported"
+    db_session.refresh(first)
+    assert first.status == "pending" and first.status_changed_at == base
+    assert db_session.scalar(select(Invite).where(Invite.waitlist_entry_id == first.id)) is None
+    assert "Failed this run (nothing was saved; retried on a later run): 1" in _body()
+    assert "Failed this run:\n- premint@example.com" in _body()
+    assert "Still waiting on the waitlist: 1" in _body()
+    assert "premint@example.com" not in _body().split("Needs your attention:")[1]
+    with (
+        patch(
+            "app.services.invitation_letters.send_invitation_letter", return_value="retry-provider"
+        ),
+        patch("app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"),
+    ):
+        assert _run() == "reported"
+    db_session.refresh(first)
+    assert first.status == "invited" and first.link_sent_at is not None

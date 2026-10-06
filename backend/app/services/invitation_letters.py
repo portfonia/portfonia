@@ -36,11 +36,7 @@ class LetterConflict(Exception):
 
 
 class LetterSendFailed(Exception):
-    """Resend returned no provider id; the committed invite stays unsent."""
-
-    def __init__(self, invite_id: UUID) -> None:
-        self.invite_id = invite_id
-        super().__init__(str(invite_id))
+    """Resend returned no provider id. The transaction was rolled back."""
 
 
 @dataclass(frozen=True)
@@ -74,6 +70,8 @@ def send_letter(
     *,
     language: LetterLanguage | None,
     expires_days: int,
+    created_by: UUID,
+    require_pending: bool,
 ) -> LetterResult:
     email_n = email.strip().lower()
     if (
@@ -88,7 +86,10 @@ def send_letter(
     if signup_email_taken(session, email_n):
         raise LetterConflict("email already belongs to an existing user")
     entry = session.scalar(
-        select(WaitlistEntry).where(WaitlistEntry.email == email_n).with_for_update()
+        select(WaitlistEntry)
+        .where(WaitlistEntry.email == email_n)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     now = datetime.now(tz=ET)
     resolved: LetterLanguage = language or "en"
@@ -104,6 +105,8 @@ def send_letter(
             raise LetterConflict("entry already registered")
         if entry.status == "rejected":
             raise LetterConflict("entry rejected")
+        if require_pending and entry.status != "pending":
+            raise LetterConflict("entry no longer pending")
         _revoke_waitlist_links(session, entry.id, now)
         waitlist_languages: dict[str, LetterLanguage] = {
             "en": "en",
@@ -112,12 +115,9 @@ def send_letter(
         }
         resolved, ui_locale = language_locales[waitlist_languages.get(entry.locale, "en")]
     try:
-        # Function-local import: admin imports this module.
-        from app.routers.admin import ops_invite_created_by
-
         issued = create_invite(
             session,
-            created_by=ops_invite_created_by(),
+            created_by=created_by,
             email=email_n,
             expires_days=expires_days,
             waitlist_entry_id=entry.id if entry else None,
@@ -129,7 +129,6 @@ def send_letter(
         entry.status = "invited"
         entry.link_sent_at = None
         entry.status_changed_at = now
-    session.commit()
     settings = get_settings()
     invite_url = f"{settings.FRONTEND_URL}/signup?invite={issued.token}&lang={ui_locale}"
     unsubscribe_token = create_invitation_unsubscribe_token(issued.id, resolved)
@@ -144,31 +143,15 @@ def send_letter(
         idempotency_key=f"invitation-letter:{issued.id}",
     )
     if provider_id is None:
+        session.rollback()
         logger.error("invitation letter send failed for invite %s", issued.id)
-        raise LetterSendFailed(issued.id)
+        raise LetterSendFailed
     sent_at = datetime.now(tz=ET)
     try:
         invite = session.get(Invite, issued.id)
         assert invite is not None
         if entry is not None:
-            current_entry = session.scalar(
-                select(WaitlistEntry)
-                .where(WaitlistEntry.id == entry.id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-            session.refresh(invite)
-            if (
-                current_entry is not None
-                and current_entry.status == "invited"
-                and invite.revoked_at is None
-            ):
-                current_entry.link_sent_at = sent_at
-            else:
-                logger.warning(
-                    "invitation letter %s sent after waitlist entry changed; link_sent_at unchanged",
-                    issued.id,
-                )
+            entry.link_sent_at = sent_at
         invite.letter_sent_at = sent_at
         invite.letter_provider_message_id = provider_id
         session.commit()

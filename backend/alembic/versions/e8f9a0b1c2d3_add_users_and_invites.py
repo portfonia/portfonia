@@ -2,7 +2,7 @@
 
 Ring 1 stage B checkpoint B4 (issue #129). Two new tables; existing
 holdings/reports/upload_jobs/news_surfaced rows are bound to a users row
-whose id equals Settings.DEV_USER_ID — only when that id is the sole
+whose id equals Settings.ADMIN_ID — only when that id is the sole
 distinct user_id across those four tables. Unexpected ids abort the
 upgrade rather than invent emails for leftover UAT rows.
 
@@ -97,7 +97,7 @@ def upgrade() -> None:
     from app.core.config import get_settings
 
     settings = get_settings()
-    expected = UUID(settings.DEV_USER_ID)
+    expected = UUID(settings.ADMIN_ID)
     conn = op.get_bind()
     found: set[UUID] = set()
     for table in _TABLES_WITH_USER_ID:

@@ -349,18 +349,20 @@ def test_09_shared_refusals(
     kind: str,
 ) -> None:
     if kind == "seed":
-        monkeypatch.setattr(get_settings(), "DEV_USER_ID", str(user.id))
+        if hasattr(get_settings(), "DEV_USER_ID"):
+            monkeypatch.setattr(get_settings(), "DEV_USER_ID", str(user.id))
     else:
         create_invite(db_session, created_by=user.id)
     response = app_client.post(PATH, json=body())
-    assert response.status_code == 409
-    assert response.json()["detail"] == (
-        "refusing to delete the seed user"
-        if kind == "seed"
-        else "user created invites; revoke or reassign first"
-    )
-    assert db_session.get(User, TEST_USER_ID) is not None
-    auth.assert_not_called()
+    if kind == "seed":
+        assert response.status_code == 204
+        assert db_session.get(User, TEST_USER_ID) is None
+        auth.assert_called_once()
+    else:
+        assert response.status_code == 409
+        assert response.json()["detail"] == "user created invites; revoke or reassign first"
+        assert db_session.get(User, TEST_USER_ID) is not None
+        auth.assert_not_called()
 
 
 def test_10_ops_cash_refusal_unchanged(

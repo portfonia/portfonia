@@ -288,8 +288,8 @@ class Settings(BaseSettings):
     GITHUB_TOKEN: SecretStr | None = None
     GITHUB_REPO: str = "portfonia/portfonia"
 
-    # Ring 0 dev identity
-    DEV_USER_ID: str
+    # Non-account root actor representing info@portfonia.com (issue #672).
+    ADMIN_ID: str
     DEV_USER_EMAIL: str
 
     # Holdings field-level encryption at rest (issue #31). Fernet key

@@ -154,7 +154,7 @@ def test_news_surfaced_backfill_reconstructs_from_report_history(alembic_cfg: Co
 
 
 def test_users_migration_binds_existing_dev_user(alembic_cfg: Config) -> None:
-    """A holdings row for DEV_USER_ID is bound into users; no other id present."""
+    """A holdings row for ADMIN_ID is bound into users; no other id present."""
     from sqlalchemy import text
 
     from app.core.config import get_settings as _gs
@@ -163,7 +163,7 @@ def test_users_migration_binds_existing_dev_user(alembic_cfg: Config) -> None:
 
     command.upgrade(alembic_cfg, "d6e7f8a9b0c1")
     engine = create_engine(get_settings().database_url)
-    uid = uuid.UUID(_gs().DEV_USER_ID)
+    uid = uuid.UUID(_gs().ADMIN_ID)
     # Raw SQL, not the Holding ORM model (issue #129 B7 review): the model
     # always reflects HEAD's column set (e.g. `account_id`, added by a much
     # later migration than d6e7f8a9b0c1), not whatever this checkpoint's

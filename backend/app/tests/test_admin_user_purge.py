@@ -155,16 +155,20 @@ def test_purge_confirm_case_and_whitespace_succeeds(
     assert db_session.get(User, _A) is None
 
 
-def test_purge_seed_user_409(app_client: TestClient, db_session: Session) -> None:
-    seed_id = uuid.UUID(get_settings().DEV_USER_ID)
+def test_purge_seed_user_succeeds(
+    app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_id = _A
+    if hasattr(get_settings(), "DEV_USER_ID"):
+        monkeypatch.setattr(get_settings(), "DEV_USER_ID", str(seed_id))
     db_session.add(_user(seed_id, "seed@example.com"))
     db_session.flush()
     resp = app_client.delete(
         _path(seed_id), headers=_headers(), params={"confirm": "seed@example.com"}
     )
-    assert resp.status_code == 409
-    assert resp.json()["detail"] == "refusing to delete the seed user"
-    assert db_session.get(User, seed_id) is not None
+    assert resp.status_code == 200
+    assert resp.json()["deleted"]["users"] == 1
+    assert db_session.get(User, seed_id) is None
 
 
 def test_purge_refuses_user_who_created_invites(
@@ -529,11 +533,8 @@ def test_purge_by_seed_users_auth_subject_refused_409(
     db_session: Session,
     _fake_get_auth_user: MagicMock,
 ) -> None:
-    """Same guard, seed user specifically: the existing `refusing to delete
-    the seed user` 409 only fires when `{user_id}` is the seed's own PK.
-    Calling with the seed's `auth_subject` instead must not slip past it
-    into a live Auth deletion."""
-    seed_id = uuid.UUID(get_settings().DEV_USER_ID)
+    """An occupied auth_subject still blocks orphan-auth deletion."""
+    seed_id = _A
     seed = _user(seed_id, "seed@example.com")
     seed.auth_subject = str(_AUTH_SUB)
     db_session.add(seed)
@@ -934,8 +935,12 @@ def test_purge_by_email_local_hit_full_purge(
     assert second.json()["detail"] == "user not found"
 
 
-def test_purge_by_email_seed_user_409(app_client: TestClient, db_session: Session) -> None:
-    seed_id = uuid.UUID(get_settings().DEV_USER_ID)
+def test_purge_by_email_seed_user_succeeds(
+    app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_id = _A
+    if hasattr(get_settings(), "DEV_USER_ID"):
+        monkeypatch.setattr(get_settings(), "DEV_USER_ID", str(seed_id))
     db_session.add(_user(seed_id, "seed@example.com"))
     db_session.flush()
     resp = app_client.delete(
@@ -943,9 +948,9 @@ def test_purge_by_email_seed_user_409(app_client: TestClient, db_session: Sessio
         headers=_headers(),
         params={"email": "seed@example.com", "confirm": "seed@example.com"},
     )
-    assert resp.status_code == 409
-    assert resp.json()["detail"] == "refusing to delete the seed user"
-    assert db_session.get(User, seed_id) is not None
+    assert resp.status_code == 200
+    assert resp.json()["deleted"]["users"] == 1
+    assert db_session.get(User, seed_id) is None
 
 
 def test_purge_by_email_created_invites_409(app_client: TestClient, db_session: Session) -> None:

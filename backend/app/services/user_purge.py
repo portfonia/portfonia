@@ -55,10 +55,8 @@ def _normalize_email(email: str | None) -> str | None:
     return email.strip().lower() or None
 
 
-def refuse_protected_user(session: Session, user: User, *, seed_user_id: UUID) -> None:
-    """Shared seed/invite refusals, in the existing Ops order."""
-    if user.id == seed_user_id:
-        raise HTTPException(status_code=409, detail="refusing to delete the seed user")
+def refuse_protected_user(session: Session, user: User) -> None:
+    """Refuse users whose issued invites still need reassignment."""
     if session.scalar(select(exists().where(Invite.created_by == user.id))):
         raise HTTPException(
             status_code=409, detail="user created invites; revoke or reassign first"
