@@ -177,7 +177,10 @@ it.each(LOCALE_VALUES)("%s referral copy and Terms preserve the required layout 
   }
   expect(catalog.profile.inviteBody).not.toMatch(/\d|%/);
   expect(catalog.profile.deleteAccountNegativeBalance).toContain("info@portfonia.com");
-  expect(catalog.legal.terms.lastUpdated).toBe("2026-10-05");
+  const expectedUpdated = locale === "en" ? "Last updated: 2026-10-05"
+    : locale === "zh-Hans" ? "\u6700\u540e\u66f4\u65b0\uff1a2026-10-05"
+      : "\u6700\u5f8c\u66f4\u65b0\uff1a2026-10-05";
+  expect(catalog.legal.terms.lastUpdated).toBe(expectedUpdated);
   expect(catalog.legal.terms.sections[3].body[6]).not.toMatch(/\d|%/);
   expect(catalog.legal.terms.sections[3].body[7]).toContain("{resellerNotice}");
 });

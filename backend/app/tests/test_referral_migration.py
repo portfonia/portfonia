@@ -62,3 +62,51 @@ def test_referral_migration_backfill_and_round_trip(alembic_cfg: Config) -> None
         command.upgrade(alembic_cfg, "head")
     finally:
         engine.dispose()
+
+
+def test_referral_migration_refuses_existing_root_without_changes(alembic_cfg: Config) -> None:
+    """A renamed personal account id must fail before schema or data mutation."""
+    command.upgrade(alembic_cfg, "d64000000001")
+    engine = create_engine(get_settings().database_url)
+    root = uuid.UUID(get_settings().ADMIN_ID)
+    queries = [
+        "SELECT to_jsonb(t)::text FROM users t ORDER BY id",
+        "SELECT to_jsonb(t)::text FROM waitlist_entries t ORDER BY id",
+        "SELECT to_jsonb(t)::text FROM credit_ledger t ORDER BY id",
+        "SELECT version_num FROM alembic_version",
+        "SELECT table_name,column_name,data_type,column_default,is_nullable "
+        "FROM information_schema.columns WHERE table_schema='public' "
+        "AND table_name IN ('users','waitlist_entries','credit_ledger') "
+        "ORDER BY table_name,ordinal_position",
+        "SELECT conname,pg_get_constraintdef(oid) FROM pg_constraint "
+        "WHERE conrelid IN ('users'::regclass,'waitlist_entries'::regclass,'credit_ledger'::regclass) "
+        "ORDER BY conname",
+    ]
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO users (id,auth_provider,auth_subject,email,status,locale,"
+                    "base_currency,report_cadence,credit_cash_balance,credit_gift_balance,invited_by) "
+                    "VALUES (:id,'supabase',:sub,'root-account@example.com','active','en',"
+                    "'USD','none',1.25,2.50,:parent)"
+                ),
+                {"id": root, "sub": str(root), "parent": uuid.uuid4()},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO waitlist_entries (email,locale) VALUES ('untouched@example.com','en')"
+                )
+            )
+        with engine.connect() as conn:
+            before = [conn.execute(text(query)).all() for query in queries]
+        with pytest.raises(
+            RuntimeError,
+            match=r"ADMIN_ID points to an existing user.*#672.*non-account root UUID",
+        ):
+            command.upgrade(alembic_cfg, "d67500000001")
+        with engine.connect() as conn:
+            after = [conn.execute(text(query)).all() for query in queries]
+        assert after == before
+    finally:
+        engine.dispose()
