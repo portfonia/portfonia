@@ -3,6 +3,16 @@
 import { useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { sendPortfolioOverview } from "@/lib/api";
 
@@ -24,11 +34,14 @@ export function SendOverviewButton({
 }) {
   const t = useTranslations("portfolio");
   const [isPending, startTransition] = useTransition();
+  // issue #679: a click only opens the confirmation; Confirm sends.
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [status, setStatus] = useState<
     { kind: "idle" } | { kind: "sent" } | { kind: "cooldown"; minutes: number } | { kind: "error" }
   >({ kind: "idle" });
 
-  const handleClick = () => {
+  const send = () => {
+    setConfirmOpen(false);
     startTransition(async () => {
       try {
         const res = await sendPortfolioOverview(baseCurrency);
@@ -50,7 +63,7 @@ export function SendOverviewButton({
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <Button onClick={handleClick} disabled={isPending || disabled} variant="outline" size="sm">
+      <Button onClick={() => setConfirmOpen(true)} disabled={isPending || disabled} variant="outline" size="sm">
         {isPending ? t("sendOverviewSending") : t("sendOverviewButton")}
       </Button>
       {status.kind === "sent" && (
@@ -66,6 +79,20 @@ export function SendOverviewButton({
           {t("sendOverviewError")}
         </p>
       )}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("sendOverviewConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("sendOverviewConfirmBody", { currency: baseCurrency })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("sendOverviewCancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={send}>{t("sendOverviewConfirmAction")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

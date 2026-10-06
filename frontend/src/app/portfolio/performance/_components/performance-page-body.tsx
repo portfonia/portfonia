@@ -658,7 +658,7 @@ export function PerformancePageBody({
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-3">
+        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
           <div>
             <CardTitle>{t("performance.monthlyTitle")}</CardTitle>
             <CardDescription>{t("performance.monthlyDescription")}</CardDescription>

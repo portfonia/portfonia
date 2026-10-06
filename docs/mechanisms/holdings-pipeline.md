@@ -761,6 +761,8 @@ page has selected, not a hardcoded default. Dispatched only from an
 explicit "Send holdings overview" button on `/portfolio`
 (`send-overview-button.tsx`); `/holdings` and `/holdings/edit` only gained
 a plain navigation link to `/portfolio`, no behavior change to confirm.
+Issue #679: the button now opens a confirmation dialog first; the request is
+sent only on Confirm (see `docs/mechanisms/frontend-chrome.md`).
 
 **Cooldown**: `check_portfolio_overview_cooldown` (`app/core/rate_limit.py`)
 claims a 15-minute-TTL Redis key via `set_nx` per user before dispatch —
@@ -941,6 +943,9 @@ formats' layout remain unchanged. Both frontend export helpers map
 same `exportPortfolio()` → `downloadFile()` pattern as the holdings-manager
 export button. New `exportXlsxButton`/`exportMdButton`/`exportError` keys
 added to all three locale catalogs (en/zh-Hans/zh-Hant).
+Issue #679: both portfolio downloads and the holdings export/template now
+save only after the shared `DownloadConfirmDialog` is confirmed, and the
+buttons moved to a second header row (see `docs/mechanisms/frontend-chrome.md`).
 
 **Review fix (blacktomb42, review 5103601953, fixed in `666fd61`)**:
 `compute_portfolio()`'s `_ratio()` (`portfolio_calculator.py`) stores

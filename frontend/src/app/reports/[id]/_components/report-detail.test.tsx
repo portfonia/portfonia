@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/app/_components/locale-provider";
@@ -15,6 +15,12 @@ it("acceptance_18 renders HTML and downloads exact Markdown and prints", async (
   expect(screen.getByRole("heading", { name: "Stored briefing" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Source" }).outerHTML).toBe('<a href="https://example.com">Source</a>');
   await user.click(screen.getByRole("button", { name: "Download Markdown" }));
+  // #679: the shared confirmation dialog names the file before saving.
+  const dialog = await screen.findByRole("alertdialog");
+  expect(dialog).toHaveTextContent("Holdings briefing for 2026-10-03");
+  expect(dialog).toHaveTextContent("portfonia-briefing-2026-10-03.md");
+  expect(create).not.toHaveBeenCalled();
+  await user.click(within(dialog).getByRole("button", { name: /^download$/i }));
   const blob = create.mock.calls[0]?.[0] as unknown as Blob;
   expect(blob).toBeInstanceOf(Blob); expect(blob.type).toBe("text/markdown;charset=utf-8");
   const text = await new Promise<string>(resolve => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(blob); }); expect(text).toBe(md);

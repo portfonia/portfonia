@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -46,10 +46,13 @@ describe("ExportPortfolioButtons", () => {
     for (const format of ["xlsx", "md"]) {
       await user.click(screen.getByRole("button", { name: new RegExp(`\\.${format}`, "i") }));
       await waitFor(() => expect(exportPortfolio).toHaveBeenCalledWith(format, "USD", expected));
+      await screen.findByRole("alertdialog");
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     }
     store.clear();
   });
-  it("downloads an xlsx file when the xlsx button is clicked", async () => {
+  it("downloads an xlsx file only after confirming (#679)", async () => {
     const blob = new Blob(["binary"]);
     exportPortfolio.mockResolvedValue({ blob, filename: "portfolio-x.xlsx" });
     const user = userEvent.setup();
@@ -62,10 +65,16 @@ describe("ExportPortfolioButtons", () => {
     await user.click(screen.getByRole("button", { name: /\.xlsx/i }));
 
     await waitFor(() => expect(exportPortfolio).toHaveBeenCalledWith("xlsx", "USD", "en"));
-    expect(downloadFile).toHaveBeenCalledWith(blob, "portfolio-x.xlsx");
+    // #679: fetched, but nothing is saved until the dialog is confirmed.
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("portfolio-x.xlsx");
+    expect(dialog).toHaveTextContent("Holdings snapshot, base currency USD, English");
+    expect(downloadFile).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: /^download$/i }));
+    expect(downloadFile).toHaveBeenCalledExactlyOnceWith(blob, "portfolio-x.xlsx");
   });
 
-  it("downloads a md file when the md button is clicked", async () => {
+  it("cancelling the md confirmation saves nothing (#679)", async () => {
     const blob = new Blob(["| a |"]);
     exportPortfolio.mockResolvedValue({ blob, filename: "portfolio-x.md" });
     const user = userEvent.setup();
@@ -78,7 +87,11 @@ describe("ExportPortfolioButtons", () => {
     await user.click(screen.getByRole("button", { name: /\.md/i }));
 
     await waitFor(() => expect(exportPortfolio).toHaveBeenCalledWith("md", "CNY", "en"));
-    expect(downloadFile).toHaveBeenCalledWith(blob, "portfolio-x.md");
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("portfolio-x.md");
+    await user.click(within(dialog).getByRole("button", { name: /cancel/i }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(downloadFile).not.toHaveBeenCalled();
   });
 
   it("shows an error message when the download fails", async () => {
@@ -93,6 +106,7 @@ describe("ExportPortfolioButtons", () => {
     await user.click(screen.getByRole("button", { name: /\.md/i }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(downloadFile).not.toHaveBeenCalled();
   });
 

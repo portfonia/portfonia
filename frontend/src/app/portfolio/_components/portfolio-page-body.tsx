@@ -130,36 +130,39 @@ export function PortfolioPageBody({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col items-start gap-1">
-          <h1 className="font-heading text-2xl font-medium">{t("pageTitle")}</h1>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <Link
-              href="/portfolio/performance"
-              className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
-            >
-              {t("performance.viewPerformanceLink")}
-            </Link>
-            <Link
-              href="/holdings/edit"
-              className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
-            >
-              {tMenu("editHoldings")}
-            </Link>
-            <Link
-              href="/questionnaire"
-              className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
-            >
-              {tMenu("questionnaire")}
-            </Link>
+      {/* issue #679: actions sit on their own row at every width. */}
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-col items-start gap-1">
+            <h1 className="font-heading text-2xl font-medium">{t("pageTitle")}</h1>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <Link
+                href="/portfolio/performance"
+                className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+              >
+                {t("performance.viewPerformanceLink")}
+              </Link>
+              <Link
+                href="/holdings/edit"
+                className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+              >
+                {tMenu("editHoldings")}
+              </Link>
+              <Link
+                href="/questionnaire"
+                className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+              >
+                {tMenu("questionnaire")}
+              </Link>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-3">
           <CurrencySwitcher
             value={currency}
             onChange={handleCurrencyChange}
             disabled={isPending}
           />
+        </div>
+        <div className="flex flex-wrap items-start justify-end gap-2">
           <SendOverviewButton baseCurrency={summary.base_currency} disabled={isPending} />
           <ExportPortfolioButtons baseCurrency={summary.base_currency} disabled={isPending} />
         </div>

@@ -447,3 +447,29 @@ Issue #660: the Chinese `menu.reports` and `reports.title` read "Report Center"
 in four characters, matching the other menu entries. `/reports` and `/agent`
 use the `/portfolio` typography: `font-heading text-2xl font-medium` page
 heading, `text-sm` body, muted secondary text, and `/agent` sections in `Card`.
+
+### Download and send confirmation; 375px fixes (issue #679)
+
+Every user download is fetched first and saved only after confirmation:
+Portfolio .xlsx/.md, Holdings export, Holdings template, and the report-detail
+Markdown. The caller keeps a `PendingDownload` (`blob`, `filename`,
+`description`) and renders the shared `DownloadConfirmDialog`
+(`components/download-confirm-dialog.tsx`), which shows the description, the
+file name and `formatFileSize(blob.size)` (bytes below 1 KB, else KB with one
+decimal) and calls `downloadFile` on Confirm. The dialog opens after the fetch
+because server file names come from `Content-Disposition`; a failed fetch
+keeps each caller's existing error handling and opens no dialog. Report print
+is excluded (the browser print dialog is the confirmation).
+`SendOverviewButton` opens its own confirmation naming the base currency and
+"your report delivery address" (the recipient is resolved server-side);
+Confirm runs the unchanged send/cooldown logic. Copy lives in the new
+`downloadConfirm` namespace plus per-caller `exportDescription`,
+`templateDescription`, `downloadDescription` and `sendOverviewConfirm*` keys.
+
+375px acceptance (production measurement, 2026-10-06): the `/portfolio`
+header now puts the currency switcher on row 1 and the send/download buttons
+on a wrapping, right-aligned row 2 at every width. `MultiSelectMenu` and
+`BenchmarkSingleSelectMenu` pass `max-w-full whitespace-normal text-left` to
+`MenuDropdown` so a long trigger wraps instead of being clipped by its card;
+the shared `MenuDropdown` default is unchanged. The Performance monthly card
+header and the Holdings "current holdings" action row wrap.

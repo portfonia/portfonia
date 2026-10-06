@@ -28,6 +28,7 @@ export function BenchmarkSingleSelectMenu({
   return (
     <MenuDropdown
       disabled={disabled}
+      triggerClassName="max-w-full whitespace-normal text-left"
       trigger={
         <>
           <span>{label}</span>
