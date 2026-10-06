@@ -18,6 +18,7 @@ vi.mock("@/lib/template", async () => {
   return { ...actual, downloadFile };
 });
 
+import { catalogs } from "@/locales";
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import { ExportPortfolioButtons } from "./export-portfolio-buttons";
 
@@ -105,7 +106,9 @@ describe("ExportPortfolioButtons", () => {
 
     await user.click(screen.getByRole("button", { name: /\.md/i }));
 
-    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(catalogs.en.portfolio.exportError),
+    );
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(downloadFile).not.toHaveBeenCalled();
   });

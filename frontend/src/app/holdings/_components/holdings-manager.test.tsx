@@ -412,4 +412,20 @@ describe("HoldingsManager", () => {
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     expect(downloadFile).toHaveBeenCalledTimes(1);
   });
+
+  it("template saves the fetched blob as holdings-template.md only on confirm (#679)", async () => {
+    withLocaleStorage();
+    const templateBlob = new Blob(["template"]);
+    downloadHoldingsTemplate.mockResolvedValue(templateBlob);
+    const user = userEvent.setup();
+    renderManager("normal");
+
+    await user.click(screen.getByRole("button", { name: /download template/i }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(downloadFile).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: /^download$/i }));
+
+    expect(downloadFile).toHaveBeenCalledExactlyOnceWith(templateBlob, "holdings-template.md");
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+  });
 });

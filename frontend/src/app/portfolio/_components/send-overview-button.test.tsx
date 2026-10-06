@@ -57,7 +57,7 @@ describe("SendOverviewButton", () => {
     await confirmSend(user);
 
     await waitFor(() => expect(screen.getByText(/sent to your email/i)).toBeInTheDocument());
-    expect(sendPortfolioOverview).toHaveBeenCalledWith("USD");
+    expect(sendPortfolioOverview).toHaveBeenCalledExactlyOnceWith("USD");
   });
 
   it("shows remaining cooldown time instead of an error when still in cooldown", async () => {
