@@ -324,11 +324,9 @@ preference change (`PATCH /me/report-currency` or ops
 `POST /admin/users/by-email/report-currency`) appends one
 `report_currency_changes` row (`user_id`, `old_currency`, `new_currency`,
 `changed_at`, `source` `self|admin`, `actor_user_id`). Self-service sets
-`actor_user_id` to the caller. Ops-token writes have no JWT principal —
-`actor_user_id` is `Settings.ADMIN_ID` when that users row exists
-(the root actor used for Ops invites), else null. Admin is a non-account
-actor with no users row, so this currently stores null; #674 owns changes
-to the audit actor representation. A no-op
+`actor_user_id` to the caller. Ops-token writes store `source=admin` and
+`actor_user_id` NULL, which denotes the root Admin actor (issue #674), the
+same convention as the credit ledger's Ops adjustments. A no-op
 same-currency write does not insert. The writer never rewrites historical
 `portfolio_value_snapshots.base_currency`. Ops read:
 `GET /admin/users/{user_id}/report-currency-audit` (newest first) or

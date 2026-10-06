@@ -168,22 +168,48 @@ def test_purge_seed_user_succeeds(
     assert db_session.get(User, seed_id) is None
 
 
-def test_purge_refuses_user_who_created_invites(
+def test_purge_user_who_created_invites_succeeds(
     app_client: TestClient, db_session: Session
 ) -> None:
     db_session.add(_user(_A, "a@example.com"))
-    db_session.add(
-        Invite(
-            token_hash=hash_invite_token("created-by-a"),
-            created_by=_A,
-            expires_at=datetime.now(tz=UTC) + timedelta(days=14),
-        )
+    invite = Invite(
+        token_hash=hash_invite_token("created-by-a"),
+        created_by=_A,
+        expires_at=datetime.now(tz=UTC) + timedelta(days=14),
     )
+    db_session.add(invite)
     db_session.flush()
+    invite_id = invite.id
     resp = app_client.delete(_path(_A), headers=_headers(), params={"confirm": "a@example.com"})
-    assert resp.status_code == 409
-    assert resp.json()["detail"] == "user created invites; revoke or reassign first"
-    assert db_session.get(User, _A) is not None
+    assert resp.status_code == 200
+    response = resp.json()
+    assert response["user_id"] == str(_A)
+    assert response["email"] == "a@example.com"
+    assert response["auth_deleted"] is True
+    assert set(response) == {"user_id", "email", "auth_deleted", "deleted"}
+    assert response["deleted"] == {
+        "waitlist_entries": 0,
+        "invite_emails_cleared": 0,
+        "api_audit_log": 0,
+        "api_tokens": 0,
+        "news_surfaced": 0,
+        "reports": 0,
+        "holdings": 0,
+        "accounts": 0,
+        "upload_jobs": 0,
+        "user_investment_context": 0,
+        "email_verifications": 0,
+        "invites_used_by_cleared": 0,
+        "users_grand_invited_by_cleared": 0,
+        "users_invited_by_cleared": 0,
+        "users": 1,
+        "credit_ledger_flagged": 0,
+    }
+    db_session.expire_all()
+    assert db_session.get(User, _A) is None
+    stored = db_session.get(Invite, invite_id)
+    assert stored is not None
+    assert stored.created_by == _A
 
 
 def test_purge_happy_path_two_users(app_client: TestClient, db_session: Session) -> None:
@@ -951,24 +977,52 @@ def test_purge_by_email_seed_user_succeeds(
     assert db_session.get(User, seed_id) is None
 
 
-def test_purge_by_email_created_invites_409(app_client: TestClient, db_session: Session) -> None:
+def test_purge_by_email_created_invites_succeeds(
+    app_client: TestClient, db_session: Session
+) -> None:
     db_session.add(_user(_A, "a@example.com"))
-    db_session.add(
-        Invite(
-            token_hash=hash_invite_token("created-by-a"),
-            created_by=_A,
-            expires_at=datetime.now(tz=UTC) + timedelta(days=14),
-        )
+    invite = Invite(
+        token_hash=hash_invite_token("created-by-a"),
+        created_by=_A,
+        expires_at=datetime.now(tz=UTC) + timedelta(days=14),
     )
+    db_session.add(invite)
     db_session.flush()
+    invite_id = invite.id
     resp = app_client.delete(
         _by_email_path(),
         headers=_headers(),
         params={"email": "a@example.com", "confirm": "a@example.com"},
     )
-    assert resp.status_code == 409
-    assert resp.json()["detail"] == "user created invites; revoke or reassign first"
-    assert db_session.get(User, _A) is not None
+    assert resp.status_code == 200
+    response = resp.json()
+    assert response["user_id"] == str(_A)
+    assert response["email"] == "a@example.com"
+    assert response["auth_deleted"] is True
+    assert set(response) == {"user_id", "email", "auth_deleted", "deleted"}
+    assert response["deleted"] == {
+        "waitlist_entries": 0,
+        "invite_emails_cleared": 0,
+        "api_audit_log": 0,
+        "api_tokens": 0,
+        "news_surfaced": 0,
+        "reports": 0,
+        "holdings": 0,
+        "accounts": 0,
+        "upload_jobs": 0,
+        "user_investment_context": 0,
+        "email_verifications": 0,
+        "invites_used_by_cleared": 0,
+        "users_grand_invited_by_cleared": 0,
+        "users_invited_by_cleared": 0,
+        "users": 1,
+        "credit_ledger_flagged": 0,
+    }
+    db_session.expire_all()
+    assert db_session.get(User, _A) is None
+    stored = db_session.get(Invite, invite_id)
+    assert stored is not None
+    assert stored.created_by == _A
 
 
 def test_purge_by_email_auth_delete_failure_502_touches_no_local_rows(

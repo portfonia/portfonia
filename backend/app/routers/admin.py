@@ -124,7 +124,7 @@ from app.services.ticker_leverage import (
     update_leverage_override,
 )
 from app.services.user_directory import recipient_email_with_purpose
-from app.services.user_purge import _normalize_email, purge_user, refuse_protected_user
+from app.services.user_purge import _normalize_email, purge_user
 from app.services.user_scope import report_currency_for, report_language_for
 from app.services.waitlist import view as waitlist_view
 from app.services.waitlist import views as waitlist_views
@@ -1042,7 +1042,6 @@ def _purge_local_user(session: Session, user: User, confirm: str | None) -> Purg
     sequence live in exactly one place — the by-id route's original
     behavior is preserved verbatim; the by-email route passes its (already
     boundary-validated) confirm through the same checks."""
-    refuse_protected_user(session, user)
     if confirm is None:
         raise HTTPException(status_code=422, detail="confirm query param is required")
     if _normalize_email(confirm) != _normalize_email(user.email):
@@ -1506,7 +1505,8 @@ def update_report_currency_by_email(
     write with no data-loss risk).
 
     A real change also appends `report_currency_changes` with source=admin
-    (issue #372). Historical snapshot `base_currency` is not rewritten.
+    and a NULL actor denoting the root Admin actor (issue #674). Historical
+    snapshot `base_currency` is not rewritten.
     """
     normalized_email = _normalize_email(email)
     if normalized_email is None:
@@ -1514,13 +1514,12 @@ def update_report_currency_by_email(
     user = session.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="user not found")
-    ops_id = UUID(get_settings().ADMIN_ID)
     apply_report_currency_change(
         session,
         user,
         body.report_currency,
         source="admin",
-        actor_user_id=ops_id if session.get(User, ops_id) is not None else None,
+        actor_user_id=None,
     )
     session.commit()
     return UpdateReportCurrencyByEmailOut(
