@@ -1214,6 +1214,9 @@ Organic/plain invites and deleted referrers set both to root. Invite creator
 is never read for attribution. Neither field has a FK, and attribution is
 immutable except purge clearing. No root user row is created. Migration
 `d67500000001` backfills both fields on every existing user to `ADMIN_ID`.
+Before any change it refuses to run if a `users` row has the `ADMIN_ID` id,
+which catches a deployment that renamed `DEV_USER_ID` without changing its
+value to the #672 non-account root UUID.
 
 Purge clears both attribution fields on other users pointing at the deleted
 user, exposing `users_grand_invited_by_cleared` beside the existing count.
