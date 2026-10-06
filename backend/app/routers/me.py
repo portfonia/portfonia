@@ -4,14 +4,12 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.core.database import get_session
 from app.core.deps import Principal, current_principal
 from app.core.timezones import ET, today_et
@@ -329,7 +327,7 @@ def delete_account(
 ) -> Response:
     """Relinquish and purge in one transaction, then delete Auth before commit."""
     user = credit_ledger._lock_user(session, principal.user_id)
-    refuse_protected_user(session, user, seed_user_id=UUID(get_settings().DEV_USER_ID))
+    refuse_protected_user(session, user)
     if _normalize_email(body.confirm_email) != _normalize_email(user.email):
         raise HTTPException(status_code=409, detail="confirm does not match account email")
     if body.relinquish_cash != user.credit_cash_balance:

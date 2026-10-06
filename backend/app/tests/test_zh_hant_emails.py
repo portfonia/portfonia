@@ -131,8 +131,10 @@ def test_waitlist_invitation_locale(
     db_session.add(WaitlistEntry(email=email, locale=ui_locale, status="pending"))
     db_session.commit()
     with (
-        patch("app.routers.admin.send_invitation_letter", return_value="mock-id") as send,
-        patch("app.routers.admin.poll_invitation_letter_delivery.apply_async"),
+        patch(
+            "app.services.invitation_letters.send_invitation_letter", return_value="mock-id"
+        ) as send,
+        patch("app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"),
     ):
         response = app_client.post(
             "/admin/invitation-letters",
@@ -152,8 +154,10 @@ def test_waitlist_invitation_locale(
 def test_explicit_invitation_language(app_client: TestClient) -> None:
     headers = {"Authorization": f"Bearer {get_settings().ADMIN_API_TOKEN.get_secret_value()}"}
     with (
-        patch("app.routers.admin.send_invitation_letter", return_value="mock-id") as send,
-        patch("app.routers.admin.poll_invitation_letter_delivery.apply_async"),
+        patch(
+            "app.services.invitation_letters.send_invitation_letter", return_value="mock-id"
+        ) as send,
+        patch("app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"),
     ):
         response = app_client.post(
             "/admin/invitation-letters",

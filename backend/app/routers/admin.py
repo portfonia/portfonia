@@ -32,7 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -49,7 +49,6 @@ from app.core.timezones import ET, today_et
 from app.models.api_audit_log import ApiAuditLog
 from app.models.email_verification import EmailVerification
 from app.models.holding import Holding
-from app.models.invite import Invite
 from app.models.report import Report
 from app.models.report_currency_change import ReportCurrencyChange
 from app.models.report_job import ReportJob
@@ -79,20 +78,24 @@ from app.services.credit_ledger import (
     refund_key,
 )
 from app.services.credit_ledger_export import build_balances_csv, build_ledger_csv
-from app.services.email_sender import send_invitation_letter, send_ops_alert, send_report_email
+from app.services.email_sender import send_ops_alert, send_report_email
 from app.services.email_verification import (
     ResendTooSoon,
     VerificationSendFailed,
     create_verification,
 )
 from app.services.fund_nav_fetcher import update_fund_navs
-from app.services.invitation_unsubscribe import create_token as create_invitation_unsubscribe_token
+from app.services.invitation_letters import (
+    LetterConflict,
+    LetterSendFailed,
+    _revoke_waitlist_links,
+    send_letter,
+)
 from app.services.invites import (
     EmailAlreadyRegistered,
     create_invite,
     list_invites,
     revoke_invite,
-    signup_email_taken,
 )
 from app.services.llm_errors import LLMEmptyResponseError
 from app.services.paddle_client import (
@@ -125,8 +128,6 @@ from app.services.user_scope import report_currency_for, report_language_for
 from app.services.waitlist import view as waitlist_view
 from app.services.waitlist import views as waitlist_views
 from app.tasks.admin_tasks import send_admin_alert_task
-from app.tasks.email_verification_tasks import POLL_DELAY_SECONDS
-from app.tasks.invitation_letter_tasks import poll_invitation_letter_delivery
 from app.tasks.report_tasks import generate_report_job
 
 logger = logging.getLogger(__name__)
@@ -329,127 +330,33 @@ def send_invitation_letter_endpoint(
     session: Session = Depends(get_session),
     _: None = Depends(rate_limit_create_invite),
 ) -> InvitationLetterOut:
-    email_n = body.email.strip().lower()
-    if not email_n:
+    if not body.email.strip().lower():
         raise HTTPException(status_code=422, detail="email is required")
-    if (
-        session.scalar(
-            select(Invite.id)
-            .where(Invite.email == email_n, Invite.letter_unsubscribed_at.is_not(None))
-            .limit(1)
-        )
-        is not None
-    ):
-        raise HTTPException(
-            status_code=409, detail="recipient unsubscribed from invitation letters"
-        )
-    if signup_email_taken(session, email_n):
-        raise HTTPException(status_code=409, detail="email already belongs to an existing user")
-    entry = session.scalar(
-        select(WaitlistEntry).where(WaitlistEntry.email == email_n).with_for_update()
-    )
-    now = datetime.now(tz=ET)
-    language: Literal["en", "zh", "zh-Hant"] = body.language or "en"
-    language_locales: dict[str, tuple[Literal["en", "zh", "zh-Hant"], str]] = {
-        "en": ("en", "en"),
-        "zh": ("zh", "zh-Hans"),
-        "zh-Hant": ("zh-Hant", "zh-Hant"),
-    }
-    language, ui_locale = language_locales[language]
-    if entry is not None:
-        state = waitlist_view(session, entry)
-        if state["stage"] in ("registered", "activated"):
-            raise HTTPException(status_code=409, detail="entry already registered")
-        if entry.status == "rejected":
-            raise HTTPException(status_code=409, detail="entry rejected")
-        _revoke_waitlist_links(session, entry.id, now)
-        waitlist_languages: dict[str, Literal["en", "zh", "zh-Hant"]] = {
-            "en": "en",
-            "zh-Hans": "zh",
-            "zh-Hant": "zh-Hant",
-        }
-        language, ui_locale = language_locales[waitlist_languages.get(entry.locale, "en")]
     try:
-        issued = create_invite(
+        result = send_letter(
             session,
-            created_by=UUID(get_settings().DEV_USER_ID),
-            email=email_n,
+            body.email,
+            language=body.language,
             expires_days=body.expires_days,
-            waitlist_entry_id=entry.id if entry else None,
+            created_by=UUID(get_settings().ADMIN_ID),
+            require_pending=False,
         )
-    except EmailAlreadyRegistered:
-        session.rollback()
-        raise HTTPException(
-            status_code=409, detail="email already belongs to an existing user"
-        ) from None
-    if entry is not None:
-        entry.status = "invited"
-        entry.link_sent_at = None
-        entry.status_changed_at = now
-    session.commit()
-    settings = get_settings()
-    invite_url = f"{settings.FRONTEND_URL}/signup?invite={issued.token}&lang={ui_locale}"
-    unsubscribe_token = create_invitation_unsubscribe_token(issued.id, language)
-    unsubscribe_url = (
-        f"{settings.FRONTEND_URL}/api/invitation-letters/unsubscribe?token={unsubscribe_token}"
-    )
-    provider_id = send_invitation_letter(
-        email_n,
-        invite_url,
-        unsubscribe_url,
-        locale=language,
-        idempotency_key=f"invitation-letter:{issued.id}",
-    )
-    if provider_id is None:
-        logger.error("invitation letter send failed for invite %s", issued.id)
+    except LetterConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from None
+    except LetterSendFailed:
         raise HTTPException(
             status_code=502,
-            detail="invitation email send failed; the link was created but not sent and will expire unused",
-        )
-    sent_at = datetime.now(tz=ET)
-    try:
-        invite = session.get(Invite, issued.id)
-        assert invite is not None
-        if entry is not None:
-            current_entry = session.scalar(
-                select(WaitlistEntry)
-                .where(WaitlistEntry.id == entry.id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-            session.refresh(invite)
-            if (
-                current_entry is not None
-                and current_entry.status == "invited"
-                and invite.revoked_at is None
-            ):
-                current_entry.link_sent_at = sent_at
-            else:
-                logger.warning(
-                    "invitation letter %s sent after waitlist entry changed; link_sent_at unchanged",
-                    issued.id,
-                )
-        invite.letter_sent_at = sent_at
-        invite.letter_provider_message_id = provider_id
-        session.commit()
-    except Exception:
-        logger.exception("letter sent, record not persisted: provider id %s", provider_id)
-        raise
-    try:
-        poll_invitation_letter_delivery.apply_async(
-            args=[str(issued.id)], countdown=POLL_DELAY_SECONDS
-        )
-    except Exception:
-        logger.exception("invitation letter poll enqueue failed for %s", issued.id)
+            detail="invitation email send failed; no invite was saved",
+        ) from None
     return InvitationLetterOut(
-        invite_id=issued.id,
-        email=email_n,
-        language=language,
-        waitlist_entry_id=entry.id if entry else None,
-        expires_at=issued.expires_at,
-        invite_url=invite_url,
-        letter_sent_at=sent_at,
-        provider_message_id=provider_id,
+        invite_id=result.invite_id,
+        email=result.email,
+        language=result.language,
+        waitlist_entry_id=result.waitlist_entry_id,
+        expires_at=result.expires_at,
+        invite_url=result.invite_url,
+        letter_sent_at=result.letter_sent_at,
+        provider_message_id=result.provider_message_id,
     )
 
 
@@ -493,19 +400,6 @@ def _waitlist_entry(session: Session, entry_id: UUID, *, lock: bool = False) -> 
     if entry is None:
         raise HTTPException(status_code=404, detail="waitlist entry not found")
     return entry
-
-
-def _revoke_waitlist_links(session: Session, entry_id: UUID, now: datetime) -> None:
-    session.execute(
-        update(Invite)
-        .where(
-            Invite.waitlist_entry_id == entry_id,
-            Invite.used_at.is_(None),
-            Invite.revoked_at.is_(None),
-            Invite.expires_at > now,
-        )
-        .values(revoked_at=now)
-    )
 
 
 @router.get("/waitlist", response_model=list[WaitlistEntryOut])
@@ -558,7 +452,7 @@ def mint_waitlist_invite(
     try:
         issued = create_invite(
             session,
-            created_by=UUID(get_settings().DEV_USER_ID),
+            created_by=UUID(get_settings().ADMIN_ID),
             email=entry.email,
             expires_days=body.expires_days,
             waitlist_entry_id=entry.id,
@@ -633,7 +527,7 @@ def create_invite_endpoint(
     try:
         issued = create_invite(
             session,
-            created_by=UUID(get_settings().DEV_USER_ID),
+            created_by=UUID(get_settings().ADMIN_ID),
             email=body.email,
             expires_days=body.expires_days,
         )
@@ -1143,7 +1037,7 @@ def _purge_local_user(session: Session, user: User, confirm: str | None) -> Purg
     sequence live in exactly one place — the by-id route's original
     behavior is preserved verbatim; the by-email route passes its (already
     boundary-validated) confirm through the same checks."""
-    refuse_protected_user(session, user, seed_user_id=UUID(get_settings().DEV_USER_ID))
+    refuse_protected_user(session, user)
     if confirm is None:
         raise HTTPException(status_code=422, detail="confirm query param is required")
     if _normalize_email(confirm) != _normalize_email(user.email):
@@ -1596,7 +1490,7 @@ def update_report_currency_by_email(
     user = session.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="user not found")
-    ops_id = UUID(get_settings().DEV_USER_ID)
+    ops_id = UUID(get_settings().ADMIN_ID)
     apply_report_currency_change(
         session,
         user,
@@ -1875,7 +1769,7 @@ def create_ticker_leverage_endpoint(
             leverage_multiple=body.leverage_multiple,
             direction=body.direction,
             notes=body.notes,
-            created_by=UUID(get_settings().DEV_USER_ID),
+            created_by=UUID(get_settings().ADMIN_ID),
         )
     except LeverageOverrideAlreadyExists:
         raise HTTPException(

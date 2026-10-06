@@ -281,7 +281,7 @@ def _mock_settings() -> MagicMock:
     s.RESEND_API_KEY.get_secret_value.return_value = "re_test_key"
     s.EMAIL_FROM = "Portfonia <portfonia@physicalclue.us>"
     s.EMAIL_REPLY_TO = "portfonia@physicalclue.us"
-    s.DEV_USER_ID = _DEV_USER_ID_STR
+    s.ADMIN_ID = _DEV_USER_ID_STR
     s.DEV_USER_EMAIL = "test@example.com"
     s.OUTPUT_LANG = "zh"  # matches Ring 0 default; subject resolves via this (issue #90 review)
     s.FRONTEND_URL = "https://portfonia.com"

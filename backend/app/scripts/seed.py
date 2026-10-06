@@ -1,6 +1,6 @@
 """Seed Ring 0 developer's sample holdings.
 
-Idempotent: deletes any rows for DEV_USER_ID first, then inserts five fixtures
+Idempotent: deletes any rows for ADMIN_ID first, then inserts five fixtures
 covering US stock, HK stock, A-share, China public fund, and a manual-mode
 cash entry.
 """
@@ -78,7 +78,7 @@ def build_fixtures(user_id: uuid.UUID) -> list[Holding]:
 
 def main() -> None:
     settings = get_settings()
-    user_id = uuid.UUID(settings.DEV_USER_ID)
+    user_id = uuid.UUID(settings.ADMIN_ID)
 
     with SessionLocal() as session:
         session.execute(delete(Holding).where(Holding.user_id == user_id))

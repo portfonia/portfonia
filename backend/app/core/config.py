@@ -98,6 +98,8 @@ class Settings(BaseSettings):
     APP_SECRET_KEY: SecretStr
     APP_BASE_URL: str
     FRONTEND_URL: str
+    # Issue #672. Counts every invitation letter sent on the current ET date. 0 pauses.
+    WAITLIST_AUTO_INVITE_DAILY_LIMIT: int = Field(default=10, ge=0)
 
     # Database
     DB_HOST: str
@@ -286,8 +288,8 @@ class Settings(BaseSettings):
     GITHUB_TOKEN: SecretStr | None = None
     GITHUB_REPO: str = "portfonia/portfonia"
 
-    # Ring 0 dev identity
-    DEV_USER_ID: str
+    # Non-account root actor representing info@portfonia.com (issue #672).
+    ADMIN_ID: str
     DEV_USER_EMAIL: str
 
     # Holdings field-level encryption at rest (issue #31). Fernet key

@@ -1,13 +1,9 @@
 """Structural tests locking the B3 identity seam (Ring 1-B design doc §5).
 
-`app/services/**` and `app/tasks/**` must never resolve "who is calling"
-from ambient process state (`get_current_user_id()`/`DEV_USER_ID`) — every
-identity-bearing call must receive `user_id` as an explicit parameter, with
-the one request-scoped exception documented below. This is enforced by
-scanning real source text rather than by review attention alone (the same
-approach the issue #128 A4 assembly-boundary test used before issue #640
-removed that module) — a boundary that only review discipline protects erodes the
-first time someone adds a "convenience" call site under time pressure.
+Services receive caller and system identities explicitly. Tasks may resolve
+ADMIN_ID as a non-account system creator, never as ambient caller identity.
+Source scans enforce the retired DEV_USER_ID removal and the service/router
+boundary, alongside the request-scoped current_principal checks below.
 """
 
 from __future__ import annotations
@@ -38,16 +34,25 @@ def test_services_and_tasks_do_not_call_get_current_user_id() -> None:
     assert not offenders, f"get_current_user_id referenced in: {offenders}"
 
 
-def test_services_and_tasks_do_not_reference_dev_user_id() -> None:
-    """B4: the B3 user_directory.py shim is gone. DEV_USER_ID must not appear
-    under app/services/** or app/tasks/** — the bootstrap bind lives in the
-    migration and the ops invite `created_by` lives in the admin router."""
-    offenders = []
-    for path in _py_files(_SERVICES_DIR) + _py_files(_TASKS_DIR):
-        source = path.read_text(encoding="utf-8")
-        if "DEV_USER_ID" in source:
-            offenders.append(str(path))
+def test_app_does_not_reference_dev_user_id() -> None:
+    """The retired caller identity is absent outside test fixtures."""
+    app_dir = _SERVICES_DIR.parent
+    offenders = [
+        str(p)
+        for p in _py_files(app_dir)
+        if "tests" not in p.parts and "DEV_USER_ID" in p.read_text()
+    ]
     assert not offenders, f"DEV_USER_ID referenced in: {offenders}"
+
+
+def test_services_receive_explicit_system_actor() -> None:
+    """Tasks may resolve the root system actor; services receive it explicitly."""
+    offenders = [
+        str(p)
+        for p in _py_files(_SERVICES_DIR)
+        if "ADMIN_ID" in p.read_text() or "from app.routers" in p.read_text()
+    ]
+    assert not offenders, f"ambient actor or router import in services: {offenders}"
 
 
 def test_is_admin_is_never_read_outside_the_model() -> None:

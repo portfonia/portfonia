@@ -31,9 +31,10 @@ def _in_list_sql(column: str, values: tuple[str, ...]) -> str:
 class User(Base):
     """Portfonia account row. PK is ours, not the Auth provider's subject.
 
-    Ring 1-B design.md §6.3: keeping our own UUID lets the production
-    DEV_USER_ID bind in place (no UPDATE of holdings/reports) and keeps
-    the auth provider replaceable. `is_admin` is a reserved column —
+    Ring 1-B design.md §6.3: our own UUID preserves historical account
+    bindings without updating holdings/reports and keeps Auth replaceable.
+    The ADMIN_ID root actor has no persistent account (issue #672); the
+    historical binding migration only exercises that id in a throwaway test. `is_admin` is a reserved column —
     Ring 1 code must not read it (decision point 12).
     """
 

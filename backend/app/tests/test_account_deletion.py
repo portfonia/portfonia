@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.core.deps import current_principal
 from app.core.timezones import ET
 from app.main import app
@@ -348,19 +347,18 @@ def test_09_shared_refusals(
     monkeypatch: pytest.MonkeyPatch,
     kind: str,
 ) -> None:
-    if kind == "seed":
-        monkeypatch.setattr(get_settings(), "DEV_USER_ID", str(user.id))
-    else:
+    if kind != "seed":
         create_invite(db_session, created_by=user.id)
     response = app_client.post(PATH, json=body())
-    assert response.status_code == 409
-    assert response.json()["detail"] == (
-        "refusing to delete the seed user"
-        if kind == "seed"
-        else "user created invites; revoke or reassign first"
-    )
-    assert db_session.get(User, TEST_USER_ID) is not None
-    auth.assert_not_called()
+    if kind == "seed":
+        assert response.status_code == 204
+        assert db_session.get(User, TEST_USER_ID) is None
+        auth.assert_called_once()
+    else:
+        assert response.status_code == 409
+        assert response.json()["detail"] == "user created invites; revoke or reassign first"
+        assert db_session.get(User, TEST_USER_ID) is not None
+        auth.assert_not_called()
 
 
 def test_10_ops_cash_refusal_unchanged(
