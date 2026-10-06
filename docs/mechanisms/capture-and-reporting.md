@@ -756,7 +756,10 @@ before this attempt, published inside the unit window, whose news row has no
 accepted `IntelArticle`, and whose title still matches the aliases. At most
 `caps.headlines_per_unit` titles go to the existing headline search, under the
 existing search cap; only the stored title and publication time are used.
-`new_filing`, `news_spike` and macro units stay fresh-only.
+`new_filing`, `news_spike` and macro units stay fresh-only. The lead returned by
+a headline search carries the searched headline's `news_id`, so the accepted
+`IntelArticle` records it and the same stored title is not searched again
+(PR #682 review).
 
 **Aliases.** `entity_aliases` gained subsidiary, product and short names
 (Starlink, Waymo, AWS, Taiwan Semi, Snapdragon, WeChat, Tuopu, TFC Optical,
@@ -770,11 +773,18 @@ per holding; relation `supplier|customer|competitor|input`; an empty list means
 reviewed, a missing key means not reviewed). During collection, a non-filing
 item that fails the holding's alias rule but names a related entity (title or
 summary) goes through the remaining rules (low-value, near-duplicate against
-direct and related titles), then `headline_cleaning.classify_related`: one
-request per `INTEL_CLASSIFIER_BATCH` items, keep/drop plus the entity,
+direct and stored related titles), then `headline_cleaning.classify_related`:
+one request per `INTEL_CLASSIFIER_BATCH` items, keep/drop plus the entity,
 `data_collection: deny`, no retry. Failed or unlabelled items are dropped.
-Kept items, newest first, are capped at `related_per_instrument` (3, in
-`intel_cleaning.yml`) and stored with `news_instruments.relation` and
+Near-duplicates among candidates are resolved only after classification
+(oldest kept title wins, `related_duplicate`), so a dropped title never blocks
+its rewording. Kept items, newest first, are capped at `related_per_instrument`
+(3, in `intel_cleaning.yml`). All classifier calls finish before the first
+write, and the instrument's direct and related headlines are then written in
+one URL-hash order: parallel collection workers sharing headlines (TSMC is a
+holding and a related entity of several holdings) take row locks in the same
+order and cannot deadlock (a real two-worker test covers this). Related items
+are stored with `news_instruments.relation` and
 `related_to` set (migration `d68100000001`; both NULL means a direct link;
 downgrade deletes related links). Related items skip earnings-date checks,
 never seed the direct chain's duplicate checks or EXISTING context, never

@@ -26,6 +26,7 @@ from app.services.headline_cleaning import (
     classify_headlines,
     classify_related,
     load_cleaning_config,
+    tokens,
 )
 from app.services.instrument_news_sources import (
     CollectedItem,
@@ -206,7 +207,6 @@ def collect_instrument_news(
                     if len(sample) < 3:
                         sample.append(item.title)
                 else:
-                    related_previous.append(item.title)
                     related_candidates.append((item, hits))
                 continue
             if unmatched is not None:
@@ -276,9 +276,8 @@ def collect_instrument_news(
             for i, (_, item) in enumerate(chunk)
             if batch.get(i) not in ("promo", "unrelated", "duplicate", "stale")
         )
-    for i, (name, item) in sorted(
-        enumerate(candidates), key=lambda candidate: candidate[1][1].headline().url_hash
-    ):
+    direct: list[tuple[str, CollectedItem, str | None]] = []
+    for i, (name, item) in enumerate(candidates):
         label = labels.get(i)
         if label in ("promo", "unrelated", "duplicate", "stale"):
             llm_reason = label + "_llm"
@@ -286,6 +285,21 @@ def collect_instrument_news(
             sample = result.samples.setdefault(llm_reason, [])
             if len(sample) < 3:
                 sample.append(item.title)
+            continue
+        direct.append((name, item, label))
+    # Every classifier call finishes before the first write, and direct and related
+    # headlines are written in one URL-hash order: parallel workers that share
+    # headlines then take row locks in the same order and cannot deadlock (#681).
+    related = select_related(entry, aliases, related_candidates, related_previous, config, result)
+    writes: list[tuple[str, CollectedItem, str | None, Relation | None]] = [
+        *((name, item, label, None) for name, item, label in direct),
+        *(("", item, "keep", relation) for item, relation in related),
+    ]
+    for name, item, label, relation in sorted(writes, key=lambda w: w[1].headline().url_hash):
+        if relation is not None:
+            nid, _ = store_headline(session, item.headline(), "instrument", "article", "keep")
+            link_related(session, nid, entry.identifier, relation.relation, relation.name)
+            result.cleaning["related_kept"] = result.cleaning.get("related_kept", 0) + 1
             continue
         if item.kind == "filing":
             result.cleaning["filings_stored"] = result.cleaning.get("filings_stored", 0) + 1
@@ -301,7 +315,6 @@ def collect_instrument_news(
         item.identifier = entry.identifier
         item.label = label
         result.leads.append(item)
-    store_related(session, entry, aliases, related_candidates, config, result)
     if p is None:
         p = InstrumentProfile(
             identifier=entry.identifier, market=entry.market, aliases=[entry.ticker]
@@ -313,21 +326,22 @@ def collect_instrument_news(
     return result
 
 
-def store_related(
-    session: Session,
+def select_related(
     entry: UniverseEntry,
     aliases: list[str],
     candidates: list[tuple[CollectedItem, list[Relation]]],
+    seen: list[str],
     config: CleaningConfig,
     result: InstrumentResult,
-) -> None:
-    """Classify headlines naming only a related entity; store the kept ones (#681).
+) -> list[tuple[CollectedItem, Relation]]:
+    """Classify headlines naming only a related entity and return those to store (#681).
 
-    A failed or unlabelled batch stores nothing: unlike direct headlines, these
-    have passed no relevance check of their own.
+    A failed or unlabelled batch keeps nothing: unlike direct headlines, these
+    have passed no relevance check of their own. Near-duplicates are resolved
+    among kept titles only, so a dropped title never blocks its rewording.
     """
     if not candidates:
-        return
+        return []
     count = result.cleaning.get
     result.cleaning["related_candidates"] = count("related_candidates", 0) + len(candidates)
     size = min(100, max(1, get_settings().INTEL_CLASSIFIER_BATCH))
@@ -352,16 +366,28 @@ def store_related(
             else:
                 named = [r for r in hits if r.name.casefold() == row["entity"].casefold()]
                 kept.append((item, (named or hits)[0]))
-    kept.sort(key=lambda pair: pair[0].published_at, reverse=True)
-    overflow = len(kept) - config.related_per_instrument
+    # Candidates arrive oldest first; a kept title that rewords an earlier kept or
+    # stored related title is a duplicate.
+    accepted: list[tuple[CollectedItem, Relation]] = []
+    titles = [tokens(title) for title in seen]
+    for item, relation in kept:
+        current = tokens(item.title)
+        if any(
+            (current | other) and len(current & other) / len(current | other) >= config.threshold
+            for other in titles
+        ):
+            result.cleaning["related_duplicate"] = count("related_duplicate", 0) + 1
+            sample = result.samples.setdefault("duplicate", [])
+            if len(sample) < 3:
+                sample.append(item.title)
+            continue
+        titles.append(current)
+        accepted.append((item, relation))
+    accepted.sort(key=lambda pair: pair[0].published_at, reverse=True)
+    overflow = len(accepted) - config.related_per_instrument
     if overflow > 0:
         result.cleaning["related_capped"] = count("related_capped", 0) + overflow
-        kept = kept[: config.related_per_instrument]
-    # URL-hash order, as for direct headlines, avoids crossed-order dedup deadlocks.
-    for item, relation in sorted(kept, key=lambda pair: pair[0].headline().url_hash):
-        nid, _ = store_headline(session, item.headline(), "instrument", "article", "keep")
-        link_related(session, nid, entry.identifier, relation.relation, relation.name)
-        result.cleaning["related_kept"] = count("related_kept", 0) + 1
+    return accepted[: config.related_per_instrument]
 
 
 def create_instrument_run(
