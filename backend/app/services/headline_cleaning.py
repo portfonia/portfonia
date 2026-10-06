@@ -19,6 +19,7 @@ from app.core.config import OR_ATTRIBUTION_HEADERS, get_settings
 from app.core.timezones import ET, today_et
 from app.services.instrument_news_sources import CollectedItem, mapping, rows
 from app.services.instrument_profiles import match_instruments
+from app.services.instrument_relations import Relation
 from app.services.intel_http import quiet_transport
 
 
@@ -32,6 +33,7 @@ class CleaningConfig:
     stale_earnings_days: int
     preview_patterns: list[re.Pattern[str]]
     preview_max_days: int
+    related_per_instrument: int = 3
 
 
 def load_cleaning_config(path: Path | None = None) -> CleaningConfig:
@@ -51,6 +53,7 @@ def load_cleaning_config(path: Path | None = None) -> CleaningConfig:
             int(stale.get("stale_earnings_days", 14)),
             [re.compile(p, re.IGNORECASE) for p in stale.get("earnings_preview_patterns", [])],
             int(stale.get("preview_max_days_ahead", 21)),
+            int(data.get("related_per_instrument", 3)),
         )
     except (re.error, TypeError, ValueError) as exc:
         raise ValueError("invalid cleaning configuration") from exc
@@ -265,3 +268,71 @@ def classify_headlines(
             f" HTTP {status}" if status is not None else ""
         )
         return {}, 0.0, error
+
+
+RELATED_PROMPT = 'You review headlines that name a business partner or rival of one company but not the company itself. For each item return keep or drop.\nkeep = the item reports a concrete development about the named related entity (results, guidance, capacity, pricing, orders, supply, a deal, a product launch, legal or regulatory action, an outage) that plausibly affects THIS company through the stated relation;\ndrop = stock picks, buy/sell or valuation commentary, listicles, routine price moves, broad market pieces, or anything without a clear link through the stated relation.\nJudge only from the words given.\nOutput ONLY JSON: {"labels": [{"id": int, "label": "keep|drop", "entity": "<name of the related entity it concerns>"}]}'
+
+
+def classify_related(
+    items: list[CollectedItem],
+    ticker: str,
+    aliases: list[str],
+    hits: list[list[Relation]],
+) -> tuple[dict[int, dict[str, str]], float, str | None]:
+    """One request per batch of related-entity headlines (#681); no retry."""
+    content = "\n".join(
+        f"{i}\t{ticker} ({', '.join(aliases)})\trelated: "
+        + "; ".join(f"{r.name} ({r.relation})" for r in hits[i])
+        + f"\t{x.title}\t{(x.summary or '')[:160]}"
+        for i, x in enumerate(items)
+    )
+    try:
+        data, cost = openrouter_json(RELATED_PROMPT, content)
+        labels: dict[int, dict[str, str]] = {}
+        for row in rows(data["labels"]):
+            idx, label = row.get("id"), row.get("label")
+            if isinstance(idx, int) and 0 <= idx < len(items) and label in ("keep", "drop"):
+                labels[idx] = {"label": str(label), "entity": str(row.get("entity") or "")}
+        return labels, cost, None
+    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+        return {}, 0.0, classifier_error(exc)
+
+
+def classifier_error(exc: Exception) -> str:
+    status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+    return f"classifier: {type(exc).__name__}" + (f" HTTP {status}" if status is not None else "")
+
+
+def openrouter_json(system: str, content: str) -> tuple[dict[str, object], float]:
+    """One classifier-model JSON request with `data_collection: deny`; raises on failure."""
+    settings = get_settings()
+    with quiet_transport():
+        resp = httpx.post(
+            settings.OPENROUTER_BASE_URL.rstrip("/") + "/chat/completions",
+            headers={
+                **OR_ATTRIBUTION_HEADERS,
+                "Authorization": "Bearer " + settings.OPENROUTER_API_KEY.get_secret_value(),
+            },
+            json={
+                "model": settings.INTEL_CLASSIFIER_MODEL,
+                "reasoning": {"effort": "low"},
+                "response_format": {"type": "json_object"},
+                "max_tokens": 8000,
+                "provider": {"data_collection": "deny"},
+                "usage": {"include": True},
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": content},
+                ],
+            },
+            timeout=60,
+        )
+    resp.raise_for_status()
+    data = mapping(resp.json())
+    message = mapping(rows(data["choices"])[0]["message"])
+    raw = message["content"]
+    if not isinstance(raw, str):
+        raise ValueError("invalid classifier content")
+    usage = mapping(data.get("usage") or {})
+    cost = usage.get("cost", 0)
+    return mapping(json.loads(raw)), float(cost) if isinstance(cost, (int, float)) else 0.0

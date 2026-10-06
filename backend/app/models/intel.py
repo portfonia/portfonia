@@ -27,6 +27,11 @@ class NewsInstrument(Base):
     __table_args__ = (
         UniqueConstraint("news_id", "identifier", name="uq_news_instruments_key"),
         Index("ix_news_instruments_identifier_created_at", "identifier", "created_at"),
+        CheckConstraint(
+            "relation IS NULL OR relation IN ('supplier', 'customer', 'competitor', 'input')",
+            name="relation",
+        ),
+        CheckConstraint("(relation IS NULL) = (related_to IS NULL)", name="related_to"),
     )
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
@@ -38,6 +43,10 @@ class NewsInstrument(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
+    # NULL = the headline names this instrument; otherwise a related entity's
+    # headline kept through the relation table (#681).
+    relation: Mapped[str | None] = mapped_column(Text)
+    related_to: Mapped[str | None] = mapped_column(Text)
 
 
 class InstrumentProfile(Base):

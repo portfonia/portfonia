@@ -283,10 +283,11 @@ def test_issue_628_invalidates_only_inconsistent_fresh_profiles(db_session: Sess
 
 def test_issue_628_invalidates_fresh_profile_for_manual_alias_prefix(db_session: Session) -> None:
     from app.models.intel import InstrumentProfile
+    from app.services.holding_news import load_entity_aliases
     from app.services.instrument_profiles import clean_name, resolve_profiles
     from app.services.instrument_universe import UniverseEntry
 
-    for identifier, name in [("GOOGL", "Alphabet"), ("AVGO", "Broadcom")]:
+    for identifier, name in [("GOOGL", "Alphabet"), ("COHR", "Coherent")]:
         assert clean_name(name, identifier) == name
         db_session.add(
             InstrumentProfile(
@@ -300,7 +301,7 @@ def test_issue_628_invalidates_fresh_profile_for_manual_alias_prefix(db_session:
             )
         )
     db_session.flush()
-    entries = [UniverseEntry(identifier, identifier, "US") for identifier in ["GOOGL", "AVGO"]]
+    entries = [UniverseEntry(identifier, identifier, "US") for identifier in ["GOOGL", "COHR"]]
     with (
         patch("app.services.instrument_profiles.yf.Ticker") as ticker,
         patch.object(src, "request") as finnhub,
@@ -311,14 +312,14 @@ def test_issue_628_invalidates_fresh_profile_for_manual_alias_prefix(db_session:
         assert profile is not None
         assert profile.name_en == "Alphabet"
         assert profile.name_source == "config"
-        assert profile.aliases == ["Alphabet", "Google", "GOOGL"]
+        assert profile.aliases == [*load_entity_aliases()["GOOGL"], "GOOGL"]
         assert profile.name_resolved_at == NOW
-        avgo = db_session.get(InstrumentProfile, "AVGO")
-        assert avgo is not None
-        assert (avgo.name_en, avgo.name_source, avgo.aliases, avgo.name_resolved_at) == (
-            "Broadcom",
+        cohr = db_session.get(InstrumentProfile, "COHR")
+        assert cohr is not None
+        assert (cohr.name_en, cohr.name_source, cohr.aliases, cohr.name_resolved_at) == (
+            "Coherent",
             "yfinance",
-            ["Broadcom", "AVGO"],
+            ["Coherent", "COHR"],
             NOW - timedelta(days=1),
         )
         ticker.assert_not_called()

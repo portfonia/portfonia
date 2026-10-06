@@ -468,12 +468,19 @@ def _build_holding_news_block(holding_news: dict[str, list[dict[str, Any]]]) -> 
     if not holding_news:
         return ""
     lines = ["", "=== HOLDING-RELEVANT NEWS (per moved holding) ==="]
+    if any(it.get("related") for items in holding_news.values() for it in items):
+        lines.append(
+            "Lines marked [related company: ...] are about that company, not the holding; "
+            "describe them as such."
+        )
     for ident, items in holding_news.items():
         lines.append(f"{ident}:")
         for it in items:
             src = it.get("source", "")
             title = it.get("title", "")
-            lines.append(f"  {f'[{src}] ' if src else ''}{title}")
+            related = it.get("related")
+            tag = f"[related company: {related}] " if related else f"[{src}] " if src else ""
+            lines.append(f"  {tag}{title}")
             summary = it.get("summary")
             if summary:
                 lines.append(f"    {summary[:300]}")

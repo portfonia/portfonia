@@ -1,0 +1,151 @@
+# Holding relationship table (issue #681). Owner-maintained; changes go through a PR.
+#
+# Per holding identifier, at most 8 related entities. A headline that names a
+# related entity but not the holding is classified for relevance and, if kept,
+# stored as a related link shown after the holding's own headlines.
+#   name:     display name used in reports
+#   aliases:  match terms (same matcher as entity_aliases: CJK substring; Latin
+#             word match, case-sensitive for 4 characters or fewer)
+#   relation: supplier | customer | competitor | input
+# An empty list means "reviewed, no relations". A holding missing here gets a
+# suggestion in the weekly name and relation check (Sunday 07:30 ET batch).
+
+relations:
+  NVDA:
+    - {name: TSMC, aliases: [TSMC, Taiwan Semiconductor, Taiwan Semi], relation: supplier}
+    - {name: SK hynix, aliases: [SK hynix, Hynix], relation: supplier}
+    - {name: Micron, aliases: [Micron], relation: supplier}
+    - {name: AMD, aliases: [AMD, Advanced Micro Devices], relation: competitor}
+    - {name: Broadcom, aliases: [Broadcom], relation: competitor}
+    - {name: Cerebras, aliases: [Cerebras], relation: competitor}
+    - {name: CoreWeave, aliases: [CoreWeave], relation: customer}
+    - {name: Intel, aliases: [Intel], relation: competitor}
+  AMD:
+    - {name: TSMC, aliases: [TSMC, Taiwan Semiconductor, Taiwan Semi], relation: supplier}
+    - {name: Nvidia, aliases: [Nvidia], relation: competitor}
+    - {name: Intel, aliases: [Intel], relation: competitor}
+    - {name: Cerebras, aliases: [Cerebras], relation: competitor}
+    - {name: SK hynix, aliases: [SK hynix, Hynix], relation: supplier}
+  INTC:
+    - {name: TSMC, aliases: [TSMC, Taiwan Semiconductor, Taiwan Semi], relation: competitor}
+    - {name: AMD, aliases: [AMD, Advanced Micro Devices], relation: competitor}
+    - {name: Nvidia, aliases: [Nvidia], relation: competitor}
+    - {name: Arm Holdings, aliases: [Arm Holdings], relation: competitor}
+  TSM:
+    - {name: Apple, aliases: [Apple], relation: customer}
+    - {name: Nvidia, aliases: [Nvidia], relation: customer}
+    - {name: AMD, aliases: [AMD, Advanced Micro Devices], relation: customer}
+    - {name: Broadcom, aliases: [Broadcom], relation: customer}
+    - {name: Qualcomm, aliases: [Qualcomm], relation: customer}
+    - {name: Intel, aliases: [Intel], relation: competitor}
+    - {name: ASML, aliases: [ASML], relation: supplier}
+  ASML:
+    - {name: TSMC, aliases: [TSMC, Taiwan Semiconductor, Taiwan Semi], relation: customer}
+    - {name: Intel, aliases: [Intel], relation: customer}
+    - {name: Samsung Electronics, aliases: [Samsung Electronics], relation: customer}
+    - {name: SK hynix, aliases: [SK hynix, Hynix], relation: customer}
+  LRCX:
+    - {name: KLA, aliases: [KLA], relation: competitor}
+    - {name: Applied Materials, aliases: [Applied Materials], relation: competitor}
+    - {name: Tokyo Electron, aliases: [Tokyo Electron], relation: competitor}
+    - {name: TSMC, aliases: [TSMC, Taiwan Semiconductor, Taiwan Semi], relation: customer}
+    - {name: Samsung Electronics, aliases: [Samsung Electronics], relation: customer}
+    - {name: Micron, aliases: [Micron], relation: customer}
+    - {name: SK hynix, aliases: [SK hynix, Hynix], relation: customer}
+  MU:
+    - {name: SK hynix, aliases: [SK hynix, Hynix], relation: competitor}
+    - {name: Samsung Electronics, aliases: [Samsung Electronics], relation: competitor}
+    - {name: SanDisk, aliases: [SanDisk], relation: competitor}
+    - {name: Kioxia, aliases: [Kioxia], relation: competitor}
+    - {name: Nvidia, aliases: [Nvidia], relation: customer}
+  SKHY:
+    - {name: Samsung Electronics, aliases: [Samsung Electronics], relation: competitor}
+    - {name: Micron, aliases: [Micron], relation: competitor}
+    - {name: Nvidia, aliases: [Nvidia], relation: customer}
+  AVGO:
+    - {name: Nvidia, aliases: [Nvidia], relation: competitor}
+    - {name: Marvell, aliases: [Marvell], relation: competitor}
+    - {name: TSMC, aliases: [TSMC, Taiwan Semiconductor, Taiwan Semi], relation: supplier}
+    - {name: OpenAI, aliases: [OpenAI], relation: customer}
+  QCOM:
+    - {name: Apple, aliases: [Apple], relation: customer}
+    - {name: Samsung Electronics, aliases: [Samsung Electronics], relation: customer}
+    - {name: MediaTek, aliases: [MediaTek], relation: competitor}
+    - {name: Arm Holdings, aliases: [Arm Holdings], relation: supplier}
+    - {name: TSMC, aliases: [TSMC, Taiwan Semiconductor, Taiwan Semi], relation: supplier}
+  AMKR:
+    - {name: ASE Technology, aliases: [ASE Technology], relation: competitor}
+    - {name: TSMC, aliases: [TSMC, Taiwan Semiconductor, Taiwan Semi], relation: competitor}
+    - {name: Apple, aliases: [Apple], relation: customer}
+    - {name: Qualcomm, aliases: [Qualcomm], relation: customer}
+  AAOI:
+    - {name: Lumentum, aliases: [Lumentum], relation: competitor}
+    - {name: Coherent, aliases: [Coherent], relation: competitor}
+    - {name: Innolight, aliases: [Innolight, "中际旭创"], relation: competitor}
+    - {name: Eoptolink, aliases: [Eoptolink, "新易盛"], relation: competitor}
+    - {name: AXT, aliases: [AXT], relation: input}
+  COHR:
+    - {name: Lumentum, aliases: [Lumentum], relation: competitor}
+    - {name: Applied Optoelectronics, aliases: [Applied Optoelectronics], relation: competitor}
+    - {name: Innolight, aliases: [Innolight, "中际旭创"], relation: competitor}
+    - {name: Eoptolink, aliases: [Eoptolink, "新易盛"], relation: competitor}
+  LITE:
+    - {name: Coherent, aliases: [Coherent], relation: competitor}
+    - {name: Applied Optoelectronics, aliases: [Applied Optoelectronics], relation: competitor}
+    - {name: Innolight, aliases: [Innolight, "中际旭创"], relation: competitor}
+    - {name: Eoptolink, aliases: [Eoptolink, "新易盛"], relation: competitor}
+    - {name: AXT, aliases: [AXT], relation: input}
+  GLW:
+    - {name: Apple, aliases: [Apple], relation: customer}
+  ORCL:
+    - {name: OpenAI, aliases: [OpenAI], relation: customer}
+    - {name: Nvidia, aliases: [Nvidia], relation: supplier}
+    - {name: Microsoft Azure, aliases: [Azure], relation: competitor}
+    - {name: Google Cloud, aliases: [Google Cloud], relation: competitor}
+    - {name: Amazon Web Services, aliases: [Amazon Web Services, AWS], relation: competitor}
+  AMZN:
+    - {name: Microsoft Azure, aliases: [Azure], relation: competitor}
+    - {name: Google Cloud, aliases: [Google Cloud], relation: competitor}
+    - {name: Walmart, aliases: [Walmart], relation: competitor}
+    - {name: Anthropic, aliases: [Anthropic], relation: customer}
+    - {name: Nvidia, aliases: [Nvidia], relation: supplier}
+  GOOGL:
+    - {name: OpenAI, aliases: [OpenAI], relation: competitor}
+    - {name: Microsoft, aliases: [Microsoft], relation: competitor}
+    - {name: Meta, aliases: [Meta Platforms, Meta], relation: competitor}
+    - {name: Anthropic, aliases: [Anthropic], relation: customer}
+    - {name: Broadcom, aliases: [Broadcom], relation: supplier}
+  TSLA:
+    - {name: BYD, aliases: [BYD], relation: competitor}
+    - {name: Waymo, aliases: [Waymo], relation: competitor}
+    - {name: Panasonic, aliases: [Panasonic], relation: supplier}
+    - {name: CATL, aliases: [CATL, "宁德时代"], relation: supplier}
+    - {name: LG Energy Solution, aliases: [LG Energy Solution], relation: supplier}
+  SPCX:
+    - {name: Rocket Lab, aliases: [Rocket Lab], relation: competitor}
+    - {name: Blue Origin, aliases: [Blue Origin], relation: competitor}
+    - {name: AST SpaceMobile, aliases: [AST SpaceMobile], relation: competitor}
+    - {name: Project Kuiper, aliases: [Project Kuiper, Kuiper], relation: competitor}
+    - {name: NASA, aliases: [NASA], relation: customer}
+    - {name: EchoStar, aliases: [EchoStar], relation: supplier}
+  "0700.HK":
+    - {name: Alibaba, aliases: [Alibaba, "阿里巴巴"], relation: competitor}
+    - {name: ByteDance, aliases: [ByteDance, Douyin, "字节跳动"], relation: competitor}
+    - {name: NetEase, aliases: [NetEase, "网易"], relation: competitor}
+    - {name: Kuaishou, aliases: [Kuaishou, "快手"], relation: competitor}
+  "2333.HK":
+    - {name: BYD, aliases: [BYD, "比亚迪"], relation: competitor}
+    - {name: Geely, aliases: [Geely, "吉利"], relation: competitor}
+    - {name: Chery, aliases: [Chery, "奇瑞"], relation: competitor}
+  "601689.SS":
+    - {name: Tesla, aliases: [Tesla], relation: customer}
+  "300394.SZ":
+    - {name: Innolight, aliases: [Innolight, "中际旭创"], relation: customer}
+    - {name: Eoptolink, aliases: [Eoptolink, "新易盛"], relation: customer}
+  "002460.SZ":
+    - {name: Tianqi Lithium, aliases: [Tianqi Lithium, Tianqi, "天齐锂业"], relation: competitor}
+    - {name: Albemarle, aliases: [Albemarle], relation: competitor}
+    - {name: SQM, aliases: [SQM], relation: competitor}
+    - {name: Tesla, aliases: [Tesla], relation: customer}
+    - {name: LG Energy Solution, aliases: [LG Energy Solution], relation: customer}
+  PSH.L: []

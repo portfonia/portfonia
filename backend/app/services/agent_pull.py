@@ -129,6 +129,7 @@ def pull_intel(session: Session, user_id: UUID, day: date) -> AgentIntelOut:
             .join(NewsInstrument, NewsInstrument.news_id == News.id)
             .where(
                 NewsInstrument.identifier == identifier,
+                NewsInstrument.relation.is_(None),
                 News.published_at >= start,
                 News.published_at < end,
             )

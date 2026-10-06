@@ -30,7 +30,7 @@ def match_instruments(text: str, alias_map: Mapping[str, Sequence[str]]) -> set[
 
 
 _SUFFIX = re.compile(
-    r",?\s+(Corp(oration)?|Inc(orporated)?|Holdings?|Ltd|Limited|PLC|Co|AG|SE|SA|N\.?V|KK|Co\.,? Ltd)\.?$",
+    r",?\s+(Corp(oration)?|Inc(orporated)?|Holdings?|Ltd|Limited|PLC|Co|AG|SE|SA|N\.?V|KK|Co\.?,?\s*Ltd)\.?$",
     re.IGNORECASE,
 )
 _TRAILING = " ,.;:-"

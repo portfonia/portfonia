@@ -221,6 +221,7 @@ def test_acceptance_09_market_order_and_budget(
         config: CleaningConfig,
         *,
         earnings_cache: EarningsCache | None = None,
+        **_: object,
     ) -> cap.InstrumentResult:
         submitted.append(e.identifier)
         return cap.InstrumentResult()
@@ -281,6 +282,7 @@ def test_acceptance_28_parallel_jobs_and_completion_order(session_test_db: None)
             config: CleaningConfig,
             *,
             earnings_cache: EarningsCache | None = None,
+            **_kwargs: object,
         ) -> cap.InstrumentResult:
             from app.services.intel_records import link_instrument, store_headline
             from app.services.news_fetcher import NewsItem, url_hash
@@ -371,6 +373,7 @@ def test_acceptance_09_same_market_carry_over(
         config: CleaningConfig,
         *,
         earnings_cache: EarningsCache | None = None,
+        **_: object,
     ) -> cap.InstrumentResult:
         submitted.append(e.identifier)
         p = worker.get(InstrumentProfile, e.identifier)

@@ -742,6 +742,70 @@ class-action news and company-specific price moves remain eligible, including
 no migration, new dependency, stored-headline rewrite, report-generation change or paid-budget
 change in #657.
 
+### Related-company links, earlier-batch movers and the weekly name check (issue #681)
+
+**Direct-lead ordering.** `intel_leads.select_leads` ranks instrument leads by
+classifier label first (`keep`, then unlabelled pool links and classifier
+failures, then `mention`), then non-Yahoo, then newest. Macro units are
+unchanged.
+
+**Earlier-batch headlines.** A price-signal unit (`mover`, or a quiet unit whose
+reason starts with `near_`) with no direct lead and no current headline uses
+`stored_headlines`: direct `keep` article links for the instrument created
+before this attempt, published inside the unit window, whose news row has no
+accepted `IntelArticle`, and whose title still matches the aliases. At most
+`caps.headlines_per_unit` titles go to the existing headline search, under the
+existing search cap; only the stored title and publication time are used.
+`new_filing`, `news_spike` and macro units stay fresh-only.
+
+**Aliases.** `entity_aliases` gained subsidiary, product and short names
+(Starlink, Waymo, AWS, Taiwan Semi, Snapdragon, WeChat, Tuopu, TFC Optical,
+Ganfeng, ...). New keys put the canonical name first; cached profiles
+re-resolve on the next slot because their alias prefix changed. Company-name
+cleaning strips `Co.,Ltd` without a space after the comma.
+
+**Relationship table.** `config/instrument_relations.yml`
+(`instrument_relations.load_relations`, validated each slot; at most 8 entries
+per holding; relation `supplier|customer|competitor|input`; an empty list means
+reviewed, a missing key means not reviewed). During collection, a non-filing
+item that fails the holding's alias rule but names a related entity (title or
+summary) goes through the remaining rules (low-value, near-duplicate against
+direct and related titles), then `headline_cleaning.classify_related`: one
+request per `INTEL_CLASSIFIER_BATCH` items, keep/drop plus the entity,
+`data_collection: deny`, no retry. Failed or unlabelled items are dropped.
+Kept items, newest first, are capped at `related_per_instrument` (3, in
+`intel_cleaning.yml`) and stored with `news_instruments.relation` and
+`related_to` set (migration `d68100000001`; both NULL means a direct link;
+downgrade deletes related links). Related items skip earnings-date checks,
+never seed the direct chain's duplicate checks or EXISTING context, never
+reach paid leads, and are excluded from fresh/filing signals, news-spike
+counts, `stored_headlines` and the agent pull API. An invalid relation file
+records `relations: <Exception>` and collection proceeds with direct
+headlines only.
+
+**Report.** `window_data.load_related_news_by_identifier` reads related links
+with the same window and surfaced filters. `report_generator._append_related`
+appends up to 2 related items after a holding's up to 6 direct items; a holding
+with only related items is eligible under the existing ordering and 6-holding
+cap. Related items render as `[related company: TSMC (competitor)] <title>`
+under a header line telling Pass 2 they are about that company, are marked
+surfaced, and are excluded from the section-3 proportionality evidence.
+
+**Batch report.** Part 1 adds `Related-company headlines: N checked by AI, M
+kept (...)`; related rule drops count under the existing reason lines.
+
+**Weekly name and relation check.** In the Sunday `pre_open` batch
+(`intel_name_check.weekly_due`), collection also returns the alias-gate drops
+that matched no relation. `run_weekly_check` classifies them per instrument
+(named / indirect / generic / promo / unrelated) and reports names missing from
+the aliases (count >= 1) and related entities missing from the table
+(count >= 2), and asks for suggested aliases and relations for every universe
+instrument without a relation key. Results are stored in
+`intel_slot_runs.details.weekly_check` and rendered as Part 3 of that batch's
+report with ready-to-paste YAML. Nothing is written to configuration;
+suggestions are applied by an owner-requested PR. A failure appears in Part 3's
+Problems line and does not change the batch status.
+
 ### Intel deepening and paid usage
 
 Issue #639 applies the same pre-classifier earnings-recap rule and stale

@@ -43,6 +43,7 @@ SOURCES = {
     "profile": "Company names",
     "collection": "News collection",
     "cleaning": "Headline checks",
+    "relations": "Relations config",
     "L1": "Instrument briefs",
     "L2": "Macro-event notes",
     "L3": "Cross-instrument themes",
@@ -74,7 +75,9 @@ def problem_lines(errors: list[str]) -> list[str]:
         source = SOURCES.get(prefix, "News source")
         status_text = error.split(" HTTP ", 1)[0]
         http = re.search(r"HTTP (\d{3})", error)
-        if error.startswith("classifier:"):
+        if error.startswith("relations:"):
+            reason = "invalid file, related-company headlines skipped"
+        elif error.startswith("classifier:"):
             reason = "AI review failed" + (f" (HTTP {http[1]})" if http else "")
         elif "key not set" in error:
             reason = "API key is not configured"
@@ -208,6 +211,9 @@ def build_batch_report(
     for reason, raw in obj(deep.get("search_samples")).items():
         if isinstance(raw, list):
             samples.setdefault(reason, []).extend(str(v) for v in raw)
+    # Related-company candidates (#681) dropped by a rule count under the same reason.
+    for reason in ("low_value_rule", "duplicate", "duplicate_earlier"):
+        cleaning[reason] += cleaning["related_" + reason]
     lines += ["", "Headlines dropped:"]
     for label, reasons in DROPS:
         count = sum(cleaning[r] for r in reasons)
@@ -221,6 +227,7 @@ def build_batch_report(
     lines += [
         "",
         f"Kept: {cleaning['kept'] - cleaning['filings_stored']:g} headlines and {cleaning['filings_stored']:g} company filings ({inserted:g} of them new to the database).",
+        *related_lines(cleaning),
         f"AI review: checked {classifier['items']:g} headlines in {classifier['batches']:g} calls, cost ${classifier['cost_usd']:.3f}, {classifier['failed_batches']:g} failed calls; {cleaning['stored_null_label']:g} kept without a label.",
         *(
             [
@@ -314,4 +321,28 @@ def build_batch_report(
     if deep_errors:
         severity = "WARNING"
     lines += ["", *problem_lines(deep_errors)]
+    weekly = slot.details.get("weekly_check")
+    if isinstance(weekly, dict):
+        from app.services.intel_name_check import render_weekly
+
+        lines += ["", *render_weekly(weekly)]
     return batch_subject(slot), "\n".join(lines), severity
+
+
+def related_lines(cleaning: Counter[str]) -> list[str]:
+    """Part 1 summary of related-company headlines (#681); omitted when none were checked."""
+    if not cleaning["related_candidates"]:
+        return []
+    notes = [
+        f"{cleaning[key]:g} {text}"
+        for key, text in (
+            ("related_dropped_llm", "not linked by AI"),
+            ("related_capped", "over the per-company limit"),
+            ("related_dropped_failed", "not reviewed (AI review failed)"),
+        )
+        if cleaning[key]
+    ]
+    return [
+        f"Related-company headlines: {cleaning['related_candidates']:g} checked by AI, "
+        f"{cleaning['related_kept']:g} kept" + (f" ({', '.join(notes)})" if notes else "") + "."
+    ]

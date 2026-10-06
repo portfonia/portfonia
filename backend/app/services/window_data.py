@@ -184,6 +184,7 @@ def load_instrument_news_by_identifier(
         .join(News, News.id == NewsInstrument.news_id)
         .where(
             NewsInstrument.identifier.in_(identifiers),
+            NewsInstrument.relation.is_(None),
             News.published_at > start - LATE_INGEST_WINDOW,
             News.published_at <= end,
             News.id.not_in(surfaced),
@@ -192,6 +193,33 @@ def load_instrument_news_by_identifier(
     )
     for identifier, row in rows:
         result[identifier].append(headline_from_row(row))
+    return result
+
+
+def load_related_news_by_identifier(
+    session: Session, start: datetime, end: datetime, user_id: uuid.UUID, identifiers: list[str]
+) -> dict[str, list[tuple[NewsItem, str, str]]]:
+    """Related-company headlines (#681) as (item, related entity, relation), newest first."""
+    if not identifiers:
+        return {}
+    surfaced = select(NewsSurfaced.news_id).where(NewsSurfaced.user_id == user_id)
+    result: dict[str, list[tuple[NewsItem, str, str]]] = {}
+    rows = session.execute(
+        select(NewsInstrument.identifier, NewsInstrument.related_to, NewsInstrument.relation, News)
+        .join(News, News.id == NewsInstrument.news_id)
+        .where(
+            NewsInstrument.identifier.in_(identifiers),
+            NewsInstrument.relation.is_not(None),
+            News.published_at > start - LATE_INGEST_WINDOW,
+            News.published_at <= end,
+            News.id.not_in(surfaced),
+        )
+        .order_by(News.published_at.desc())
+    )
+    for identifier, related_to, relation, row in rows:
+        result.setdefault(identifier, []).append(
+            (headline_from_row(row), str(related_to), str(relation))
+        )
     return result
 
 

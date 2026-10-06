@@ -153,6 +153,7 @@ def compute_signals(
                 .where(
                     NewsInstrument.identifier == entry.identifier,
                     NewsInstrument.created_at >= now,
+                    NewsInstrument.relation.is_(None),
                 )
             )
         )
