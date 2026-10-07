@@ -495,7 +495,9 @@ def emit_nav_terminal_diagnostics(
     for target in targets:
         if target.kind != "nav":
             continue
-        if target.reason == "lag_exceeded":
+        if target.reason == "calendar_unknown_unverified":
+            _emit_price_unverified_alert(target, as_of_date)
+        elif target.reason == "lag_exceeded":
             _warn_if_nav_stale(
                 target.key,
                 target.latest_date or as_of_date,
@@ -509,6 +511,9 @@ def emit_nav_terminal_diagnostics(
 def emit_etf_terminal_diagnostics(targets: tuple[CaptureTarget, ...]) -> None:
     for target in targets:
         if target.kind != "etf_close":
+            continue
+        if target.reason == "calendar_unknown_unverified":
+            _emit_price_unverified_alert(target, target.window_end or _cst_today())
             continue
         if target.missing_dates:
             for missing in target.missing_dates:
@@ -532,6 +537,30 @@ def emit_etf_terminal_diagnostics(targets: tuple[CaptureTarget, ...]) -> None:
                 f"anchor. Existing rows were preserved."
             ),
         )
+
+
+def _emit_price_unverified_alert(target: CaptureTarget, as_of_date: date) -> None:
+    source = "Sina" if target.kind == "nav" else "Tencent"
+    latest = target.latest_date.isoformat() if target.latest_date else "unknown"
+    logger.warning(
+        "capture: price freshness unverified for %s as_of %s (latest=%s)",
+        target.key,
+        as_of_date.isoformat(),
+        latest,
+    )
+    _send_nav_alert(
+        subject=f"[Portfonia] price freshness unverified — {target.key}",
+        body=(
+            f"The XSHG session calendar does not cover the current dates, so price "
+            f"freshness could not be computed for {target.key}. {source} returned "
+            f"nothing usable after the bounded retries; this may be a request failure "
+            f"or, for ETFs, a market closure. The stored latest date is {latest}. "
+            f"The fallback did not change stored rows; primary capture may still "
+            f"have written rows in this run. Check worker.log for this code."
+        ),
+        dedup_key=f"ops-price-unverified-{target.key}-{as_of_date.isoformat()}",
+        severity="WARNING",
+    )
 
 
 def _emit_etf_missing_alert(target: CaptureTarget, suffix: str, detail: str) -> None:
@@ -678,6 +707,30 @@ def capture_fund_navs_attempt(
             stored = _latest_stored_nav_date(session, fund_code, market)
             if stored is not None and (latest is None or stored > latest):
                 latest = stored
+            if window.calendar_status != "ok" and latest is not None:
+                if currencies.get(fund_code) != {"CNY"}:
+                    continue
+                verification_point = sina_latest_nav_point(fund_code, client, as_of_date)
+                if verification_point is None:
+                    unresolved.append(
+                        CaptureTarget(
+                            key=fund_code,
+                            market=market,
+                            kind="nav",
+                            reason="calendar_unknown_unverified",
+                            latest_date=latest,
+                            window_start=window.window_start,
+                            window_end=window.window_end,
+                        )
+                    )
+                elif verification_point.nav_date > latest:
+                    written += _guarded_fallback_upsert(
+                        session, _nav_rows(fund_code, market, (verification_point,), now)
+                    )
+                    if coverage.get(fund_code) != "primary_window":
+                        coverage[fund_code] = "latest_only"
+                    recovered.append(fund_code)
+                continue
             source_failed = outcome.error is not None or not outcome.points
             target = _classify_nav_target(
                 fund_code, market, window, latest, outcome.error, source_failed
@@ -894,6 +947,7 @@ def capture_prices_attempt(
     eligible = _eligible_china_etf_tickers(session, selected)
     unresolved: list[CaptureTarget] = []
     recovered: list[str] = []
+    gap_series: dict[str, tuple[dict[date, OhlcBar], dict[date, OhlcBar]]] = {}
     for ticker, etf_market in eligible.items():
         stored = _stored_valid_close_dates(session, ticker, etf_market)
         yahoo_dates = set(retained.get(ticker, {}))
@@ -910,10 +964,30 @@ def capture_prices_attempt(
                 )
             )
             continue
-        if sessions is None:
-            continue
+        expected = sessions
+        if expected is None:
+            wire = to_provider_symbol("tencent", InstrumentKey("ticker", ticker))
+            if wire is None:
+                continue
+            raw = fetch_tencent_daily_bars(wire, window.window_start, window.window_end, "raw")
+            qfq = fetch_tencent_daily_bars(wire, window.window_start, window.window_end, "qfq")
+            if not raw and not qfq:
+                unresolved.append(
+                    CaptureTarget(
+                        key=ticker,
+                        market=etf_market,
+                        kind="etf_close",
+                        reason="calendar_unknown_unverified",
+                        latest_date=max(stored) if stored else None,
+                        window_start=window.window_start,
+                        window_end=window.window_end,
+                    )
+                )
+                continue
+            gap_series[ticker] = raw, qfq
+            expected = tuple(sorted(set(raw) | set(qfq)))
         earliest = min(observed)
-        missing = tuple(day for day in sessions if day >= earliest and day not in stored)
+        missing = tuple(day for day in expected if day >= earliest and day not in stored)
         if not missing:
             continue
         unresolved.append(
@@ -928,7 +1002,7 @@ def capture_prices_attempt(
             )
         )
 
-    if allow_fallback:
+    if allow_fallback or sessions is None:
         still: list[CaptureTarget] = []
         for target in unresolved:
             if target.reason != "missing" or not target.missing_dates:
@@ -938,9 +1012,13 @@ def capture_prices_attempt(
             if wire is None:
                 still.append(target)
                 continue
-            raw = fetch_tencent_daily_bars(wire, window.window_start, window.window_end, "raw")
-            qfq = fetch_tencent_daily_bars(wire, window.window_start, window.window_end, "qfq")
-            expected = sessions or ()
+            if target.key in gap_series:
+                raw, qfq = gap_series[target.key]
+                expected = tuple(sorted(set(raw) | set(qfq)))
+            else:
+                raw = fetch_tencent_daily_bars(wire, window.window_start, window.window_end, "raw")
+                qfq = fetch_tencent_daily_bars(wire, window.window_start, window.window_end, "qfq")
+                expected = sessions or ()
             admitted, reason = admit_tencent_missing_dates(
                 target.missing_dates,
                 retained.get(target.key, {}),
