@@ -107,12 +107,15 @@ def test_683_03_invalid_document_continues_direct_collection(
     db_session.add(slot)
     db_session.flush()
     item = CollectedItem("NVDA opens a new chip factory", NOW, "https://fixture.example/direct")
+    related_item = CollectedItem("TSMC raises wafer prices", NOW, "https://fixture.example/related")
     settings = get_settings().model_copy(update={"INTEL_COLLECT_WORKERS": 1})
     with (
         patch.object(instrument_relations, "_PATH", path),
         patch.object(capture, "get_settings", return_value=settings),
         patch.object(capture, "intel_universe", return_value=[UniverseEntry("NVDA", "NVDA", "US")]),
-        patch.object(capture, "sources_for", return_value=[("yahoo", lambda: [item])]),
+        patch.object(
+            capture, "sources_for", return_value=[("yahoo", lambda: [item, related_item])]
+        ),
         patch.object(capture, "classify_headlines", return_value=({0: "keep"}, 0.0, None)),
         patch.object(capture, "classify_related") as related,
         patch.object(
