@@ -527,6 +527,21 @@ deduped `ops-etf-close-missing-{ticker}-window-{window_end}` alert.
 Confirm-time OHLCV backfill and Beat entries are unchanged. Separate
 from #406 (USDCNH) and #407 (csi300).
 
+Issue #692 verifies freshness while XSHG calendar coverage is unavailable.
+For funds with an existing latest NAV and exactly CNY holdings, every attempt
+checks Sina independently of the final-retry fallback flag: a newer point is
+guardedly written, an equal/older point verifies freshness without a write,
+and no usable point remains unresolved. Eligible ETFs with observed closes
+fetch Tencent raw and qfq in every attempt; their date union defines both
+candidate gaps and the admission interval, preserving rejection of asymmetric
+raw/qfq dates. Both series empty means freshness is unverified, which may be
+a market closure. Unverified targets use the existing bounded retries, then
+one WARNING per instrument/CST date (`ops-price-unverified-{key}-{date}`),
+without claiming stale or missing data; only the fallback left stored rows
+unchanged, since primary capture still writes first. Covered-calendar behavior,
+non-CNY NAV handling, no-NAV/no-observed-close handling, and A-Share stocks
+are unchanged. No weekday approximation is used.
+
 
 ### Instrument news collection
 
