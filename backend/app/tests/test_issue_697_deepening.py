@@ -73,20 +73,28 @@ def no_external_calls() -> Iterator[None]:
         yield
 
 
-@pytest.mark.parametrize("provider", ["tavily", "parallel"])
+@pytest.mark.parametrize(
+    ("provider", "fallback"),
+    [("tavily", False), ("parallel", False), ("tavily", True)],
+    ids=["tavily", "parallel", "tavily-429-parallel"],
+)
 def test_697_01_undated_search_not_extracted_dated_extracted(
-    worker: deepen.DeepenRun, provider: str
+    worker: deepen.DeepenRun, provider: str, fallback: bool
 ) -> None:
     leads = [
         Lead("https://fixture.example/undated", "AAA optical orders expand", None),
         Lead("https://fixture.example/dated", "AAA optical orders expand", worker.now),
     ]
+    owner = "parallel" if fallback else provider
+    results = [(owner, PaidResult(200, Decimal(1), Decimal(0), leads=leads))]
+    if fallback:
+        results.insert(0, (provider, PaidResult(429, Decimal(1), Decimal(0), "quota_or_rate")))
     with (
-        patch.object(worker, "_provider", return_value=provider),
+        patch.object(worker, "_provider", side_effect=lambda wanted: wanted),
         patch.object(
             worker,
             "_call",
-            return_value=(provider, PaidResult(200, Decimal(1), Decimal(0), leads=leads)),
+            side_effect=results,
         ),
         patch.object(deepen, "classify_headlines", return_value=({0: "keep", 1: "keep"}, 0, None)),
         patch.object(worker, "_extract_batch") as extract,
@@ -97,7 +105,10 @@ def test_697_01_undated_search_not_extracted_dated_extracted(
             worker.aliases,
         )
     assert [lead.url for _, lead in extract.call_args.args[1]] == [leads[1].url]
-    assert worker.metrics[provider]["search_filtered"] == {"undated": 1}
+    assert worker.metrics[owner]["search_filtered"] == {"undated": 1}
+    assert extract.call_args.args[0] == owner
+    if fallback:
+        assert worker.metrics[provider]["search_filtered"].get("undated", 0) == 0
 
 
 @pytest.mark.parametrize("body", [TEASER, PRESS_RELEASE], ids=["benzinga-teaser", "paid-release"])

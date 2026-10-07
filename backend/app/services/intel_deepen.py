@@ -382,23 +382,20 @@ class DeepenRun:
                         filtered = self.metrics[chosen]["search_filtered"]
                         filtered["undated"] = filtered.get("undated", 0) + 1
                     continue
-                dated.append(lead)
+                dated.append((lead, lead.published_at))
             with SessionLocal() as session:
-                leads = [
-                    lead
-                    for lead in dated
+                dated_leads = [
+                    (lead, published_at)
+                    for lead, published_at in dated
                     if not excluded(lead.url, self.cfg)
-                    and (
-                        lead.published_at is not None
-                        and lead.published_at.astimezone(ET).date() >= start
-                    )
+                    and published_at.astimezone(ET).date() >= start
                     and not accepted_recently(session, lead.url, self.cfg, self.now)
                     and url_key(lead.url) not in selected
                 ]
             aliases = self.aliases.get(unit.identifier, [unit.identifier])
             survivors: list[tuple[Lead, CollectedItem]] = []
-            for lead in leads:
-                item = CollectedItem(lead.title, lead.published_at or self.now, lead.url)
+            for lead, published_at in dated_leads:
+                item = CollectedItem(lead.title, published_at, lead.url)
                 reason = block_reason(item, aliases, [], self.cleaning)
                 if reason:
                     with self.lock:
@@ -406,6 +403,7 @@ class DeepenRun:
                         filtered[reason] = filtered.get(reason, 0) + 1
                     continue
                 survivors.append((lead, item))
+            leads: list[Lead]
             if survivors:
                 items = [item for _, item in survivors]
                 labels, cost, failed = classify_headlines(
