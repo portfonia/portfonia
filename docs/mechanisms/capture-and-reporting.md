@@ -1129,7 +1129,9 @@ layer** (per-user, incremental).
   of the last five UTC dates before that session instead uses a daily key
   with `-{YYYY-MM-DD}` appended; after coverage ends the key ends in
   `-expired`. Each key is logged once per process; only successful sends
-  suppress subsequent sends in that process, so failed sends can retry.
+  suppress subsequent sends in that process. After a failed send, the same
+  key waits 300 seconds on the process's monotonic clock before the next
+  evaluation can retry; the WARNING is not repeated.
   Cross-process dedup is Resend's 24-hour idempotency window; occasional
   duplicate reminders after that window are accepted. The evaluated UTC
   date appears only in the WARNING log, keeping alert payloads identical

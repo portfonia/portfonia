@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import UTC, date, datetime
 from functools import lru_cache
 from typing import Protocol, cast
@@ -15,6 +16,7 @@ from app.services.email_sender import send_ops_alert as send_ops_alert
 logger = logging.getLogger(__name__)
 _warned_keys: set[str] = set()
 _sent_keys: set[str] = set()
+_retry_after: dict[str, float] = {}
 
 _CALENDARS = {
     "US": "XNYS",
@@ -82,6 +84,9 @@ def _check_coverage(market: str | None, cal: _Calendar, instant: datetime) -> bo
         if key not in _warned_keys:
             _warned_keys.add(key)
             logger.warning("Evaluated date: %s. %s", evaluated.isoformat(), body)
+        retry_at = _retry_after.get(key)
+        if retry_at is not None and time.monotonic() < retry_at:
+            return covered
         if send_ops_alert(
             subject=f"[Portfonia] {name} calendar coverage ends {last.isoformat()}",
             body=body,
@@ -89,6 +94,9 @@ def _check_coverage(market: str | None, cal: _Calendar, instant: datetime) -> bo
             severity="WARNING",
         ):
             _sent_keys.add(key)
+            _retry_after.pop(key, None)
+        else:
+            _retry_after[key] = time.monotonic() + 300
     return covered
 
 

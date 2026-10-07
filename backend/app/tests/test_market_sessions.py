@@ -1,6 +1,7 @@
 """Calendar coverage warnings approved in issue #686 F1/F5."""
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import cast
@@ -30,6 +31,7 @@ def _bounded_calendar(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(market_sessions, "_warned_keys", set(), raising=False)
     monkeypatch.setattr(market_sessions, "_sent_keys", set(), raising=False)
+    monkeypatch.setattr(market_sessions, "_retry_after", {}, raising=False)
     logging.getLogger("app.services.market_sessions").disabled = False
 
 
@@ -151,7 +153,11 @@ def test_same_alert_key_has_identical_payload_across_processes(
         assert (start + timedelta(days=day - 1)).date().isoformat() in record.getMessage()
 
 
-def test_failed_alert_retries_without_repeating_warning(caplog: pytest.LogCaptureFixture) -> None:
+def test_failed_alert_retries_without_repeating_warning(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = MagicMock(return_value=100.0)
+    monkeypatch.setattr(time, "monotonic", clock)
     alert = cast(MagicMock, market_sessions.send_ops_alert)
     alert.side_effect = [False, True]
     instant = datetime(2026, 12, 1, 8, tzinfo=UTC)
@@ -159,9 +165,37 @@ def test_failed_alert_retries_without_repeating_warning(caplog: pytest.LogCaptur
     with caplog.at_level(logging.WARNING, logger="app.services.market_sessions"):
         market_sessions.baseline_session("A-Share", instant)
         assert key not in market_sessions._sent_keys
+        clock.return_value = 401.0
         market_sessions.baseline_session("A-Share", instant)
         assert alert.call_count == 2
         assert key in market_sessions._sent_keys
+        market_sessions.baseline_session("A-Share", instant)
+    assert alert.call_count == 2
+    assert alert.call_args_list[0] == alert.call_args_list[1]
+    assert len(caplog.records) == 1
+
+
+def test_failed_alert_waits_300_monotonic_seconds_before_retry(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = MagicMock(return_value=100.0)
+    monkeypatch.setattr(time, "monotonic", clock)
+    alert = cast(MagicMock, market_sessions.send_ops_alert)
+    alert.side_effect = [False, True]
+    instant = datetime(2026, 12, 1, 8, tzinfo=UTC)
+    key = "calendar-coverage-XSHG-2026-12-31"
+    with caplog.at_level(logging.WARNING, logger="app.services.market_sessions"):
+        market_sessions.baseline_session("A-Share", instant)
+        assert key not in market_sessions._sent_keys
+        for elapsed in [0.0, 1.0, 299.999]:
+            clock.return_value = 100.0 + elapsed
+            assert market_sessions.baseline_session("A-Share", instant) == date(2026, 12, 1)
+            assert alert.call_count == 1
+        clock.return_value = 400.0
+        market_sessions.baseline_session("A-Share", instant)
+        assert alert.call_count == 2
+        assert key in market_sessions._sent_keys
+        clock.return_value = 1000.0
         market_sessions.baseline_session("A-Share", instant)
     assert alert.call_count == 2
     assert alert.call_args_list[0] == alert.call_args_list[1]
