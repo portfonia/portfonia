@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock
 
@@ -92,6 +92,8 @@ def test_submission_limit_validation_and_redis(
     app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seed_user(db_session, TEST_USER_ID)
+    today = date(2026, 10, 5)
+    monkeypatch.setattr("app.core.rate_limit.today_et", lambda: today)
     body = {"email": "", "locale": "en"}
     assert app_client.post("/me/referrals", json=body).status_code == 422
     for n in range(50):
@@ -101,7 +103,7 @@ def test_submission_limit_validation_and_redis(
         app_client.post("/me/referrals", json={**body, "email": "limit@example.com"}).status_code
         == 429
     )
-    monkeypatch.setattr("app.core.rate_limit.today_et", lambda: date(2026, 10, 6))
+    monkeypatch.setattr("app.core.rate_limit.today_et", lambda: today + timedelta(days=1))
     assert (
         app_client.post("/me/referrals", json={**body, "email": "tomorrow@example.com"}).status_code
         == 200
