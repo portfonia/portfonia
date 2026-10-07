@@ -578,8 +578,8 @@ classify recap status or drop headlines based on earnings previews/recaps. The
 classifier retains `keep|mention|promo|unrelated` and the existing `duplicate_of`
 behavior, and ignores an extra `recap` field in a response. The cached earnings
 lookup, its four configuration keys, stale counters/samples and lookup-failure
-report line are removed. The `lxml` requirement is removed because it had no
-remaining requirer or code import. No stored news or historical run stats are
+report line are removed. `lxml` stays installed although no code calls
+`get_earnings_dates` any more; #697 does not change requirements or the environment. No stored news or historical run stats are
 reprocessed.
 
 Publication-date windows remain the recency boundary: instrument lookback and
