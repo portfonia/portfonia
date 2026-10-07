@@ -1416,23 +1416,29 @@ def test_a_share_fund_nav_uses_real_xshg_sessions(db_session: Session) -> None:
             asset_class="EQUITY_CN",
         )
     )
-    for day, value in [(28, "1.00"), (29, "1.07")]:
+    for day, value in [(date(2026, 9, 30), "1.00"), (date(2026, 10, 8), "1.07")]:
         db_session.add(
             PriceSnapshot(
                 ticker="110011",
                 market="A-Share",
                 session_node="close",
-                trade_date=date(2026, 9, day),
+                trade_date=day,
                 close=Decimal(value),
             )
         )
     db_session.flush()
+    # XSHG is closed for Golden Week on October 1-7, including weekdays.
+    holiday_moves, holiday_days = compute_global_moves(
+        db_session, datetime(2026, 9, 30, 17, tzinfo=ET), datetime(2026, 10, 7, 17, tzinfo=ET)
+    )
+    assert holiday_days == 0
+    assert holiday_moves == {}
     moves, days = compute_global_moves(
-        db_session, datetime(2026, 9, 28, 17, tzinfo=ET), datetime(2026, 9, 29, 17, tzinfo=ET)
+        db_session, datetime(2026, 9, 30, 17, tzinfo=ET), datetime(2026, 10, 8, 17, tzinfo=ET)
     )
     assert days == 1
     move = moves[("110011", "A-Share")]
-    assert move.baseline_date == date(2026, 9, 28)
-    assert move.latest_date == date(2026, 9, 29)
+    assert move.baseline_date == date(2026, 9, 30)
+    assert move.latest_date == date(2026, 10, 8)
     assert move.net_pct == Decimal(".0700")
     assert move.prev_close == Decimal("1.00")

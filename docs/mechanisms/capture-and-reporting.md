@@ -1128,8 +1128,12 @@ layer** (per-user, incremental).
   last session, using `calendar-coverage-{calendar}-{last_session}`. Each
   of the last five UTC dates before that session instead uses a daily key
   with `-{YYYY-MM-DD}` appended; after coverage ends the key ends in
-  `-expired`. Each key is emitted once per process and deduplicated across
-  processes by the existing Ops alert mechanism. The alert names the
+  `-expired`. Each key is logged once per process; only successful sends
+  suppress subsequent sends in that process, so failed sends can retry.
+  Cross-process dedup is Resend's 24-hour idempotency window; occasional
+  duplicate reminders after that window are accepted. The evaluated UTC
+  date appears only in the WARNING log, keeping alert payloads identical
+  for a repeated key. The alert names the
   affected market, coverage end, unavailable price outputs and required
   bump/redeploy action, with a ready-to-paste Claude Code maintenance prompt.
   For XSHG it also explains that the China fund-NAV/ETF lag check and

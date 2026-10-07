@@ -14,6 +14,7 @@ from app.services.email_sender import send_ops_alert as send_ops_alert
 
 logger = logging.getLogger(__name__)
 _warned_keys: set[str] = set()
+_sent_keys: set[str] = set()
 
 _CALENDARS = {
     "US": "XNYS",
@@ -52,11 +53,10 @@ def _check_coverage(market: str | None, cal: _Calendar, instant: datetime) -> bo
         key += "-expired"
     elif 1 <= remaining <= 5:
         key += f"-{evaluated.isoformat()}"
-    if (not covered or remaining <= 30) and key not in _warned_keys:
-        _warned_keys.add(key)
+    if (not covered or remaining <= 30) and key not in _sent_keys:
         body = (
             f"The {name} calendar for {market} has loaded coverage ending on {last.isoformat()}. "
-            f"The evaluated date is {evaluated.isoformat()}. Calendar coverage is outside "
+            "Calendar coverage is outside "
             "the requested range or ends within 30 days. Outside coverage, window moves, "
             f"anomalies, large-holding price lines and intel price signals for {market} "
             "are unavailable. Bump exchange_calendars once a release covers the next year, "
@@ -79,13 +79,16 @@ def _check_coverage(market: str | None, cal: _Calendar, instant: datetime) -> bo
             "the calendar coverage alert, and stop. Merge and production deployment need the "
             "product owner's explicit approval."
         )
-        logger.warning("%s", body)
-        send_ops_alert(
+        if key not in _warned_keys:
+            _warned_keys.add(key)
+            logger.warning("Evaluated date: %s. %s", evaluated.isoformat(), body)
+        if send_ops_alert(
             subject=f"[Portfonia] {name} calendar coverage ends {last.isoformat()}",
             body=body,
             idempotency_key=key,
             severity="WARNING",
-        )
+        ):
+            _sent_keys.add(key)
     return covered
 
 

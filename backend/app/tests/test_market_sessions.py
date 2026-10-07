@@ -29,6 +29,7 @@ def _bounded_calendar(monkeypatch: pytest.MonkeyPatch) -> None:
         market_sessions, "_calendar", lambda market: cal if market == "A-Share" else None
     )
     monkeypatch.setattr(market_sessions, "_warned_keys", set(), raising=False)
+    monkeypatch.setattr(market_sessions, "_sent_keys", set(), raising=False)
     logging.getLogger("app.services.market_sessions").disabled = False
 
 
@@ -128,3 +129,40 @@ def test_alert_body_has_verbatim_maintenance_prompt_and_xshg_capture_note() -> N
     assert "Sina/Tencent fallback" in body
     assert "china_session_calendar" in body
     assert "stale primary NAV" in body
+
+
+@pytest.mark.parametrize("days", [(1, 2), (26, 26), (32, 33)])
+def test_same_alert_key_has_identical_payload_across_processes(
+    days: tuple[int, int], caplog: pytest.LogCaptureFixture
+) -> None:
+    alert = cast(MagicMock, market_sessions.send_ops_alert)
+    start = datetime(2026, 12, 1, 8, tzinfo=UTC)
+    with caplog.at_level(logging.WARNING, logger="app.services.market_sessions"):
+        for day in days:
+            market_sessions._warned_keys.clear()
+            market_sessions._sent_keys.clear()
+            market_sessions.baseline_session("A-Share", start + timedelta(days=day - 1))
+    assert alert.call_count == 2
+    assert alert.call_args_list[0] == alert.call_args_list[1]
+    body = alert.call_args.kwargs["body"]
+    assert "evaluated date" not in body.lower()
+    assert len(caplog.records) == 2
+    for record, day in zip(caplog.records, days, strict=True):
+        assert (start + timedelta(days=day - 1)).date().isoformat() in record.getMessage()
+
+
+def test_failed_alert_retries_without_repeating_warning(caplog: pytest.LogCaptureFixture) -> None:
+    alert = cast(MagicMock, market_sessions.send_ops_alert)
+    alert.side_effect = [False, True]
+    instant = datetime(2026, 12, 1, 8, tzinfo=UTC)
+    key = "calendar-coverage-XSHG-2026-12-31"
+    with caplog.at_level(logging.WARNING, logger="app.services.market_sessions"):
+        market_sessions.baseline_session("A-Share", instant)
+        assert key not in market_sessions._sent_keys
+        market_sessions.baseline_session("A-Share", instant)
+        assert alert.call_count == 2
+        assert key in market_sessions._sent_keys
+        market_sessions.baseline_session("A-Share", instant)
+    assert alert.call_count == 2
+    assert alert.call_args_list[0] == alert.call_args_list[1]
+    assert len(caplog.records) == 1
