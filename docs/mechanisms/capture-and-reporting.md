@@ -746,8 +746,8 @@ change in #657.
 
 **Direct-lead ordering.** `intel_leads.select_leads` ranks instrument leads by
 classifier label first (`keep`, then unlabelled pool links and classifier
-failures, then `mention`), then non-Yahoo, then newest. Macro units are
-unchanged.
+failures, then `mention`), then non-Yahoo, then newest. Macro ordering was
+unchanged in #681; #688 adds the separate macro ranking described below.
 
 **Earlier-batch headlines.** A price-signal unit (`mover`, or a quiet unit whose
 reason starts with `near_`) with no direct lead and no current headline uses
@@ -821,6 +821,57 @@ Nothing is written to configuration;
 suggestions are applied by an owner-requested PR. A failure appears in Part 3's
 Problems line and does not change the batch status.
 
+### Macro ranking, event deduplication and anchor material (issue #688)
+
+**Scheduled ranking.** Theme choice remains based on keyword counts; #690 is a
+separate follow-up for pool-side classification. Before selecting links for a
+macro unit, `DeepenRun.run_wave` sends that unit's candidate titles and summaries
+(URL-free) through `headline_cleaning.classify_macro`, once on the configured
+`INTEL_CLASSIFIER_MODEL`, with low reasoning, `data_collection: deny`, attribution
+headers and no retry. This is shared batch work, never a per-user/report call.
+`macro_label` validates the shared metadata shape: `type` is
+`development|commentary|off_topic`, `importance` is an integer 1-3, and `event` is
+a nonempty short slug. There is no migration or pool-side classification.
+
+Valid developments rank by importance descending, then publication time
+descending; unlabeled candidates follow by recency. Commentary and off-topic
+items do not consume extraction slots. Missing/invalid labels leave individual
+candidates unlabeled. Partial responses count their unlabeled candidates in
+`macro_rank_partial`; a call error or zero valid labels makes that unit fall
+back to recency and increments `macro_rank_failed`. Both counters appear in
+Part 2 of the batch email and stay outside the error list that changes batch
+status. `macro_classifier_cost_usd` records classifier spend separately from
+Tavily/Parallel usage; existing provider run/month limits and caps remain.
+Instrument lead selection is unchanged.
+
+**Event identity and writes.** Within one classifier call, only one lead per
+`event` survives. Slugs are not compared across calls. Across units in a batch,
+identity is the same `url_key` or a near-duplicate title under the existing
+`headline_cleaning.tokens` Jaccard threshold. The first unit in processing order
+owns extraction; a later duplicate adds its theme to the first article's
+`intel_article_links`, whether extraction is pending or already finished. The
+existing distinct-domain rule and `macro_links_per_theme` cap still apply.
+Accepted articles store `type`, `importance` and `event` directly in their
+URL-free `record` JSON alongside the existing article fields. Unlabeled/fallback
+articles omit these fields.
+
+**Report reader and Pass 2.** `_load_report_articles` collects accepted macro
+bodies across all hit themes in the report window, orders ranked rows by
+importance descending then `fetched_at` descending, and places legacy/unlabeled
+rows afterward by fetch time. It retains at most six macro bodies globally,
+with no two-per-theme cap, deduplicating by URL key or the same title Jaccard
+rule, including pre-deploy rows. It never compares event slugs across classifier
+calls and performs no classification or other new LLM call.
+For example, trade-deficit data (importance 3) precedes a Navy contract
+(importance 1) and legacy Carmignac commentary; two near-duplicate oil titles
+consume one body slot even when their stored slugs differ.
+
+Section 2 keeps its overview, one deep anchor and 0-2 updates. Its anchor
+instruction prefers developments (data, policy, official actions and market
+events); a single source's opinion or a firm's outlook can support or counter
+that anchor, and can itself be the anchor only when no development is available.
+Compliance scans, layer-3 boundaries and continuity storage are unchanged.
+
 ### Intel deepening and paid usage
 
 Issue #639 applies the same pre-classifier earnings-recap rule and stale
@@ -878,7 +929,7 @@ fallback is available, the stop is recorded on the provider that last
 searched. A unit with neither a direct lead nor an
 eligible headline records `no_news` and makes no paid call, including movers.
 Filings still trigger selection; their links are not extracted. Macro
-deepening is unchanged. Extract objectives retain public names, tickers,
+deepening uses the #688 ranking and event deduplication described above. Extract objectives retain public names, tickers,
 themes and title words only. The three strongest movers go to both providers;
 remaining units alternate within each wave. Unavailable providers fall back
 to the other provider.

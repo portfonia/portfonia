@@ -31,7 +31,7 @@ def _article(
         record={
             "v": 1,
             "kind": "article",
-            "title": f"{identifier or theme} story {index}",
+            "title": f"{theme} event event{index}" if theme else f"{identifier} story {index}",
             "published_at": fetched_at.isoformat(),
             "fetched_at": fetched_at.isoformat(),
             "body": "body",

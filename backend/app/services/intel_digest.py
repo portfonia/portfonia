@@ -288,6 +288,10 @@ def build_batch_report(
         ]
         picked.append(f"  {name} ({words})" + (": " + "; ".join(texts) if texts else ""))
     lines += ["Picked:", *picked] if picked else ["Picked: none"]
+    if "macro_rank_failed" in deep:
+        lines.append(
+            f"Macro ranking fallback units (macro_rank_failed: {number(deep.get('macro_rank_failed')):g}); unlabeled candidates (macro_rank_partial: {number(deep.get('macro_rank_partial')):g})."
+        )
     metrics = {p: obj(v) for p, v in obj(deep.get("metrics")).items()}
     kept = sum(number(m.get("accepted")) for m in metrics.values())
     failed = sum(number(obj(m.get("rejected")).get("provider_error")) for m in metrics.values())

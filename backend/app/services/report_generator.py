@@ -57,6 +57,7 @@ from app.services.analysis_framework import load_analysis_framework
 from app.services.email_sender import send_ops_alert, send_report_email
 from app.services.forward_events import FORWARD_WINDOW_DAYS, load_forward_events
 from app.services.github_issues import create_bug_report
+from app.services.headline_cleaning import load_cleaning_config, macro_label, near_duplicate_title
 from app.services.holding_news import load_entity_aliases, recall_holding_news
 from app.services.investment_context import load_investor_preferences
 from app.services.macro_coverage import (
@@ -306,33 +307,36 @@ def _load_report_articles(
         for hit in ctx.macro_signals.get("hits", [])
         if isinstance(hit, dict) and hit.get("theme")
     ]
-    macro_count = 0
-    for theme in themes:
-        rows = session.execute(
-            select(IntelArticle)
-            .join(IntelArticleLink, IntelArticleLink.article_id == IntelArticle.id)
-            .where(
-                IntelArticle.slot_run_id.in_(runs),
-                IntelArticle.status == "accepted",
-                IntelArticleLink.theme == theme,
-            )
-            .order_by(IntelArticle.fetched_at.desc())
-        ).scalars()
-        local = 0
-        for article in rows:
-            if article.id in seen_articles or article.url_key in seen_url_keys:
-                continue
-            entry = _article_entry(article, f"theme:{theme}", len(entries) + 1)
-            if entry is None:
-                continue
-            entries.append(entry)
-            seen_articles.add(article.id)
-            seen_url_keys.add(article.url_key)
-            local += 1
-            macro_count += 1
-            if local >= 2 or macro_count >= 6:
-                break
-        if macro_count >= 6:
+    macro_rows = session.execute(
+        select(IntelArticle, IntelArticleLink.theme)
+        .join(IntelArticleLink, IntelArticleLink.article_id == IntelArticle.id)
+        .where(
+            IntelArticle.slot_run_id.in_(runs),
+            IntelArticle.status == "accepted",
+            IntelArticleLink.theme.in_(themes),
+        )
+    ).all()
+
+    def macro_rank(row: tuple[IntelArticle, str | None]) -> tuple[int, float]:
+        article = row[0]
+        label = macro_label(article.record or {})
+        return (-label["importance"] if label else 0, -article.fetched_at.timestamp())
+
+    threshold = load_cleaning_config().threshold
+    macro_titles: list[str] = []
+    for article, theme in sorted([(a, t) for a, t in macro_rows], key=macro_rank):
+        if article.id in seen_articles or article.url_key in seen_url_keys:
+            continue
+        entry = _article_entry(article, f"theme:{theme}", len(entries) + 1)
+        if entry is None or any(
+            near_duplicate_title(entry["title"], title, threshold) for title in macro_titles
+        ):
+            continue
+        entries.append(entry)
+        seen_articles.add(article.id)
+        seen_url_keys.add(article.url_key)
+        macro_titles.append(entry["title"])
+        if len(macro_titles) >= 6:
             break
     return entries
 

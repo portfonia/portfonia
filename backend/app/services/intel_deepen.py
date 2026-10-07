@@ -25,7 +25,9 @@ from app.services.headline_cleaning import (
     EarningsCache,
     block_reason,
     classify_headlines,
+    classify_macro,
     load_cleaning_config,
+    near_duplicate_title,
 )
 from app.services.instrument_news_sources import CollectedItem
 from app.services.instrument_profiles import match_instruments
@@ -170,6 +172,11 @@ class DeepenRun:
         }
         self.accepted: dict[str, set[str]] = {p: set() for p in self.metrics}
         self.dual_keys: set[str] = set()
+        self.macro_rank_failed = 0
+        self.macro_rank_partial = 0
+        self.macro_classifier_cost_usd = 0.0
+        self.macro_leads: list[Lead] = []
+        self.macro_themes: dict[str, set[str]] = {}
 
     def collected(self, identifier: str, items: list[CollectedItem]) -> None:
         with self.lock:
@@ -521,6 +528,22 @@ class DeepenRun:
                         for i in theme_items.get(unit.theme, [])
                     ]
                 )
+                macro_labels = None
+                if unit.kind == "macro" and unit.providers:
+                    candidates = [
+                        item
+                        for item in candidates
+                        if not unit.window_start
+                        or item.published_at.astimezone(ET).date() >= unit.window_start
+                    ]
+                    if candidates:
+                        labels, cost, error = classify_macro(candidates)
+                        self.macro_classifier_cost_usd += cost
+                        if error or not labels:
+                            self.macro_rank_failed += 1
+                        else:
+                            macro_labels = labels
+                            self.macro_rank_partial += len(candidates) - len(labels)
                 leads = select_leads(
                     session,
                     unit,
@@ -528,7 +551,11 @@ class DeepenRun:
                     aliases.get(unit.identifier, [unit.identifier]),
                     self.cfg,
                     self.now,
+                    macro_labels=macro_labels,
+                    macro_selected_keys=set(self.macro_themes) if unit.kind == "macro" else None,
                 )
+                if unit.kind == "macro":
+                    leads = self._unique_macro_leads(session, unit, leads)
                 if len(unit.providers) == 2:
                     with self.lock:
                         self.dual_keys.update(url_key(lead.url) for lead in leads)
@@ -585,6 +612,43 @@ class DeepenRun:
             except Exception as exc:
                 with self.lock:
                     self.errors.append(f"deepening: {type(exc).__name__}")
+
+    def _unique_macro_leads(
+        self, session: Session, unit: WorkUnit, leads: list[Lead]
+    ) -> list[Lead]:
+        unique = []
+        for lead in leads:
+            duplicate = next(
+                (
+                    prior
+                    for prior in self.macro_leads
+                    if url_key(prior.url) == url_key(lead.url)
+                    or (
+                        self.cleaning is not None
+                        and near_duplicate_title(prior.title, lead.title, self.cleaning.threshold)
+                    )
+                ),
+                None,
+            )
+            if duplicate is not None:
+                key = url_key(duplicate.url)
+                self.macro_themes[key].add(unit.theme)
+                for article_id in session.scalars(
+                    select(IntelArticle.id).where(
+                        IntelArticle.slot_run_id == self.run_id, IntelArticle.url_key == key
+                    )
+                ):
+                    session.execute(
+                        insert(IntelArticleLink)
+                        .values(article_id=article_id, theme=unit.theme, role="macro")
+                        .on_conflict_do_nothing(constraint="uq_intel_article_links_key")
+                    )
+                session.commit()
+                continue
+            self.macro_leads.append(lead)
+            self.macro_themes[url_key(lead.url)] = {unit.theme}
+            unique.append(lead)
+        return unique
 
     def _extract_batch(
         self, wanted: str, batch: list[tuple[WorkUnit, Lead]], retried: bool = False
@@ -665,6 +729,8 @@ class DeepenRun:
                     if accepted
                     else None
                 )
+                if record is not None and lead.macro_label is not None:
+                    record.update(lead.macro_label)
                 stmt = insert(IntelArticle).values(
                     slot_run_id=self.run_id,
                     provider=provider,
@@ -693,16 +759,22 @@ class DeepenRun:
                         },
                     ).returning(IntelArticle.id)
                 )
-                session.execute(
-                    insert(IntelArticleLink)
-                    .values(
-                        article_id=article_id,
-                        identifier=unit.identifier or None,
-                        theme=unit.theme or None,
-                        role=unit.kind,
-                    )
-                    .on_conflict_do_nothing(constraint="uq_intel_article_links_key")
+                themes = (
+                    self.macro_themes.get(url_key(lead.url), {unit.theme})
+                    if unit.kind == "macro"
+                    else {unit.theme}
                 )
+                for theme in sorted(themes):
+                    session.execute(
+                        insert(IntelArticleLink)
+                        .values(
+                            article_id=article_id,
+                            identifier=unit.identifier or None,
+                            theme=theme or None,
+                            role=unit.kind,
+                        )
+                        .on_conflict_do_nothing(constraint="uq_intel_article_links_key")
+                    )
                 with self.lock:
                     if accepted:
                         unit_outcome["accepted"] += 1
@@ -788,6 +860,9 @@ class DeepenRun:
                 ),
             }
         return {
+            "macro_rank_failed": self.macro_rank_failed,
+            "macro_rank_partial": self.macro_rank_partial,
+            "macro_classifier_cost_usd": self.macro_classifier_cost_usd,
             "outcomes": self.outcomes,
             "search_samples": self.search_samples,
             "selections": [

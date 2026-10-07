@@ -17,6 +17,7 @@ from app.models.intel import InstrumentProfile
 from app.models.paid_intel import IntelArticle, IntelArticleLink, PaidApiUsage
 from app.services import intel_deepen as deepen
 from app.services import intel_digest
+from app.services.headline_cleaning import MacroLabel
 from app.services.instrument_news_sources import CollectedItem
 from app.services.instrument_universe import UniverseEntry
 from app.services.intel_deepen_config import load_intel_deepen_config
@@ -29,12 +30,28 @@ from app.tests.test_intel_paid import slot
 
 @pytest.fixture(autouse=True)
 def no_unmocked_search_classifier() -> Iterator[None]:
-    with patch.object(
-        deepen,
-        "classify_headlines",
-        side_effect=AssertionError("search classifier must be mocked"),
+    with (
+        patch.object(
+            deepen,
+            "classify_headlines",
+            side_effect=AssertionError("search classifier must be mocked"),
+        ),
+        patch.object(
+            deepen, "classify_macro", side_effect=AssertionError("macro classifier must be mocked")
+        ),
     ):
         yield
+
+
+def fixture_macro_labels(items: list[CollectedItem]) -> tuple[dict[int, MacroLabel], float, None]:
+    return (
+        {
+            i: {"type": "development", "importance": 2, "event": f"event-{i}"}
+            for i in range(len(items))
+        },
+        0.0,
+        None,
+    )
 
 
 def settings() -> object:
@@ -443,7 +460,7 @@ def test_18_worked_example_paid_waves(db_session: Session) -> None:
     pool = [
         NewsItem(
             url_key(url := f"https://{theme}{i}.example/a"),
-            f"{word} agreement",
+            f"{word} agreement event{i}",
             url,
             "fixture",
             NOW,
@@ -492,6 +509,7 @@ def test_18_worked_example_paid_waves(db_session: Session) -> None:
     with (
         patch.object(deepen, "get_settings", return_value=settings()),
         patch.object(deepen, "SessionLocal", side_effect=lambda: factory(db_session)),
+        patch.object(deepen, "classify_macro", side_effect=fixture_macro_labels),
         patch.object(
             deepen,
             "detect_macro_signals",
@@ -583,11 +601,11 @@ def test_16_weekend_worked_example(db_session: Session) -> None:
     pool = []
     for i in range(14):
         url = f"https://energy{i}.example/a"
-        pool.append(NewsItem(url_key(url), "oil agreement", url, "fixture", now, None))
+        pool.append(NewsItem(url_key(url), f"oil agreement event{i}", url, "fixture", now, None))
         db_session.add(
             News(
                 url_hash=url_key(url),
-                record={"title": "oil agreement"},
+                record={"title": f"oil agreement event{i}"},
                 published_at=now,
                 fetched_at=now,
             )
@@ -596,6 +614,7 @@ def test_16_weekend_worked_example(db_session: Session) -> None:
     with (
         patch.object(deepen, "get_settings", return_value=settings()),
         patch.object(deepen, "SessionLocal", side_effect=lambda: factory(db_session)),
+        patch.object(deepen, "classify_macro", side_effect=fixture_macro_labels),
         patch.object(
             deepen,
             "detect_macro_signals",
@@ -1196,11 +1215,13 @@ def test_macro_lead_window_weekday_and_weekend(db_session: Session, weekend: boo
     pool = []
     for i in range(10):
         url = f"https://energy{i}.example/a"
-        pool.append(NewsItem(url_key(url), "oil agreement", url, "fixture", published, None))
+        pool.append(
+            NewsItem(url_key(url), f"oil agreement event{i}", url, "fixture", published, None)
+        )
         db_session.add(
             News(
                 url_hash=url_key(url),
-                record={"title": "oil agreement"},
+                record={"title": f"oil agreement event{i}"},
                 published_at=published,
                 fetched_at=now,
             )
@@ -1215,6 +1236,7 @@ def test_macro_lead_window_weekday_and_weekend(db_session: Session, weekend: boo
             ),
         ),
         patch.object(deepen, "SessionLocal", side_effect=lambda: factory(db_session)),
+        patch.object(deepen, "classify_macro", side_effect=fixture_macro_labels),
         patch.object(
             deepen,
             "detect_macro_signals",
