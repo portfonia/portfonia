@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import date
 
 import httpx
+import yaml
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -161,12 +162,12 @@ def render_weekly(details: dict[str, object]) -> list[str]:
         "Instruments without a relation entry: " + (", ".join(unreviewed) if unreviewed else "none")
     )
     aliases: dict[str, list[str]] = {}
-    relations: dict[str, list[str]] = {}
+    relations: dict[str, list[dict[str, object]]] = {}
     for row in names:
         aliases.setdefault(str(row["identifier"]), []).append(str(row["name"]))
     for row in gaps:
         relations.setdefault(str(row["identifier"]), []).append(
-            _relation_yaml(str(row["entity"]), [str(row["entity"])], str(row["relation"]))
+            _relation_document(str(row["entity"]), [str(row["entity"])], str(row["relation"]))
         )
     raw = details.get("suggestions")
     for identifier, suggestion in raw.items() if isinstance(raw, dict) else []:
@@ -178,7 +179,7 @@ def render_weekly(details: dict[str, object]) -> list[str]:
         relations.setdefault(str(identifier), [])
         for rel in objects(suggestion.get("relations")):
             relations[str(identifier)].append(
-                _relation_yaml(
+                _relation_document(
                     str(rel["name"]),
                     [str(a) for a in rows_or_list(rel.get("aliases"))],
                     str(rel["relation"]),
@@ -186,17 +187,21 @@ def render_weekly(details: dict[str, object]) -> list[str]:
             )
     if any(aliases.values()) or relations:
         lines.append("Suggested YAML (review before adding through a PR):")
+        doc: dict[str, object] = {}
         if any(aliases.values()):
-            lines.append("  entity_aliases:")
-            for identifier, values in aliases.items():
-                if values:
-                    lines.append(f'    "{identifier}":')
-                    lines += [f'      - "{v}"' for v in dict.fromkeys(values)]
+            doc["entity_aliases"] = {
+                identifier: list(dict.fromkeys(values))
+                for identifier, values in aliases.items()
+                if values
+            }
         if relations:
-            lines.append("  relations:")
-            for identifier, values in relations.items():
-                lines.append(f'    "{identifier}":' + ("" if values else " []"))
-                lines += [f"      - {v}" for v in values]
+            doc["relations"] = relations
+        lines += [
+            "  " + line
+            for line in yaml.safe_dump(
+                doc, allow_unicode=True, sort_keys=False, default_flow_style=None, width=1000
+            ).splitlines()
+        ]
     return [*lines, *problem_lines(errors_from(details.get("errors")))]
 
 
@@ -205,6 +210,5 @@ def _samples(row: dict[str, object]) -> list[str]:
     return ["      e.g. " + "; ".join(f'"{s}"' for s in samples)] if samples else []
 
 
-def _relation_yaml(name: str, aliases: list[str], relation: str) -> str:
-    quoted = ", ".join(f'"{a}"' for a in (aliases or [name]))
-    return f'{{name: "{name}", aliases: [{quoted}], relation: {relation}}}'
+def _relation_document(name: str, aliases: list[str], relation: str) -> dict[str, object]:
+    return {"name": name, "aliases": aliases or [name], "relation": relation}
