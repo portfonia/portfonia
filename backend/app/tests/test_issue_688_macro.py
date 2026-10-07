@@ -17,7 +17,7 @@ from app.services import report_generator as rg
 from app.services.instrument_news_sources import CollectedItem
 from app.services.intel_deepen_config import load_intel_deepen_config
 from app.services.intel_digest import build_batch_report
-from app.services.intel_leads import select_leads
+from app.services.intel_leads import Lead, select_leads
 from app.services.intel_selection import WorkUnit
 from app.services.macro_detector import MacroSignals, ThemeHit
 from app.services.news_fetcher import NewsItem
@@ -264,6 +264,15 @@ def test_cross_unit_extra_theme_link(
         assert len(articles) == 1 and articles[0].status == "accepted"
         assert articles[0].record is not None and articles[0].record["event"] == "oil"
         assert set(db_session.scalars(select(IntelArticleLink.theme))) == {"energy", "geopolitics"}
+        outcome = next(o for o in w.outcomes if o["theme"] == "geopolitics")
+        assert outcome["note"] == "linked_existing"
+        run = db_session.get(IntelSlotRun, w.run_id)
+        assert run is not None
+        run.details = {"deepening": w.details()}
+        assert (
+            "reused an article already extracted this batch"
+            in build_batch_report(db_session, run)[1]
+        )
 
 
 def test_reader_importance_cap_legacy_cross_call_slug(db_session: Session) -> None:
@@ -380,3 +389,43 @@ def test_all_commentary_off_topic_use_no_lead_slots(db_session: Session) -> None
         )
         == []
     )
+
+
+def test_g1_does_not_split_data_release_by_new_figure() -> None:
+    assert "a new figure, party or stage is a distinct event" not in hc.MACRO_PROMPT
+
+
+def test_g2_reused_urls_do_not_consume_macro_cap(db_session: Session) -> None:
+    from app.services.intel_leads import url_key
+
+    items = [
+        CollectedItem(
+            f"Macro event{i}", NOW - timedelta(minutes=i), f"https://source{i}.example/event"
+        )
+        for i in range(5)
+    ]
+    reused: list[Lead] = []
+    # Exercise the existing API first so the old implementation fails on the
+    # substantive slot loss before checking the separate reused output.
+    selected = select_leads(
+        db_session,
+        WorkUnit("macro", theme="energy"),
+        items,
+        [],
+        load_intel_deepen_config(),
+        NOW,
+        macro_selected_keys={url_key(items[0].url), url_key(items[4].url)},
+    )
+    assert [lead.title for lead in selected] == [x.title for x in items[1:4]]
+    selected = select_leads(
+        db_session,
+        WorkUnit("macro", theme="energy"),
+        items,
+        [],
+        load_intel_deepen_config(),
+        NOW,
+        macro_selected_keys={url_key(items[0].url), url_key(items[4].url)},
+        linked_existing=reused,
+    )
+    assert [lead.title for lead in selected] == [x.title for x in items[1:4]]
+    assert [lead.title for lead in reused] == [items[0].title, items[4].title]

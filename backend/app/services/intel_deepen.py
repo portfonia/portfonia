@@ -544,6 +544,7 @@ class DeepenRun:
                         else:
                             macro_labels = labels
                             self.macro_rank_partial += len(candidates) - len(labels)
+                linked_existing: list[Lead] = []
                 leads = select_leads(
                     session,
                     unit,
@@ -553,9 +554,13 @@ class DeepenRun:
                     self.now,
                     macro_labels=macro_labels,
                     macro_selected_keys=set(self.macro_themes) if unit.kind == "macro" else None,
+                    linked_existing=linked_existing,
                 )
+                linked_only = False
                 if unit.kind == "macro":
-                    leads = self._unique_macro_leads(session, unit, leads)
+                    had_leads = bool(leads or linked_existing)
+                    leads = self._unique_macro_leads(session, unit, [*linked_existing, *leads])
+                    linked_only = had_leads and not leads
                 if len(unit.providers) == 2:
                     with self.lock:
                         self.dual_keys.update(url_key(lead.url) for lead in leads)
@@ -581,7 +586,9 @@ class DeepenRun:
                         self.now,
                     )
                 if not leads and not headlines:
-                    self._outcome(unit, None, "none")["note"] = "no_news"
+                    self._outcome(unit, None, "none")["note"] = (
+                        "linked_existing" if linked_only else "no_news"
+                    )
                     continue
                 if not unit.providers:
                     self._outcome(unit, None, "none")["note"] = "cap_reached"

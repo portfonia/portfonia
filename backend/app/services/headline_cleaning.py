@@ -376,7 +376,7 @@ development = a concrete data release, policy decision, official action or marke
 commentary = opinion, an interested party interview, a promotional letter or a firm's outlook without a new macro development;
 off_topic = merely contains a macro keyword, with no macro development (including sports or an individual company's routine contract).
 importance = systemic significance: 3 for major economy-wide data, central-bank decisions or broad shocks; 2 for other material macro developments; 1 for limited systemic significance.
-event = a short lowercase hyphenated slug describing the specific event. Reports of the same event with no new material fact share a slug; a new figure, party or stage is a distinct event. Slugs are comparable only within this request.
+event = a short lowercase hyphenated slug describing the specific event. Reports of the same event with no new material fact share a slug. Slugs are comparable only within this request.
 Do not provide investment advice. Stay within Layer 3: facts, contextual relationships and observable signals, never instructions, price targets or forecasts.
 Output ONLY JSON: {"labels": [{"id": int, "type": "development|commentary|off_topic", "importance": 1|2|3, "event": "short-slug"}]}"""
 

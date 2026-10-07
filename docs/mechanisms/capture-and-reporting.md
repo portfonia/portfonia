@@ -850,7 +850,12 @@ identity is the same `url_key` or a near-duplicate title under the existing
 `headline_cleaning.tokens` Jaccard threshold. The first unit in processing order
 owns extraction; a later duplicate adds its theme to the first article's
 `intel_article_links`, whether extraction is pending or already finished. The
-existing distinct-domain rule and `macro_links_per_theme` cap still apply.
+existing distinct-domain rule and `macro_links_per_theme` cap still apply to
+new extraction leads. A URL already selected in this batch is returned
+separately for linking and does not consume the later theme's extraction cap,
+including reused candidates encountered after that cap fills (G2 review fix).
+A unit with only reused leads records `linked_existing`; the batch email says
+it reused an article already extracted this batch, rather than claiming no news.
 Accepted articles store `type`, `importance` and `event` directly in their
 URL-free `record` JSON alongside the existing article fields. Unlabeled/fallback
 articles omit these fields.

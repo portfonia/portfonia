@@ -111,7 +111,9 @@ def select_leads(
     *,
     macro_labels: dict[int, MacroLabel] | None = None,
     macro_selected_keys: set[str] | None = None,
+    linked_existing: list[Lead] | None = None,
 ) -> list[Lead]:
+    """Return extraction leads; return reused macro leads separately via linked_existing."""
     candidates = []
     ranked = (
         {id(item): macro_labels.get(i) for i, item in enumerate(items)}
@@ -169,22 +171,23 @@ def select_leads(
         if unit.kind == "quiet"
         else cfg.caps.macro_links_per_theme
     )
-    out = []
+    out: list[Lead] = []
     domains = set()
     events: set[str] = set()
     for item in candidates:
         label = ranked.get(id(item))
-        if label and label["event"] in events:
-            continue
         url = resolve_redirect(item.url) if item.url_kind == "finnhub_redirect" else item.url
-        if (
-            not url
-            or excluded(url, cfg)
-            or (
-                url_key(url) not in (macro_selected_keys or set())
-                and accepted_recently(session, url, cfg, now)
-            )
-        ):
+        if not url or excluded(url, cfg):
+            continue
+        if unit.kind == "macro" and url_key(url) in (macro_selected_keys or set()):
+            if linked_existing is not None:
+                linked_existing.append(
+                    Lead(url, item.title, item.published_at, item.news_id, label)
+                )
+            continue
+        if len(out) >= limit or (label and label["event"] in events):
+            continue
+        if accepted_recently(session, url, cfg, now):
             continue
         host = urlsplit(url).hostname
         if host in domains:
@@ -193,7 +196,7 @@ def select_leads(
         if label:
             events.add(label["event"])
         out.append(Lead(url, item.title, item.published_at, item.news_id, label))
-        if len(out) >= limit:
+        if len(out) >= limit and unit.kind != "macro":
             break
     return out
 

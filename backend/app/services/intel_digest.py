@@ -250,6 +250,8 @@ def build_batch_report(
     kept_units = {unit_name(o) for o in outcomes if number(o.get("accepted"))}
 
     def outcome_text(outcome: dict[str, object]) -> str | None:
+        if outcome.get("note") == "linked_existing":
+            return "reused an article already extracted this batch, no paid call"
         accepted = number(outcome.get("accepted"))
         # The "nothing usable" text names no provider, so skip it for a unit that kept
         # articles through another provider (search fallback or A/B sibling).
