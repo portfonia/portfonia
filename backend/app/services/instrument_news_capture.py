@@ -16,12 +16,10 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
-from app.core.timezones import ET
 from app.models.intel import InstrumentProfile, IntelCollectionRun, IntelSlotRun, NewsInstrument
 from app.models.news import News
 from app.services.headline_cleaning import (
     CleaningConfig,
-    EarningsCache,
     block_reason,
     classify_headlines,
     classify_related,
@@ -126,12 +124,10 @@ def collect_instrument_news(
     now: datetime,
     config: CleaningConfig,
     *,
-    earnings_cache: EarningsCache | None = None,
     relations: list[Relation] | None = None,
     unmatched: list[CollectedItem] | None = None,
 ) -> InstrumentResult:
     result = InstrumentResult()
-    earnings_cache = earnings_cache or EarningsCache()
     p = session.get(InstrumentProfile, entry.identifier)
     aliases = p.aliases if p else [entry.ticker.split(".")[0]]
     rows_with_relation = list(
@@ -217,14 +213,6 @@ def collect_instrument_news(
             if len(sample) < 3:
                 sample.append(item.title)
             continue
-        stale = earnings_cache.stale_reason(item, entry.ticker, config)
-        if stale:
-            result.cleaning[stale] = result.cleaning.get(stale, 0) + 1
-            if stale == "stale_rule":
-                sample = result.samples.setdefault(stale, [])
-                if len(sample) < 3:
-                    sample.append(item.title)
-                continue
         previous.append(item.title)
         candidates.append((name, item))
     if not p or not p.name_en:
@@ -240,15 +228,6 @@ def collect_instrument_news(
         result.stats.setdefault("google_news", source_stat())["skipped_no_name"] += 1
     labels: dict[int, str] = {}
 
-    def recap_is_stale(item: CollectedItem) -> bool:
-        # A title matching the earnings or preview patterns was already checked before the classifier.
-        if any(p.search(item.title) for p in config.earnings_patterns + config.preview_patterns):
-            return False
-        reason = earnings_cache.stale_reason(item, entry.ticker, config, recap=True)
-        if reason == "stale_lookup_failed":
-            result.cleaning[reason] = result.cleaning.get(reason, 0) + 1
-        return reason == "stale_rule"
-
     articles = [(i, item) for i, (_, item) in enumerate(candidates) if item.kind != "filing"]
     size = min(100, max(1, get_settings().INTEL_CLASSIFIER_BATCH))
     kept_titles: list[str] = []
@@ -260,8 +239,6 @@ def collect_instrument_news(
             aliases,
             # An empty EXISTING block makes the model return no labels at all (#653).
             recent_titles=(list(reversed(kept_titles)) + stored_recent)[:100] or None,
-            batch_date=now.astimezone(ET).date(),
-            recap_is_stale=recap_is_stale,
         )
         result.classifier["batches"] += 1
         result.classifier["items"] += len(chunk)
@@ -274,12 +251,12 @@ def collect_instrument_news(
         kept_titles.extend(
             item.title
             for i, (_, item) in enumerate(chunk)
-            if batch.get(i) not in ("promo", "unrelated", "duplicate", "stale")
+            if batch.get(i) not in ("promo", "unrelated", "duplicate")
         )
     direct: list[tuple[str, CollectedItem, str | None]] = []
     for i, (name, item) in enumerate(candidates):
         label = labels.get(i)
-        if label in ("promo", "unrelated", "duplicate", "stale"):
+        if label in ("promo", "unrelated", "duplicate"):
             llm_reason = label + "_llm"
             result.cleaning[llm_reason] = result.cleaning.get(llm_reason, 0) + 1
             sample = result.samples.setdefault(llm_reason, [])
@@ -418,10 +395,8 @@ def collect_slot_news(
     collection_run: IntelCollectionRun | None = None,
     profile_errors: list[str] | None = None,
     priority: list[str] | None = None,
-    earnings_cache: EarningsCache | None = None,
     unmatched: dict[str, list[CollectedItem]] | None = None,
 ) -> IntelCollectionRun:
-    earnings_cache = earnings_cache or EarningsCache()
     start = time.monotonic()
     run = (
         collection_run
@@ -488,7 +463,6 @@ def collect_slot_news(
                 entry,
                 now,
                 config,
-                earnings_cache=earnings_cache,
                 relations=relations.get(entry.identifier, []),
                 unmatched=dropped,
             )

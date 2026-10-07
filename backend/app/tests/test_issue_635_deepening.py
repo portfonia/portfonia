@@ -117,13 +117,14 @@ def test_635_03_mover_without_news_has_no_paid_call(worker: deepen.DeepenRun) ->
 
 
 def test_635_04_date_first_survivor_and_unrelated(worker: deepen.DeepenRun) -> None:
+    """Try the unrelated fixture first: #697 stops after the first resolved headline."""
     results = [
+        [Lead("https://fixture.example/other", "Other company", NOW)],
         [
             Lead("https://fixture.example/old", "AAA old", NOW - timedelta(days=2)),
             Lead("https://fixture.example/first", "AAA first", NOW),
             Lead("https://fixture.example/second", "AAA second", NOW),
         ],
-        [Lead("https://fixture.example/other", "Other company", NOW)],
     ]
     with (
         patch(
@@ -223,6 +224,12 @@ def test_635_extract_fallback_retains_headline_outcome(worker: deepen.DeepenRun)
 def test_638_search_fallback_preserves_provider_attribution(
     worker: deepen.DeepenRun, db_session: Session
 ) -> None:
+    """Resolve independently before extracting to preserve fallback attribution coverage.
+
+    Issue #697 stops a unit after its first resolved headline. Two independent
+    resolutions still exercise a later 429 disabling Tavily before either body
+    is extracted, preserving every provider, usage and persistence assertion.
+    """
     from sqlalchemy import select
 
     from app.models.paid_intel import IntelArticle, PaidApiUsage
@@ -259,11 +266,11 @@ def test_638_search_fallback_preserves_provider_attribution(
         patch("app.services.paid_usage.send_ops_alert", return_value=True),
         patch.object(worker, "_extract_batch", wraps=worker._extract_batch) as batches,
     ):
-        worker.run_wave(
-            [WorkUnit("quiet", "AAA", providers=("tavily",))],
-            {"AAA": [headline("AAA agreement"), headline("AAA factory")]},
-            {"AAA": ["AAA"]},
-        )
+        unit = WorkUnit("quiet", "AAA", providers=("tavily",))
+        _, first = worker._resolve("tavily", unit, [headline("AAA agreement")])
+        _, second = worker._resolve("tavily", unit, [headline("AAA factory")])
+        for owner, lead in [*first, *second]:
+            worker._extract_batch(owner, [(unit, lead)])
     outcomes = {entry["provider"]: entry for entry in worker.outcomes}
     assert {provider: entry["searches"] for provider, entry in outcomes.items()} == {
         "tavily": 2,

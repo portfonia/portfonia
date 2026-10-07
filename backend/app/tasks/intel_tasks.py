@@ -14,7 +14,6 @@ from app.core.database import SessionLocal
 from app.core.timezones import ET, today_et
 from app.models.intel import IntelCollectionRun, IntelSlotRun
 from app.services.email_sender import send_ops_alert
-from app.services.headline_cleaning import EarningsCache
 from app.services.instrument_news_capture import (
     collect_slot_news,
     create_instrument_run,
@@ -94,7 +93,6 @@ def intel_slot_task(slot: str) -> dict[str, str]:
         run.status = "running"
         run.details = {}
         session.commit()
-        earnings_cache = EarningsCache()
         deepen = None
         deepen_errors = []
         evidence: dict[str, object] = {}
@@ -129,7 +127,6 @@ def intel_slot_task(slot: str) -> dict[str, str]:
                     previous,
                     universe,
                     signals,
-                    earnings_cache=earnings_cache,
                 )
             except Exception as exc:
                 deepen_errors.append(f"deepening: {type(exc).__name__}")
@@ -157,7 +154,6 @@ def intel_slot_task(slot: str) -> dict[str, str]:
                 collection_run=collection,
                 profile_errors=profile_errors,
                 priority=priority,
-                earnings_cache=earnings_cache,
                 unmatched=unmatched,
             )
             if deepen is not None:

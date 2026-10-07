@@ -592,10 +592,3 @@ def _no_unmocked_intel_classifiers() -> Generator[None, None, None]:
         ),
     ):
         yield
-
-
-@pytest.fixture(autouse=True)
-def _mock_earnings_history() -> Generator[None, None, None]:
-    """No live yfinance earnings-history calls during headline cleaning tests."""
-    with patch("yfinance.Ticker.get_earnings_dates", return_value=None):
-        yield

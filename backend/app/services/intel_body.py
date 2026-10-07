@@ -43,6 +43,8 @@ def strip_residue(text: str, cfg: DeepenConfig) -> str:
     rules = cfg.body_cleaning
 
     def is_para(line: str) -> bool:
+        if line.startswith("|"):
+            return False
         words = len(line.split())
         terminators = len(re.findall(r'[.!?]["\u201d\u2019)]?(?=\s|$)', line))
         english = (

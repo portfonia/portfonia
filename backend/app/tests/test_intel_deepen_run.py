@@ -408,6 +408,12 @@ def test_23_full_slot_no_urls(
 
 
 def test_18_worked_example_paid_waves(db_session: Session) -> None:
+    """Keep the paid-wave example by resolving its two search fixtures independently.
+
+    Issue #697 stops each resolution on its first surviving lead. Independent
+    resolutions retain this example's A/B batching, classifier, extraction,
+    accounting and storage coverage without changing any original assertion.
+    """
     from decimal import Decimal
 
     from app.models.intel import NewsInstrument
@@ -480,7 +486,15 @@ def test_18_worked_example_paid_waves(db_session: Session) -> None:
                 json={
                     "results": [
                         {"url": x.url, "title": x.title, "published_date": NOW.isoformat()}
-                        for x in items("AAA", 2)
+                        for x in [
+                            items("AAA", 2)[
+                                0
+                                if payload.get("query", payload.get("objective", "")).endswith(
+                                    "one"
+                                )
+                                else 1
+                            ]
+                        ]
                     ]
                 },
             )
@@ -541,14 +555,27 @@ def test_18_worked_example_paid_waves(db_session: Session) -> None:
             {},
         )
         worker.pool_items = pool
-        worker.run_wave(
-            [
-                WorkUnit("mover", "BBB", reason="d5 +21.4%"),
-                WorkUnit("mover", "AAA", reason="d1 -6.2%"),
-            ],
-            owned,
-            {t: [t] for t in owned},
-        )
+        resolve = worker._resolve
+
+        def resolve_independently(
+            provider: str, unit: WorkUnit, headlines: list[CollectedItem]
+        ) -> tuple[str, list[tuple[str, Lead]]]:
+            resolved: list[tuple[str, Lead]] = []
+            chosen = provider
+            for item in headlines:
+                chosen, leads = resolve(provider, unit, [item])
+                resolved.extend(leads)
+            return chosen, resolved
+
+        with patch.object(worker, "_resolve", side_effect=resolve_independently):
+            worker.run_wave(
+                [
+                    WorkUnit("mover", "BBB", reason="d5 +21.4%"),
+                    WorkUnit("mover", "AAA", reason="d1 -6.2%"),
+                ],
+                owned,
+                {t: [t] for t in owned},
+            )
         worker.run_wave(
             [
                 WorkUnit("quiet", "CCC", reason="near_d3 +9.1%"),
@@ -1404,6 +1431,7 @@ def test_issue_628_classifier_cost_is_separate_from_paid_usage(db_session: Sessi
                         {
                             "url": "https://fixture.example/orders",
                             "title": "AAOI Stock Rallies As Hyperscale AI Orders Boost Outlook",
+                            "published_date": NOW.isoformat(),
                         }
                     ]
                 },
