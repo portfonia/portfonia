@@ -335,6 +335,8 @@ class DeepenRun:
                     outcome["note"] = "no_result"
             with self.lock:
                 self.metrics[chosen]["headlines_resolved" if leads else "headlines_unresolved"] += 1
+            if leads:
+                break
         for owner, _ in owned:
             outcome = self._outcome(unit, owner, "search")
             if outcome["note"] == "no_result":
@@ -379,14 +381,22 @@ class DeepenRun:
             if result.status_class in ("invalid_key", "quota_or_rate") and attempt == 0:
                 provider = "parallel" if chosen == "tavily" else "tavily"
                 continue
+            dated = []
+            for lead in result.leads:
+                if lead.published_at is None:
+                    with self.lock:
+                        filtered = self.metrics[chosen]["search_filtered"]
+                        filtered["undated"] = filtered.get("undated", 0) + 1
+                    continue
+                dated.append(lead)
             with SessionLocal() as session:
                 leads = [
                     lead
-                    for lead in result.leads
+                    for lead in dated
                     if not excluded(lead.url, self.cfg)
                     and (
-                        lead.published_at is None
-                        or lead.published_at.astimezone(ET).date() >= start
+                        lead.published_at is not None
+                        and lead.published_at.astimezone(ET).date() >= start
                     )
                     and not accepted_recently(session, lead.url, self.cfg, self.now)
                     and url_key(lead.url) not in selected

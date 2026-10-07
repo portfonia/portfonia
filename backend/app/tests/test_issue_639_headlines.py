@@ -201,12 +201,19 @@ def test_639_04_digest_merges_stale_counts_and_samples(db_session: Session) -> N
 
 
 def test_639_12a_paid_missing_date_uses_batch_time(worker: deepen.DeepenRun) -> None:
+    """Keep the stale-recap assertions with a dated control alongside the undated lead.
+
+    Issue #697 supersedes batch-time substitution: the undated lead is dropped
+    before earnings lookup. The dated control retains the earnings filtering,
+    single lookup and classifier exclusion covered by the original assertions.
+    """
     lead = Lead("https://fixture.example/a", "AAA Q3 earnings improve", None)
+    dated = Lead("https://fixture.example/dated", "AAA Q3 earnings improve", worker.now)
     with (
         patch.object(
             worker,
             "_call",
-            return_value=("tavily", PaidResult(200, Decimal(1), Decimal(0), leads=[lead])),
+            return_value=("tavily", PaidResult(200, Decimal(1), Decimal(0), leads=[lead, dated])),
         ),
         patch(
             "yfinance.Ticker.get_earnings_dates",

@@ -952,6 +952,16 @@ run; unlabeled headlines remain available to the fallback paths.
 
 ### Headline and body cleaning (issue #687)
 
+Issue #697 extends the shared earnings-preview patterns with earnings/results
+followed by loom, approach, near (including configured inflections) or due.
+Previews use the next earnings date and the existing 21-day bound before recap
+rules run: the SKHY Q3 earnings-loom headline is kept with earnings 16 days ahead
+and rejected as `stale_rule` at 60 days. Real recaps remain subject to the
+14-day bound against the last earnings date. The batch report sums undated paid
+search drops with `stale_rule` and `stale_llm` under "Old news republished with
+a new date". No stored rows are reprocessed; macro selection, limits, URL
+removal and the 2,000-character body cap are unchanged.
+
 The shared low-value title rules reject `should you buy/sell/hold`, return
 projections matching `invested in ... worth`, and `biggest upside` rankings.
 They apply to direct collection, related-company links and the macro RSS pool.
@@ -1035,7 +1045,11 @@ match direct lead selection. Search uses the original stripped headline only,
 from its ET date minus one day through the lesser of its date plus one day and
 the run date. Results before the start date, recently accepted URLs and URLs
 already selected for this unit are excluded; the existing rule/classifier
-chain then selects the first survivor in provider order. The shared search
+chain then selects the first survivor in provider order. Issue #697 drops undated
+search results before the date-window check and counts them per provider as
+`search_filtered.undated`. Once a headline yields a surviving lead, `_resolve`
+stops searching that unit for the provider; unresolved headlines still advance
+to the next headline. Direct links and A/B rotation are unchanged. The shared search
 cap and provider fallback remain. Each resolved lead keeps the provider
 that found it, and each provider has its own outcome; a lead found by a
 provider disabled later in the batch is extracted by the fallback. When no
@@ -1066,7 +1080,9 @@ pre-send estimate. Parallel dates use `publish_date`. No new dependency is requi
 
 Issue #670 adds the `'Keep me signed in' box` paywall marker (login-form text
 on login-teaser pages) and the `Remove ads` boilerplate marker (aggregator
-sidebar pages); `body_verdict` is unchanged. Markers are case-insensitive
+sidebar pages). Issue #697 adds `This headline only article is a sample` and
+`This is a paid press release` to the same paywall list; both yield `paywall`.
+`body_verdict` is unchanged. Markers are case-insensitive
 substrings, so a marker must be page-chrome text that ordinary prose does not
 use: `Read Next` and `we store cookies` were rejected in review because they
 matched "read next week's ..." and normal cookie footers.
@@ -1084,6 +1100,10 @@ or U+F900–U+FAFF) and a full-width period, exclamation mark or question mark
 (U+3002, U+FF01 or U+FF1F). The body spans its first through last paragraph,
 retaining the last `# ` title before the first paragraph and dropping short
 numbered menu entries.
+Issue #697 never counts a line starting with `|` as a paragraph, so a news-list
+table without prose yields an empty body. Case-insensitive residue rules also
+remove `FILE.` / `_FILE.` caption lines and the Benzinga navigation line starting
+`Markets & News Breaking Headlines`, before first/last paragraph selection.
 No paragraph yields an empty rejection. Domain-only lines, optionally behind
 a short source prefix, are dropped; domain-with-path tokens are removed within
 prose. Sentence-contained domains without paths, such as company names, stay.

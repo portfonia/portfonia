@@ -32,7 +32,7 @@ extract:
   max_boilerplate_ratio: 0.35
 excluded_domains: [news.google.com, ft.com, wsj.com, barrons.com, foreignpolicy.com, marketwatch.com]
 boilerplate_markers: ["Most active", "Day gainers", "Day losers", "Stock splits", "Oops, something went wrong", "Private companies", "Trending tickers", "This article is an Insider exclusive", "All rights reserved", "Companies Mentioned", "Copyright", "Remove ads"]
-paywall_markers: ["Subscribe to continue", "subscribers only", "Upgrade options", "Sign in to read", "available only for our paid subscribers", "'Keep me signed in' box"]
+paywall_markers: ["Subscribe to continue", "subscribers only", "Upgrade options", "Sign in to read", "available only for our paid subscribers", "'Keep me signed in' box", "This headline only article is a sample", "This is a paid press release"]
 yahoo_nav_markers: ["Most active", "Day gainers", "Day losers", "Stock splits", "Oops, something went wrong", "Private companies", "Trending tickers"]
 body_cleaning:
   paragraph_min_words: 12
@@ -49,6 +49,8 @@ body_cleaning:
     - '^choose edition'
     - 'advertise with us'
     - '^(e-paper|newsletters|podcasts|rss feed)\b'
+    - '^_?file\.\s'
+    - '^markets & news breaking headlines'
     - '^photo:'
     - '^credit:'
     - '^(published|updated)\s+\w+\s+\d'
@@ -79,6 +81,7 @@ headline_cleaning:
     - '\b(ahead of|before|awaits?|previews?|previewing)\s+(?:\S+\s+){0,4}?(earnings|results|EPS)\b'
     - '\b(earnings|results)\b.*\bpreview\b'
     - '\bQ[1-4]\b.*\bpreview\b'
+    - '\b(earnings|results)\s+(loom(s|ing)?|approach(es|ing)?|near(s|ing)?|due)\b'
   stale_earnings_days: 14
   earnings_recap_patterns:
     - '\b(Q[1-4]|first|second|third|fourth)[- ]quarter\b.*\b(results|earnings|EPS)\b'
