@@ -10,10 +10,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.intel import InstrumentProfile, IntelCollectionRun
-from app.services.headline_cleaning import block_reason, load_cleaning_config
+from app.models.news import News
+from app.services.headline_cleaning import (
+    block_reason,
+    classify_macro,
+    load_cleaning_config,
+    macro_label,
+)
 from app.services.instrument_news_sources import CollectedItem
 from app.services.instrument_profiles import match_instruments
 from app.services.intel_records import link_instrument, store_headline
+from app.services.macro_detector import detect_macro_signals
 from app.services.news_fetcher import NewsItem, fetch_news
 
 
@@ -48,6 +55,7 @@ def capture_news(
     cleaning: dict[str, int] = {}
     samples: dict[str, list[str]] = {}
     kept = []
+    news_ids: dict[str, uuid.UUID] = {}
     inserted = 0
     linked = 0
     for item in fetched.items:
@@ -65,6 +73,7 @@ def capture_news(
                 samples[reason].append(item.title)
             continue
         nid, is_inserted = store_headline(session, item, "pool", "article", None)
+        news_ids[item.url_hash] = nid
         inserted += int(is_inserted)
         for ident in match_instruments(item.title + " " + (item.summary or ""), aliases):
             linked += link_instrument(session, nid, ident)
@@ -83,6 +92,50 @@ def capture_news(
         "cleaning": cleaning,
         "cleaning_samples": samples,
     }
+    if slot_run_id is not None:
+        stats: dict[str, int | float] = {
+            "candidates": 0,
+            "labeled": 0,
+            "calls": 0,
+            "failed_calls": 0,
+            "cost_usd": 0.0,
+            "development": 0,
+            "commentary": 0,
+            "off_topic": 0,
+        }
+        seen: set[str] = set()
+        for hit in detect_macro_signals(kept, max_articles_per_theme=len(kept) or 1).hits:
+            candidates = []
+            for item in hit.articles:
+                if item.url_hash in seen:
+                    continue
+                seen.add(item.url_hash)
+                row = session.get(News, news_ids[item.url_hash])
+                assert row is not None
+                if macro_label(row.record) is None:
+                    candidates.append((item, row))
+            stats["candidates"] += len(candidates)
+            for start in range(0, len(candidates), 30):
+                batch = candidates[start : start + 30]
+                label_call = uuid.uuid4().hex[:12]
+                labels, cost, error = classify_macro(
+                    [
+                        CollectedItem(item.title, item.published_at, item.url, item.summary)
+                        for item, _ in batch
+                    ]
+                )
+                stats["calls"] += 1
+                stats["cost_usd"] += cost
+                if error or not labels:
+                    stats["failed_calls"] += 1
+                    continue
+                for index, (_, row) in enumerate(batch):
+                    label = macro_label(dict(labels.get(index, {})))
+                    if label is not None:
+                        row.record = {**row.record, **label, "label_call": label_call}
+                        stats["labeled"] += 1
+                        stats[label["type"]] += 1
+        run.stats = {**run.stats, "macro_classification": stats}
     run.errors = errors[:50]
     run.finished_at = datetime.now(UTC)
     run.status = "partial" if errors else "ok"

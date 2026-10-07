@@ -2,6 +2,7 @@
 
 import re
 import threading
+import uuid
 from collections import defaultdict
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, replace
@@ -23,6 +24,7 @@ from app.models.paid_intel import IntelArticle, IntelArticleLink
 from app.services.headline_cleaning import (
     CleaningConfig,
     EarningsCache,
+    MacroLabel,
     block_reason,
     classify_headlines,
     classify_macro,
@@ -43,7 +45,7 @@ from app.services.intel_leads import (
     stored_headlines,
     url_key,
 )
-from app.services.intel_records import build_article_record
+from app.services.intel_records import build_article_record, macro_labels_for_items
 from app.services.intel_selection import WorkUnit, assign_providers, select_units
 from app.services.intel_signals import Signal, slot_history
 from app.services.macro_detector import detect_macro_signals
@@ -511,6 +513,11 @@ class DeepenRun:
                     self.pool_items, max_articles_per_theme=len(self.pool_items) or 1
                 ).hits
             }
+            stored_labels = (
+                macro_labels_for_items(session, self.pool_items)
+                if any(u.kind == "macro" for u in assigned)
+                else {}
+            )
             for unit in assigned:
                 candidates = (
                     items.get(unit.identifier, []) + pool_links.get(unit.identifier, [])
@@ -526,9 +533,11 @@ class DeepenRun:
                             ),
                         )
                         for i in theme_items.get(unit.theme, [])
+                        if i.url_hash not in stored_labels
+                        or stored_labels[i.url_hash]["type"] == "development"
                     ]
                 )
-                macro_labels = None
+                macro_labels: dict[int, MacroLabel] | None = None
                 if unit.kind == "macro" and unit.providers:
                     candidates = [
                         item
@@ -536,14 +545,29 @@ class DeepenRun:
                         if not unit.window_start
                         or item.published_at.astimezone(ET).date() >= unit.window_start
                     ]
-                    if candidates:
-                        labels, cost, error = classify_macro(candidates)
+                    by_news_id = {
+                        row.id: stored_labels[row.url_hash]
+                        for row in session.scalars(
+                            select(News).where(News.id.in_([c.news_id for c in candidates]))
+                        )
+                        if row.url_hash in stored_labels
+                    }
+                    macro_labels = {
+                        index: by_news_id[item.news_id]
+                        for index, item in enumerate(candidates)
+                        if item.news_id in by_news_id
+                    }
+                    remainder = [i for i in range(len(candidates)) if i not in macro_labels]
+                    if remainder:
+                        label_call = uuid.uuid4().hex[:12]
+                        labels, cost, error = classify_macro([candidates[i] for i in remainder])
                         self.macro_classifier_cost_usd += cost
                         if error or not labels:
                             self.macro_rank_failed += 1
                         else:
-                            macro_labels = labels
-                            self.macro_rank_partial += len(candidates) - len(labels)
+                            for index, label in labels.items():
+                                macro_labels[remainder[index]] = {**label, "label_call": label_call}
+                            self.macro_rank_partial += len(remainder) - len(labels)
                 linked_existing: list[Lead] = []
                 leads = select_leads(
                     session,
@@ -819,9 +843,17 @@ class DeepenRun:
             )
             is not None
         ]
-        counts = {
-            hit.theme: len(hit.articles)
-            for hit in detect_macro_signals(fresh, max_articles_per_theme=len(fresh) or 1).hits
+        hits = detect_macro_signals(fresh, max_articles_per_theme=len(fresh) or 1).hits
+        counts = {hit.theme: len(hit.articles) for hit in hits}
+        labels = macro_labels_for_items(session, fresh)
+        development_hashes = {
+            item.url_hash
+            for item in fresh
+            if item.url_hash not in labels or labels[item.url_hash]["type"] == "development"
+        }
+        counts_dev = {
+            hit.theme: sum(item.url_hash in development_hashes for item in hit.articles)
+            for hit in hits
         }
         histories: dict[str, list[int]] = defaultdict(list)
         for run in slot_history(session, self.slot, self.now, self.cfg, self.weekend):
@@ -830,14 +862,16 @@ class DeepenRun:
                 for theme in counts:
                     histories[theme].append(int(stored.get(theme, 0)))
         self.theme_counts = counts
+        self.theme_counts_development = counts_dev
         units = [
             u
             for u in select_units(
                 signals,
-                counts,
+                counts if self.weekend else counts_dev,
                 self.cfg,
                 weekend=self.weekend,
                 theme_history=histories,
+                macro_development_counts=counts_dev,
                 window_start=self.previous.astimezone(ET).date() if self.weekend else None,
             )
             if u.kind != "mover"

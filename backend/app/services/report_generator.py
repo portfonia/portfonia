@@ -124,6 +124,7 @@ from app.services.window_data import (
     load_instrument_news_by_identifier,
     load_news_window,
     load_related_news_by_identifier,
+    macro_news_items,
     mark_news_surfaced,
     preferred_identifier_holdings,
     resolve_global_moves,
@@ -1323,7 +1324,7 @@ def generate_report(
         ctx.news_items = _serialize_news(news_items)
 
         logger.info("report %s: detecting macro signals", report.id)
-        macro_signals = detect_macro_signals(news_items)
+        macro_signals = detect_macro_signals(macro_news_items(session, news_items))
         ctx.macro_signals = _serialize_macro(macro_signals)
 
         logger.info("report %s: detecting windowed price anomalies", report.id)

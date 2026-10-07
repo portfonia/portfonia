@@ -199,7 +199,7 @@ def test_670_08_weekend_priority_respects_weekend_quiet_cap(db_session: Session)
         patch.object(task, "DeepenRun") as worker,
         patch.object(task, "send_ops_alert", return_value=True),
     ):
-        worker.return_value.configure_mock(theme_counts={}, errors=[])
+        worker.return_value.configure_mock(theme_counts={}, theme_counts_development={}, errors=[])
         worker.return_value.details.return_value = {}
         task.intel_slot_task("post_close")
     assert seen == [["MOV", "N0", "N1", "N2", "N3", "N4"]]

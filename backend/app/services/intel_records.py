@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models.intel import IntelCollectionRun, IntelSlotRun, NewsInstrument
 from app.models.news import News
+from app.services.headline_cleaning import MacroLabel, macro_label
 from app.services.news_fetcher import NewsItem, _strip_html
 
 
@@ -120,6 +121,17 @@ def link_related(
             .returning(NewsInstrument.id)
         ).all()
     )
+
+
+def macro_labels_for_items(session: Session, items: list[NewsItem]) -> dict[str, MacroLabel]:
+    """Read valid pool ranking labels by headline hash; holding paths do not use them."""
+    return {
+        row.url_hash: label
+        for row in session.scalars(
+            select(News).where(News.url_hash.in_([i.url_hash for i in items]))
+        )
+        if (label := macro_label(row.record)) is not None
+    }
 
 
 def headline_from_row(row: News) -> NewsItem:

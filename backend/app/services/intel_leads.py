@@ -16,7 +16,7 @@ from app.core.timezones import ET
 from app.models.intel import NewsInstrument
 from app.models.news import News
 from app.models.paid_intel import IntelArticle
-from app.services.headline_cleaning import MacroLabel
+from app.services.headline_cleaning import MacroLabel, load_cleaning_config, near_duplicate_title
 from app.services.instrument_news_sources import CollectedItem
 from app.services.instrument_profiles import match_instruments
 from app.services.intel_deepen_config import DeepenConfig
@@ -173,13 +173,14 @@ def select_leads(
     )
     out: list[Lead] = []
     domains = set()
-    events: set[str] = set()
+    events: set[tuple[str | None, str]] = set()
+    threshold = load_cleaning_config().threshold if unit.kind == "macro" else 0.0
     if unit.kind == "macro":
         # Reused URLs claim their current-call event before any new lead is picked.
         for item in candidates:
             label = ranked.get(id(item))
             if label and url_key(item.url) in (macro_selected_keys or set()):
-                events.add(label["event"])
+                events.add((label.get("label_call"), label["event"]))
     for item in candidates:
         label = ranked.get(id(item))
         url = resolve_redirect(item.url) if item.url_kind == "finnhub_redirect" else item.url
@@ -191,7 +192,13 @@ def select_leads(
                     Lead(url, item.title, item.published_at, item.news_id, label)
                 )
             continue
-        if len(out) >= limit or (label and label["event"] in events):
+        if len(out) >= limit or (label and (label.get("label_call"), label["event"]) in events):
+            continue
+        if unit.kind == "macro" and any(
+            url_key(prior.url) == url_key(url)
+            or near_duplicate_title(prior.title, item.title, threshold)
+            for prior in out
+        ):
             continue
         if accepted_recently(session, url, cfg, now):
             continue
@@ -200,7 +207,7 @@ def select_leads(
             continue
         domains.add(host)
         if label:
-            events.add(label["event"])
+            events.add((label.get("label_call"), label["event"]))
         out.append(Lead(url, item.title, item.published_at, item.news_id, label))
         if len(out) >= limit and unit.kind != "macro":
             break

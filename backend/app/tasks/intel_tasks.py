@@ -178,6 +178,7 @@ def intel_slot_task(slot: str) -> dict[str, str]:
                             "fresh_counts": {i: s.fresh for i, s in signals.items() if s.fresh > 0},
                             "universe": [e.identifier for e in universe],
                             "theme_counts": deepen.theme_counts,
+                            "theme_counts_development": deepen.theme_counts_development,
                             "deepening": deepen.details(),
                         }
                     )

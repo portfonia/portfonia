@@ -136,6 +136,7 @@ def build_batch_report(
     markets: dict[str, Counter[str]] = {}
     cleaning: Counter[str] = Counter()
     classifier: Counter[str] = Counter()
+    macro_classifier: Counter[str] = Counter()
     samples: dict[str, list[str]] = {}
     unreached: dict[str, list[str]] = {}
     free_errors: list[str] = []
@@ -146,6 +147,9 @@ def build_batch_report(
         if run.status == "failed":
             severity = "WARNING"
         if run.kind == "rss":
+            macro_classifier.update(
+                {k: number(v) for k, v in obj(run.stats.get("macro_classification")).items()}
+            )
             feeds = obj(run.stats.get("feeds"))
             rss_feeds += len(feeds)
             rss_items += int(sum(number(obj(v).get("items")) for v in feeds.values()))
@@ -203,6 +207,14 @@ def build_batch_report(
         f"  RSS feeds ({rss_feeds}) ...... {rss_items:,}, "
         + (f"{rss_errors} errors" if rss_errors else "no errors")
     )
+    if macro_classifier:
+        lines.append(
+            f"Macro pool review: {macro_classifier['candidates']:g} candidates, "
+            f"{macro_classifier['labeled']:g} labeled in {macro_classifier['calls']:g} calls, "
+            f"{macro_classifier['failed_calls']:g} failed calls, cost ${macro_classifier['cost_usd']:.6f}; "
+            f"{macro_classifier['development']:g} development, {macro_classifier['commentary']:g} commentary, "
+            f"{macro_classifier['off_topic']:g} off-topic."
+        )
     deep = obj(slot.details.get("deepening"))
     for metric in obj(deep.get("metrics")).values():
         filtered = obj(obj(metric).get("search_filtered"))
