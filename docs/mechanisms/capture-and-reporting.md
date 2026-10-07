@@ -1110,6 +1110,26 @@ layer** (per-user, incremental).
   backfill, preserving #30 late-ingest protection. `load_news_window` itself
   uses the shared 48-hour late-ingestion lower bound (#639); see the news
   dedup mechanism.
+- **Close availability and multi-lot anomalies (issue #686)**:
+  On an ordinary price upsert, OHLCV, last and source still update. If the
+  existing close is usable, `captured_at` stays unchanged; if it is NULL,
+  non-positive or NaN (`_sql_close_unusable`), the replacement's capture
+  time is stored. The guarded fallback retains its insert-or-fill-unusable
+  behavior and uses the same replacement-time semantics. No migration or
+  historical timestamp repair is performed.
+  Window queries remain unchanged: only a close with `trade_date` equal to
+  the ET window start date uses `captured_at` to decide membership. Captured
+  at/before the start means baseline; captured after the start means
+  in-window, preserving premarket runs. Earlier dates remain baseline
+  candidates and later dates through the end date are in-window by date.
+  Thus a usable Monday close first captured at 16:00 ET remains the baseline
+  for Tuesday's Monday 17:00 to Tuesday 17:00 window after re-capture; with
+  Monday 100 and Tuesday 107, the window has one trading day and a 7% net move.
+  `select_user_anomalies` emits one standalone anomaly per identifier, using
+  the first qualifying holding row in book order for its name and asset
+  class. Themed holdings retain every lot as a constituent and keep their
+  existing merge weights, thresholds and rolling rules. Past reports are
+  not regenerated.
 - **Cadence (issues #191/#650, per-user `users.report_cadence`)**:
   `_REPORT_CADENCES` (`app/tasks/__init__.py`) owns cadence, session node and
   cron definitions; `_REPORT_BATCHES` owns Beat dispatch. One

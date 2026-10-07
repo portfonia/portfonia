@@ -683,6 +683,7 @@ def select_user_anomalies(
     rolling = load_intel_deepen_config().thresholds
     theme_buckets: dict[str, list[tuple[Holding, PriceAnomaly]]] = {}
     standalone: list[PriceAnomaly] = []
+    seen_standalone: set[str] = set()
 
     for h in holdings:
         if h.pricing_mode != "auto":
@@ -763,6 +764,9 @@ def select_user_anomalies(
         if theme_row is not None:
             theme_buckets.setdefault(theme_row.theme, []).append((h, anomaly))
         else:
+            if identifier in seen_standalone:
+                continue
+            seen_standalone.add(identifier)
             standalone.append(anomaly)
 
     theme_anomalies: list[PriceAnomaly] = []

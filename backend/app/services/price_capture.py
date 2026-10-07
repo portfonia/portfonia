@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Literal, cast
 
 import httpx
-from sqlalchemy import and_, func, literal, or_, select
+from sqlalchemy import and_, case, func, literal, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
@@ -108,8 +108,14 @@ def _upsert(session: Session, rows: list[dict[str, object]]) -> int:
 def _upsert_chunk(session: Session, rows: list[dict[str, object]]) -> int:
     base = pg_insert(PriceSnapshot).values(rows)
     update_cols = {
-        c: base.excluded[c]
-        for c in ("open", "high", "low", "close", "last", "volume", "source", "captured_at")
+        **{
+            c: base.excluded[c]
+            for c in ("open", "high", "low", "close", "last", "volume", "source")
+        },
+        "captured_at": case(
+            (_sql_close_unusable(), base.excluded.captured_at),
+            else_=PriceSnapshot.captured_at,
+        ),
     }
     stmt = base.on_conflict_do_update(
         constraint="uq_price_snapshots_key", set_=update_cols
