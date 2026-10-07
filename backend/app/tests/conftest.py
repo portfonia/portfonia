@@ -143,6 +143,7 @@ _EXTERNAL_NOTIFY_MODULES = (
     "app.routers.auth",
     "app.services.report_generator",
     "app.services.price_capture",
+    "app.services.market_sessions",
     "app.tasks.report_tasks",
     "app.tasks.capture_tasks",
     "app.tasks.backup_tasks",

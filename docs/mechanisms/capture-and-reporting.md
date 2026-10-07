@@ -1117,6 +1117,20 @@ layer** (per-user, incremental).
   the baseline is exactly the last session closing at/before the start.
   Unsupported markets and dates outside loaded calendar coverage are
   unavailable, never approximated with weekdays.
+  `exchange_calendars` does not update itself. XSHG's holidays are
+  precomputed per year: the pinned 4.13.2 release covers through 2026-12-31,
+  while the other mapped calendars normally load through about one year
+  ahead. New China holiday coverage requires a package release, a pin bump
+  and redeployment each year. An early-January gap can occur even with an
+  immediate bump: the SSE announced 2026 holidays on 2025-12-22, and 4.12
+  shipped that coverage on 2026-01-08.
+  A mapped calendar evaluated outside coverage, or within 30 days of its
+  last session, emits one WARNING and ops alert per calendar per process.
+  The alert key is `calendar-coverage-{calendar}-{last_session}` and the
+  alert names the affected market, coverage end, unavailable price outputs
+  and required bump/redeploy action. Unmapped markets remain silent;
+  out-of-coverage behavior remains unavailable. There is no date-dependent
+  pytest guard requiring a package release before it exists.
   Global moves are keyed by `(identifier, declared holding market)` and read
   only that market's snapshots. A missing exact baseline means no move;
   an earlier stored close is never substituted. The latest stored window

@@ -116,7 +116,7 @@ def test_639_11_single_day_keeps_priority_over_five_day(db_session: Session) -> 
 @pytest.mark.parametrize(
     "case",
     [
-        regression.test_detect_window_anomalies_flags_move_over_threshold,
+        regression.test_missing_sessions_do_not_turn_window_net_into_single_day_anomaly,
         regression.test_single_day_trigger_catches_violent_session,
         regression.test_cumulative_threshold_scales_with_trading_days,
         regression.test_detect_window_anomalies_single_user_golden_fields,

@@ -405,7 +405,9 @@ def test_mark_news_surfaced_noop_on_empty_list(db_session: Session) -> None:
 # --- anomalies from snapshots ------------------------------------------------
 
 
-def test_detect_window_anomalies_flags_move_over_threshold(db_session: Session) -> None:
+def test_missing_sessions_do_not_turn_window_net_into_single_day_anomaly(
+    db_session: Session,
+) -> None:
     db_session.add(
         Holding(
             market="US",
@@ -680,7 +682,7 @@ def test_trading_days_same_day_window_excludes_stale_capture(db_session: Session
 # --- L0 split: compute_global_moves / select_user_anomalies (issue #128 A1) --
 
 
-def _hk_holding(user_id: uuid.UUID, name: str, ticker: str, asset_class: str) -> Holding:
+def _user_stock(user_id: uuid.UUID, name: str, ticker: str, asset_class: str) -> Holding:
     return Holding(
         market="US",
         user_id=user_id,
@@ -693,6 +695,12 @@ def _hk_holding(user_id: uuid.UUID, name: str, ticker: str, asset_class: str) ->
     )
 
 
+def _hk_holding(user_id: uuid.UUID, name: str, ticker: str, asset_class: str) -> Holding:
+    holding = _user_stock(user_id, name, ticker, asset_class)
+    holding.market = "HK"
+    return holding
+
+
 def test_select_user_anomalies_threshold_differs_by_user_asset_class(db_session: Session) -> None:
     """The whole point of keeping threshold judgment per-user (design doc
     §3.3): the SAME identifier's SAME global move can clear one user's
@@ -702,8 +710,8 @@ def test_select_user_anomalies_threshold_differs_by_user_asset_class(db_session:
     day >= 5% clears STOCK's cap but not EQUITY_US_TECH's."""
     db_session.add_all(
         [
-            _hk_holding(_USER, "Apple", "AAPL", "STOCK"),
-            _hk_holding(_USER_B, "Apple", "AAPL", "EQUITY_US_TECH"),
+            _user_stock(_USER, "Apple", "AAPL", "STOCK"),
+            _user_stock(_USER_B, "Apple", "AAPL", "EQUITY_US_TECH"),
         ]
     )
     start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
@@ -734,7 +742,7 @@ def test_select_user_anomalies_leverage_widens_cumulative_threshold(db_session: 
     test_select_user_anomalies_threshold_differs_by_user_asset_class (net
     ~+12.5%, clears STOCK's un-leveraged 10% cap) but with a 2x leverage_map
     entry — cap widens to 20%, so the same move no longer clears it."""
-    db_session.add(_hk_holding(_USER, "MU Bull 2X", "MUU", "STOCK"))
+    db_session.add(_user_stock(_USER, "MU Bull 2X", "MUU", "STOCK"))
     start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
@@ -767,7 +775,7 @@ def test_select_user_anomalies_leverage_widens_single_day_threshold(db_session: 
     """The per_day trigger widens by the same multiple, not just the
     cumulative cap — a leveraged product's daily move that would trip the
     un-leveraged per_day (5%) must not fire once widened (2x -> 10%)."""
-    db_session.add(_hk_holding(_USER, "MU Bull 2X", "MUU", "STOCK"))
+    db_session.add(_user_stock(_USER, "MU Bull 2X", "MUU", "STOCK"))
     start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
@@ -797,7 +805,7 @@ def test_detect_window_anomalies_reads_leverage_override_from_db(db_session: Ses
     """detect_window_anomalies must load ticker_leverage_overrides itself
     (not just accept a leverage_map param) — the full DB-backed path a real
     report run takes."""
-    db_session.add(_hk_holding(_USER, "MU Bull 2X", "MUU", "STOCK"))
+    db_session.add(_user_stock(_USER, "MU Bull 2X", "MUU", "STOCK"))
     db_session.add(
         TickerLeverageOverride(
             ticker="MUU",
@@ -828,8 +836,8 @@ def test_compute_global_moves_computes_shared_identifier_once(db_session: Sessio
     cause its price series to be fetched/computed twice."""
     db_session.add_all(
         [
-            _hk_holding(_USER, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
-            _hk_holding(_USER_B, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
+            _user_stock(_USER, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
+            _user_stock(_USER_B, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
         ]
     )
     start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
@@ -863,18 +871,16 @@ def test_compute_global_moves_normalizes_known_collision_ticker(db_session: Sess
     key."""
     db_session.add(_hk_holding(_USER, "Tencent", "700.HK", "STOCK"))
     start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
-    db_session.add_all(
-        [
-            _close_at("0700.HK", date(2026, 6, 2), 58.0, start),
-            _close("0700.HK", date(2026, 6, 3), 59.0),
-        ]
-    )
+    baseline = _close_at("0700.HK", date(2026, 6, 2), 58.0, start)
+    latest = _close("0700.HK", date(2026, 6, 3), 59.0)
+    baseline.market = latest.market = "HK"
+    db_session.add_all([baseline, latest])
     db_session.flush()
     end = datetime(2026, 6, 3, 20, 30, tzinfo=UTC)
 
     moves, _ = compute_global_moves(db_session, start, end)
 
-    assert set(moves.keys()) == {("0700.HK", "US")}
+    assert set(moves.keys()) == {("0700.HK", "HK")}
 
 
 def test_select_user_anomalies_no_cross_user_leakage(db_session: Session) -> None:
@@ -884,8 +890,8 @@ def test_select_user_anomalies_no_cross_user_leakage(db_session: Session) -> Non
     checkpoint exists to fix)."""
     db_session.add_all(
         [
-            _hk_holding(_USER, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
-            _hk_holding(_USER_B, "Apple", "AAPL", "STOCK"),
+            _user_stock(_USER, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
+            _user_stock(_USER_B, "Apple", "AAPL", "STOCK"),
         ]
     )
     start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
@@ -926,7 +932,7 @@ def test_select_user_anomalies_skips_manual_pricing_mode(db_session: Session) ->
     happens to be in the shared `moves` dict (e.g. because another user
     auto-prices the same identifier) — belt-and-suspenders alongside
     global_identifier_universe already excluding manual holdings."""
-    manual = _hk_holding(_USER, "NVIDIA (manual)", "NVDA", "EQUITY_US_TECH")
+    manual = _user_stock(_USER, "NVIDIA (manual)", "NVDA", "EQUITY_US_TECH")
     manual.pricing_mode = "manual"
     db_session.add(manual)
     start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
@@ -955,7 +961,7 @@ def test_select_user_anomalies_matches_mixed_case_ticker_to_global_move(
     case normalization — must still match its own globally-computed move,
     not silently miss it because select_user_anomalies looked up with a
     different casing."""
-    db_session.add(_hk_holding(_USER, "Apple", "aapl", "STOCK"))
+    db_session.add(_user_stock(_USER, "Apple", "aapl", "STOCK"))
     start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
@@ -979,8 +985,8 @@ def test_detect_window_anomalies_cache_shares_compute_global_moves_across_calls(
     per-identifier compute cost from scaling with user count."""
     db_session.add_all(
         [
-            _hk_holding(_USER, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
-            _hk_holding(_USER_B, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
+            _user_stock(_USER, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
+            _user_stock(_USER_B, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
         ]
     )
     start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
@@ -1009,7 +1015,7 @@ def test_detect_window_anomalies_without_cache_recomputes_each_call(db_session: 
     """Omitting moves_cache (every pre-A1 call site) preserves the old
     per-call behavior — no accidental cross-call state leakage between
     independent single-report generations."""
-    db_session.add(_hk_holding(_USER, "NVIDIA", "NVDA", "EQUITY_US_TECH"))
+    db_session.add(_user_stock(_USER, "NVIDIA", "NVDA", "EQUITY_US_TECH"))
     start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
@@ -1368,3 +1374,65 @@ def test_watermark_requires_now_with_history(db_session: Session) -> None:
     db_session.flush()
     with pytest.raises(TypeError, match="now"):
         user_watermark(db_session, _USER, "incremental")  # type: ignore[call-arg]  # Required argument regression.
+
+
+def test_xhkg_window_uses_hong_kong_close_time(db_session: Session) -> None:
+    db_session.add(_hk_holding(_USER, "Tencent", "0700.HK", "STOCK"))
+    for day, value in [(5, "100"), (6, "107")]:
+        db_session.add(
+            PriceSnapshot(
+                ticker="0700.HK",
+                market="HK",
+                session_node="close",
+                trade_date=date(2026, 10, day),
+                close=Decimal(value),
+            )
+        )
+    db_session.flush()
+    # XHKG closes at 16:00 HKT / 08:00 UTC. XNYS has not yet closed.
+    start = datetime(2026, 10, 6, 7, 59, tzinfo=UTC)
+    before, before_days = compute_global_moves(
+        db_session, start, datetime(2026, 10, 6, 7, 59, 59, tzinfo=UTC)
+    )
+    assert before == {}
+    assert before_days == 0
+    moves, days = compute_global_moves(db_session, start, datetime(2026, 10, 6, 8, tzinfo=UTC))
+    assert days == 1
+    move = moves[("0700.HK", "HK")]
+    assert move.baseline_date == date(2026, 10, 5)
+    assert move.latest_date == date(2026, 10, 6)
+    assert move.net_pct == Decimal(".0700")
+
+
+def test_a_share_fund_nav_uses_real_xshg_sessions(db_session: Session) -> None:
+    db_session.add(
+        Holding(
+            user_id=_USER,
+            name="Fund",
+            fund_code="110011",
+            market="A-Share",
+            pricing_mode="auto",
+            currency="CNY",
+            asset_class="EQUITY_CN",
+        )
+    )
+    for day, value in [(28, "1.00"), (29, "1.07")]:
+        db_session.add(
+            PriceSnapshot(
+                ticker="110011",
+                market="A-Share",
+                session_node="close",
+                trade_date=date(2026, 9, day),
+                close=Decimal(value),
+            )
+        )
+    db_session.flush()
+    moves, days = compute_global_moves(
+        db_session, datetime(2026, 9, 28, 17, tzinfo=ET), datetime(2026, 9, 29, 17, tzinfo=ET)
+    )
+    assert days == 1
+    move = moves[("110011", "A-Share")]
+    assert move.baseline_date == date(2026, 9, 28)
+    assert move.latest_date == date(2026, 9, 29)
+    assert move.net_pct == Decimal(".0700")
+    assert move.prev_close == Decimal("1.00")
