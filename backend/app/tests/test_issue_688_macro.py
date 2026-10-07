@@ -393,6 +393,7 @@ def test_all_commentary_off_topic_use_no_lead_slots(db_session: Session) -> None
 
 def test_g1_does_not_split_data_release_by_new_figure() -> None:
     assert "a new figure, party or stage is a distinct event" not in hc.MACRO_PROMPT
+    assert "Reports of the same event with no new material fact share a slug" in hc.MACRO_PROMPT
 
 
 def test_g2_reused_urls_do_not_consume_macro_cap(db_session: Session) -> None:
@@ -429,3 +430,94 @@ def test_g2_reused_urls_do_not_consume_macro_cap(db_session: Session) -> None:
     )
     assert [lead.title for lead in selected] == [x.title for x in items[1:4]]
     assert [lead.title for lead in reused] == [items[0].title, items[4].title]
+
+
+@pytest.mark.parametrize("reused_first", [True, False])
+def test_g3_reused_event_claim_precedes_new_extraction(
+    db_session: Session, reused_first: bool
+) -> None:
+    from app.services.intel_leads import url_key
+
+    reused_title = "Record imports push US trade balance deep into the red in August"
+    sibling_title = TRADE
+    cfg = load_intel_deepen_config()
+    assert not hc.near_duplicate_title(
+        reused_title, sibling_title, hc.load_cleaning_config().threshold
+    )
+    reused_item = CollectedItem(
+        reused_title,
+        NOW if reused_first else NOW - timedelta(minutes=1),
+        "https://first.example/trade",
+    )
+    sibling = CollectedItem(
+        sibling_title,
+        NOW - timedelta(minutes=1) if reused_first else NOW,
+        "https://second.example/trade",
+    )
+    ranked: dict[int, hc.MacroLabel] = {
+        i: {"type": "development", "importance": 3, "event": "august-trade"} for i in range(2)
+    }
+    linked: list[Lead] = []
+    leads = select_leads(
+        db_session,
+        WorkUnit("macro", theme="trade"),
+        [reused_item, sibling],
+        [],
+        cfg,
+        NOW,
+        macro_labels=ranked,
+        macro_selected_keys={url_key(reused_item.url)},
+        linked_existing=linked,
+    )
+    assert [lead.url for lead in linked] == [reused_item.url]
+    assert leads == []
+
+    with (
+        patch.object(deepen, "get_settings", return_value=settings()),
+        patch.object(deepen, "SessionLocal", side_effect=lambda: factory(db_session)),
+        patch.object(
+            deepen,
+            "classify_macro",
+            side_effect=[
+                ({0: {"type": "development", "importance": 3, "event": "earlier-call"}}, 0.0, None),
+                (ranked, 0.0, None),
+            ],
+        ),
+        patch.object(deepen, "detect_macro_signals") as detect,
+    ):
+        w = deepen.DeepenRun(
+            db_session, slot(db_session), cfg, False, NOW, NOW - timedelta(days=1), [], {}
+        )
+        first = NewsItem(
+            "first", reused_item.title, reused_item.url, "fixture", reused_item.published_at, None
+        )
+        second = NewsItem(
+            "second", sibling.title, sibling.url, "fixture", sibling.published_at, None
+        )
+        w.pool_items = [first, second]
+        detect.return_value = MacroSignals(
+            [ThemeHit("trade", [], [first]), ThemeHit("economy", [], [first, second])], True, 2
+        )
+        with patch.object(
+            w,
+            "_call",
+            return_value=(
+                "tavily",
+                PaidResult(
+                    http_status=200,
+                    units=Decimal(1),
+                    cost_usd=Decimal(".008"),
+                    bodies={
+                        first.url: "Imports and exports changed the trade balance this month. " * 40
+                    },
+                ),
+            ),
+        ) as paid:
+            w.run_wave([WorkUnit("macro", theme="trade", providers=("tavily",))], {}, {})
+            w.run_wave([WorkUnit("macro", theme="economy", providers=("tavily",))], {}, {})
+        w.close()
+        assert paid.call_count == 1
+        articles = list(db_session.scalars(select(IntelArticle)))
+        assert len(articles) == 1 and articles[0].status == "accepted"
+        assert set(db_session.scalars(select(IntelArticleLink.theme))) == {"trade", "economy"}
+        assert next(o for o in w.outcomes if o["theme"] == "economy")["note"] == "linked_existing"

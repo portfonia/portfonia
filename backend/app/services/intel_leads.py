@@ -174,6 +174,12 @@ def select_leads(
     out: list[Lead] = []
     domains = set()
     events: set[str] = set()
+    if unit.kind == "macro":
+        # Reused URLs claim their current-call event before any new lead is picked.
+        for item in candidates:
+            label = ranked.get(id(item))
+            if label and url_key(item.url) in (macro_selected_keys or set()):
+                events.add(label["event"])
     for item in candidates:
         label = ranked.get(id(item))
         url = resolve_redirect(item.url) if item.url_kind == "finnhub_redirect" else item.url
