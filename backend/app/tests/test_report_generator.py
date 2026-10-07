@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.forward_event import ForwardEvent
+from app.models.holding import Holding
 from app.models.report import Report
 from app.services import report_generator as rg
 from app.services import section3_proportionality as s3p
@@ -2293,9 +2294,32 @@ def test_failed_retry_keeps_window_older_than_floor(db_session: Session) -> None
 
 
 def test_large_weight_holding_window_price_reaches_pass2_prompt(db_session: Session) -> None:
+    db_session.add_all(
+        [
+            Holding(
+                user_id=_USER,
+                name="UK AAPL",
+                ticker="AAPL",
+                market="UK",
+                position=0,
+                pricing_mode="auto",
+                currency="USD",
+            ),
+            Holding(
+                user_id=_USER,
+                name="US AAPL",
+                ticker="AAPL",
+                market="US",
+                position=1,
+                pricing_mode="auto",
+                currency="USD",
+            ),
+        ]
+    )
+    db_session.flush()
     aapl_move = HoldingMove(
         identifier="AAPL",
-        market="US",
+        market="UK",
         current_price=Decimal("101.22"),
         prev_price=Decimal("100.0"),
         net_pct=Decimal("0.0011"),
@@ -2324,7 +2348,7 @@ def test_large_weight_holding_window_price_reaches_pass2_prompt(db_session: Sess
         patch("app.services.report_generator.detect_window_anomalies", return_value=([], 2)),
         patch(
             "app.services.report_generator.resolve_global_moves",
-            return_value=({"AAPL": aapl_move}, 2),
+            return_value=({("AAPL", "UK"): aapl_move}, 2),
         ),
         patch("app.services.report_generator._openrouter_client", return_value=MagicMock()),
         patch("app.services.report_generator._call_llm", side_effect=_capture_pass2),

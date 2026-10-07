@@ -14,9 +14,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from itertools import pairwise
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -32,6 +31,7 @@ from app.services.asset_class_config import load_asset_class_config
 from app.services.instrument_symbols import InstrumentKey, intelligence_identifier
 from app.services.intel_deepen_config import load_intel_deepen_config
 from app.services.intel_records import headline_from_row
+from app.services.market_sessions import baseline_session, previous_sessions, sessions_closing_in
 from app.services.news_fetcher import LATE_INGEST_WINDOW, NewsItem
 from app.services.price_anomaly_detector import ConstituentMove, PriceAnomaly
 from app.services.ticker_leverage import load_leverage_map
@@ -265,101 +265,66 @@ def unmark_news_surfaced(session: Session, report_id: uuid.UUID) -> None:
 
 
 def _close_snapshot_before_window(
-    session: Session, ticker: str, start: datetime, start_date: date
+    session: Session, ticker: str, market: str | None, start: datetime
 ) -> PriceSnapshot | None:
-    """Most recent close strictly before the report window opens.
+    day = baseline_session(market, start)
+    return _stored_closes(session, ticker, market, [day]).get(day) if day else None
 
-    Normally this is the latest close with trade_date < start_date. But if
-    period_start falls BEFORE that day's market close (e.g. a premarket manual
-    run), start_date's own close is captured DURING the window, not before it
-    — _window_closes (below) pulls it into the window via the same
-    captured_at > start test, so it must not also double as the baseline here.
-    A trade_date == start_date close only counts as pre-window when it was
-    captured at/before period_start.
-    """
-    return session.execute(
-        select(PriceSnapshot)
-        .where(
+
+def _stored_closes(
+    session: Session, ticker: str, market: str | None, days: list[date]
+) -> dict[date, PriceSnapshot]:
+    if not days:
+        return {}
+    rows = session.scalars(
+        select(PriceSnapshot).where(
             PriceSnapshot.ticker == ticker,
+            PriceSnapshot.market == market,
             PriceSnapshot.session_node == "close",
             PriceSnapshot.close.is_not(None),
-            or_(
-                PriceSnapshot.trade_date < start_date,
-                and_(
-                    PriceSnapshot.trade_date == start_date,
-                    PriceSnapshot.captured_at <= start,
-                ),
-            ),
+            PriceSnapshot.trade_date.in_(days),
         )
-        .order_by(PriceSnapshot.trade_date.desc())
-        .limit(1)
-    ).scalar_one_or_none()
+    )
+    return {row.trade_date: row for row in rows}
 
 
 def _window_closes(
-    session: Session, ticker: str, start: datetime, end: datetime
+    session: Session, ticker: str, market: str | None, start: datetime, end: datetime
 ) -> list[PriceSnapshot]:
-    """Daily close snapshots captured within the report window, oldest first.
+    days = sessions_closing_in(market, start, end)
+    rows = _stored_closes(session, ticker, market, days)
+    return [rows[day] for day in days if day in rows]
 
-    A close on trade_date D is in-window if D is strictly after start_date and
-    on/before end_date (the normal multi-day case), OR D == start_date and the
-    close was captured AFTER period_start (period_start fell before that day's
-    market close — a premarket/intraday run — so the close happened during the
-    window, not before it). This single condition also covers the same-day
-    case (start_date == end_date), where the first clause is empty by
-    construction.
-    """
-    start_date = start.astimezone(ET).date()
-    end_date = end.astimezone(ET).date()
-    conditions = [
-        PriceSnapshot.ticker == ticker,
-        PriceSnapshot.session_node == "close",
-        PriceSnapshot.close.is_not(None),
-        or_(
-            and_(PriceSnapshot.trade_date > start_date, PriceSnapshot.trade_date <= end_date),
-            and_(PriceSnapshot.trade_date == start_date, PriceSnapshot.captured_at > start),
-        ),
-    ]
-    return list(
-        session.execute(
-            select(PriceSnapshot).where(*conditions).order_by(PriceSnapshot.trade_date.asc())
-        )
-        .scalars()
-        .all()
-    )
+
+def _universe_keys(session: Session) -> set[tuple[str, str | None]]:
+    return {
+        (identifier, h.market)
+        for identifier, holdings in global_identifier_universe(session).items()
+        for h in holdings
+    }
 
 
 def latest_window_close_date(session: Session, start: datetime, end: datetime) -> date | None:
-    """Most recent trade_date whose close was captured within the report window.
-
-    This is the real cutoff of the report's PRICE data — distinct from period_end
-    (the wall-clock cutoff). A premarket/intraday manual run has period_end this
-    morning but price data only through the prior session's close; stating that
-    explicitly (R-5) stops a reader assuming the report reflects intraday/premarket
-    moves it never had. Membership matches _window_closes / detect_window_anomalies.
-    """
-    start_date = start.astimezone(ET).date()
-    end_date = end.astimezone(ET).date()
-    return session.execute(
-        select(func.max(PriceSnapshot.trade_date)).where(
-            PriceSnapshot.session_node == "close",
-            PriceSnapshot.close.is_not(None),
-            or_(
-                and_(PriceSnapshot.trade_date > start_date, PriceSnapshot.trade_date <= end_date),
-                and_(PriceSnapshot.trade_date == start_date, PriceSnapshot.captured_at > start),
-            ),
-        )
-    ).scalar_one_or_none()
+    """Latest calendar window session with a stored in-scope close."""
+    days = [
+        row.trade_date
+        for identifier, market in _universe_keys(session)
+        for row in _window_closes(session, identifier, market, start, end)
+    ]
+    return max(days) if days else None
 
 
-def _after_hours_last(session: Session, ticker: str, on: date) -> Decimal | None:
-    snap = session.execute(
+def _after_hours_last(
+    session: Session, ticker: str, market: str | None, on: date
+) -> Decimal | None:
+    snap = session.scalar(
         select(PriceSnapshot).where(
             PriceSnapshot.ticker == ticker,
+            PriceSnapshot.market == market,
             PriceSnapshot.session_node == "after_close",
             PriceSnapshot.trade_date == on,
         )
-    ).scalar_one_or_none()
+    )
     return snap.last if snap else None
 
 
@@ -397,58 +362,50 @@ class HoldingMove:
 
 # Keyed by the exact (start, end) window a batch fan-out is generating over —
 # see detect_window_anomalies' `moves_cache` parameter.
-MovesCache = dict[tuple[datetime, datetime], tuple[dict[str, "HoldingMove"], int]]
+MovesCache = dict[
+    tuple[datetime, datetime], tuple[dict[tuple[str, str | None], "HoldingMove"], int]
+]
 
 
 def _compute_identifier_move(
-    session: Session, identifier: str, start: datetime, end: datetime, start_date: date
+    session: Session, identifier: str, market: str | None, start: datetime, end: datetime
 ) -> HoldingMove | None:
-    """Fetch + compute the window price move for one identifier; return None
-    when there's no usable baseline/series. No threshold judgment here (see
-    HoldingMove) — ported out of the old per-holding `_compute_holding_move`,
-    which mixed "fetch the price series" with "does it clear THIS holding's
-    threshold" and so recomputed the same identifier's series once per
-    holding row that carried it, once per user.
-    """
-    baseline = _close_snapshot_before_window(session, identifier, start, start_date)
-    series = _window_closes(session, identifier, start, end)
-    if baseline is None or baseline.close is None or not series:
+    baseline = _close_snapshot_before_window(session, identifier, market, start)
+    series = _window_closes(session, identifier, market, start, end)
+    if baseline is None or baseline.close is None or baseline.close == 0 or not series:
         return None
     latest = series[-1]
-    if latest.close is None or baseline.close == 0:
+    if latest.close is None:
         return None
-
-    path = [baseline, *series]
-    net_pct = ((latest.close - baseline.close) / baseline.close).quantize(_RATIO)
-
+    latest_close = latest.close
+    net_pct = (latest_close / baseline.close - 1).quantize(_RATIO)
+    path = {row.trade_date: row for row in [baseline, *series]}
     max_day_pct: Decimal | None = None
     max_day_date: date | None = None
-    for prev, cur in pairwise(path):
-        if prev.close is None or cur.close is None or prev.close == 0:
+    for cur in series:
+        previous = previous_sessions(market, cur.trade_date, 1)
+        prev = path.get(previous[0]) if previous else None
+        if prev is None or prev.close is None or prev.close == 0 or cur.close is None:
             continue
-        day_pct = ((cur.close - prev.close) / prev.close).quantize(_RATIO)
+        day_pct = (cur.close / prev.close - 1).quantize(_RATIO)
         if max_day_pct is None or abs(day_pct) > abs(max_day_pct):
-            max_day_pct = day_pct
-            max_day_date = cur.trade_date
+            max_day_pct, max_day_date = day_pct, cur.trade_date
+    preceding = previous_sessions(market, latest.trade_date, 5)
+    if not preceding:
+        preceding = previous_sessions(market, latest.trade_date, 3)
+    if not preceding:
+        preceding = previous_sessions(market, latest.trade_date, 1)
+    history = _stored_closes(session, identifier, market, preceding)
 
-    captured_closes = list(
-        session.scalars(
-            select(PriceSnapshot.close)
-            .where(
-                PriceSnapshot.ticker == identifier,
-                PriceSnapshot.session_node == "close",
-                PriceSnapshot.close.is_not(None),
-                PriceSnapshot.trade_date <= latest.trade_date,
-            )
-            .order_by(PriceSnapshot.trade_date.desc())
-            .limit(6)
-        )
-    )
-    closes = [close for close in captured_closes if close is not None]
-    d3_pct = (closes[0] / closes[3] - 1).quantize(_RATIO) if len(closes) >= 4 else None
-    d5_pct = (closes[0] / closes[5] - 1).quantize(_RATIO) if len(closes) >= 6 else None
+    def rolling(n: int) -> Decimal | None:
+        days = previous_sessions(market, latest.trade_date, n)
+        if not days or any(day not in history for day in days):
+            return None
+        close = history[days[0]].close
+        return (latest_close / close - 1).quantize(_RATIO) if close else None
 
-    prev_close = path[-2].close if len(path) >= 2 else None
+    previous = previous_sessions(market, latest.trade_date, 1)
+    prev_row = history.get(previous[0]) if previous else None
     return HoldingMove(
         identifier=identifier,
         market=latest.market,
@@ -459,14 +416,14 @@ def _compute_identifier_move(
         max_day_date=max_day_date,
         baseline_date=baseline.trade_date,
         latest_date=latest.trade_date,
-        prev_close=prev_close,
+        prev_close=prev_row.close if prev_row else None,
         day_open=latest.open,
         day_high=latest.high,
         day_low=latest.low,
         day_close=latest.close,
-        after_hours=_after_hours_last(session, identifier, latest.trade_date),
-        d3_pct=d3_pct,
-        d5_pct=d5_pct,
+        after_hours=_after_hours_last(session, identifier, market, latest.trade_date),
+        d3_pct=rolling(3),
+        d5_pct=rolling(5),
     )
 
 
@@ -566,30 +523,8 @@ def _merge_theme_anomalies(
     )
 
 
-def _count_trading_days(session: Session, start: datetime, start_date: date, end: datetime) -> int:
-    """Distinct trade_dates with a captured close inside the window — shared by
-    compute_global_moves and (via the wrapper) every caller of the old
-    detect_window_anomalies signature."""
-    end_date = end.astimezone(ET).date()
-    return int(
-        session.execute(
-            select(func.count(func.distinct(PriceSnapshot.trade_date))).where(
-                PriceSnapshot.session_node == "close",
-                PriceSnapshot.close.is_not(None),
-                or_(
-                    and_(
-                        PriceSnapshot.trade_date > start_date,
-                        PriceSnapshot.trade_date <= end_date,
-                    ),
-                    and_(
-                        PriceSnapshot.trade_date == start_date,
-                        PriceSnapshot.captured_at > start,
-                    ),
-                ),
-            )
-        ).scalar_one()
-        or 0
-    )
+def _count_trading_days(keys: set[tuple[str, str | None]], start: datetime, end: datetime) -> int:
+    return len({day for _, market in keys for day in sessions_closing_in(market, start, end)})
 
 
 def _load_theme_map(session: Session) -> dict[str, TickerTheme]:
@@ -599,7 +534,7 @@ def _load_theme_map(session: Session) -> dict[str, TickerTheme]:
 
 def compute_global_moves(
     session: Session, start: datetime, end: datetime
-) -> tuple[dict[str, HoldingMove], int]:
+) -> tuple[dict[tuple[str, str | None], HoldingMove], int]:
     """Every identifier across ALL users' auto-priced holdings (design doc
     §1.3/§3.3, issue #128 A1), window price move computed exactly once each.
 
@@ -611,17 +546,15 @@ def compute_global_moves(
     for the same query N times).
 
     No threshold judgment happens here — see `select_user_anomalies`.
-    Returns (identifier(upper) -> HoldingMove, trading_days_in_window).
+    Returns ((identifier, declared market) -> HoldingMove, calendar trading days).
     """
-    universe = global_identifier_universe(session)
-    start_date = start.astimezone(ET).date()
-    trading_days = _count_trading_days(session, start, start_date, end)
-
-    moves: dict[str, HoldingMove] = {}
-    for identifier in universe:
-        move = _compute_identifier_move(session, identifier, start, end, start_date)
+    keys = _universe_keys(session)
+    trading_days = _count_trading_days(keys, start, end)
+    moves: dict[tuple[str, str | None], HoldingMove] = {}
+    for identifier, market in keys:
+        move = _compute_identifier_move(session, identifier, market, start, end)
         if move is not None:
-            moves[identifier] = move
+            moves[(identifier, market)] = move
     return moves, trading_days
 
 
@@ -630,7 +563,7 @@ def resolve_global_moves(
     start: datetime,
     end: datetime,
     moves_cache: MovesCache | None = None,
-) -> tuple[dict[str, HoldingMove], int]:
+) -> tuple[dict[tuple[str, str | None], HoldingMove], int]:
     """`compute_global_moves` behind the batch-shared `moves_cache` — the one
     place the cache-or-compute decision lives.
 
@@ -647,8 +580,25 @@ def resolve_global_moves(
     return cached
 
 
+def preferred_identifier_holdings(holdings: Sequence[Holding]) -> dict[str, Holding]:
+    """Lowest-position row per identifier; NULL last, iteration order breaks ties."""
+    result: dict[str, Holding] = {}
+    for h in holdings:
+        raw = h.ticker or h.fund_code
+        if not raw:
+            continue
+        identifier = intelligence_identifier(InstrumentKey("ticker", raw))
+        existing = result.get(identifier)
+        if existing is None or (h.position is None, h.position or 0) < (
+            existing.position is None,
+            existing.position or 0,
+        ):
+            result[identifier] = h
+    return result
+
+
 def select_user_anomalies(
-    moves: dict[str, HoldingMove],
+    moves: dict[tuple[str, str | None], HoldingMove],
     holdings: Sequence[Holding],
     trading_days: int,
     theme_map: dict[str, TickerTheme],
@@ -682,8 +632,8 @@ def select_user_anomalies(
     config = load_asset_class_config()
     rolling = load_intel_deepen_config().thresholds
     theme_buckets: dict[str, list[tuple[Holding, PriceAnomaly]]] = {}
-    standalone: list[PriceAnomaly] = []
-    seen_standalone: set[str] = set()
+    preferred = preferred_identifier_holdings(holdings)
+    standalone_by_id: dict[str, tuple[Holding, PriceAnomaly]] = {}
 
     for h in holdings:
         if h.pricing_mode != "auto":
@@ -698,7 +648,7 @@ def select_user_anomalies(
         identifier = intelligence_identifier(InstrumentKey("ticker", raw)) if raw else None
         if not identifier:
             continue
-        move = moves.get(identifier)
+        move = moves.get((identifier, preferred[identifier].market))
         if move is None:
             continue
         thresholds = config.by_class.get(h.asset_class)
@@ -764,10 +714,12 @@ def select_user_anomalies(
         if theme_row is not None:
             theme_buckets.setdefault(theme_row.theme, []).append((h, anomaly))
         else:
-            if identifier in seen_standalone:
-                continue
-            seen_standalone.add(identifier)
-            standalone.append(anomaly)
+            existing = standalone_by_id.get(identifier)
+            if existing is None or (h.position is None, h.position or 0) < (
+                existing[0].position is None,
+                existing[0].position or 0,
+            ):
+                standalone_by_id[identifier] = (h, anomaly)
 
     theme_anomalies: list[PriceAnomaly] = []
     for members in theme_buckets.values():
@@ -776,7 +728,7 @@ def select_user_anomalies(
         theme_row = theme_map[theme_key]
         theme_anomalies.append(_merge_theme_anomalies(members, theme_row))
 
-    anomalies = theme_anomalies + standalone
+    anomalies = theme_anomalies + [anomaly for _, anomaly in standalone_by_id.values()]
     anomalies.sort(
         key=lambda a: max(
             abs(a.window_net_pct or a.pct_change),

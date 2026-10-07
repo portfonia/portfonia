@@ -408,6 +408,7 @@ def test_mark_news_surfaced_noop_on_empty_list(db_session: Session) -> None:
 def test_detect_window_anomalies_flags_move_over_threshold(db_session: Session) -> None:
     db_session.add(
         Holding(
+            market="US",
             user_id=_USER,
             name="Apple",
             ticker="AAPL",
@@ -416,10 +417,12 @@ def test_detect_window_anomalies_flags_move_over_threshold(db_session: Session) 
             asset_type="stock",
         )
     )
-    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
-            _close_at("AAPL", date(2026, 6, 2), 100.0, start),  # baseline (captured at start)
+            _close_at(
+                "AAPL", date(2026, 6, 2), 100.0, start
+            ),  # baseline at the official session close
             _close("AAPL", date(2026, 6, 5), 105.0),  # +5% > 3% stock threshold
         ]
     )
@@ -427,22 +430,25 @@ def test_detect_window_anomalies_flags_move_over_threshold(db_session: Session) 
 
     anomalies, trading_days = detect_window_anomalies(
         db_session,
-        datetime(2026, 6, 2, 16, 0, tzinfo=UTC),
+        datetime(2026, 6, 2, 20, 0, tzinfo=UTC),
         datetime(2026, 6, 5, 20, 30, tzinfo=UTC),
         _USER,
     )
-    assert len(anomalies) == 1
-    a = anomalies[0]
-    assert a.identifier == "AAPL"
-    assert a.prev_price == Decimal("100.0")
-    assert a.current_price == Decimal("105.0")
-    assert trading_days == 1  # one close trade_date inside (start_date, end_date]
+    assert anomalies == []  # The missing middle sessions cannot make a single-day move.
+    moves, _ = compute_global_moves(db_session, start, datetime(2026, 6, 5, 20, 30, tzinfo=UTC))
+    move = moves[("AAPL", "US")]
+    assert move.prev_price == Decimal("100.0")
+    assert move.current_price == Decimal("105.0")
+    assert move.net_pct == Decimal(".0500")
+    assert move.max_day_pct is None
+    assert trading_days == 3
 
 
 def test_detect_window_anomalies_ignores_small_move_and_new_position(db_session: Session) -> None:
     db_session.add_all(
         [
             Holding(
+                market="US",
                 user_id=_USER,
                 name="Apple",
                 ticker="AAPL",
@@ -451,6 +457,7 @@ def test_detect_window_anomalies_ignores_small_move_and_new_position(db_session:
                 asset_type="stock",
             ),
             Holding(
+                market="US",
                 user_id=_USER,
                 name="NewCo",
                 ticker="NEW",
@@ -462,7 +469,7 @@ def test_detect_window_anomalies_ignores_small_move_and_new_position(db_session:
     )
     db_session.add_all(
         [
-            _close_at("AAPL", date(2026, 6, 2), 100.0, datetime(2026, 6, 2, 16, 0, tzinfo=UTC)),
+            _close_at("AAPL", date(2026, 6, 2), 100.0, datetime(2026, 6, 2, 20, 0, tzinfo=UTC)),
             _close("AAPL", date(2026, 6, 5), 101.0),  # +1% < 3% → not flagged
             _close("NEW", date(2026, 6, 5), 50.0),  # no baseline before start → skipped
         ]
@@ -471,7 +478,7 @@ def test_detect_window_anomalies_ignores_small_move_and_new_position(db_session:
 
     anomalies, _ = detect_window_anomalies(
         db_session,
-        datetime(2026, 6, 2, 16, 0, tzinfo=UTC),
+        datetime(2026, 6, 2, 20, 0, tzinfo=UTC),
         datetime(2026, 6, 5, 20, 30, tzinfo=UTC),
         _USER,
     )
@@ -480,6 +487,7 @@ def test_detect_window_anomalies_ignores_small_move_and_new_position(db_session:
 
 def _stock(name: str, ticker: str) -> Holding:
     return Holding(
+        market="US",
         user_id=_USER,
         name=name,
         ticker=ticker,
@@ -495,7 +503,7 @@ def test_cumulative_threshold_scales_with_trading_days(db_session: Session) -> N
     with each day < 3%, clears neither trigger; BIGM's one +10% day fires the
     single-day trigger."""
     db_session.add_all([_stock("Apple", "AAPL"), _stock("BigMove", "BIGM")])
-    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
             _close_at("AAPL", date(2026, 6, 2), 100.0, start),  # baseline
@@ -510,7 +518,7 @@ def test_cumulative_threshold_scales_with_trading_days(db_session: Session) -> N
 
     anomalies, trading_days = detect_window_anomalies(
         db_session,
-        datetime(2026, 6, 2, 16, 0, tzinfo=UTC),
+        datetime(2026, 6, 2, 20, 0, tzinfo=UTC),
         datetime(2026, 6, 5, 20, 30, tzinfo=UTC),
         _USER,
     )
@@ -525,7 +533,7 @@ def test_single_day_trigger_catches_violent_session(db_session: Session) -> None
     db_session.add_all(
         [
             _close_at(
-                "WHIP", date(2026, 6, 1), 100.0, datetime(2026, 6, 1, 16, 0, tzinfo=UTC)
+                "WHIP", date(2026, 6, 1), 100.0, datetime(2026, 6, 1, 20, 0, tzinfo=UTC)
             ),  # baseline
             _close("WHIP", date(2026, 6, 2), 100.0),
             _close("WHIP", date(2026, 6, 3), 100.0),
@@ -537,7 +545,7 @@ def test_single_day_trigger_catches_violent_session(db_session: Session) -> None
 
     anomalies, _ = detect_window_anomalies(
         db_session,
-        datetime(2026, 6, 1, 16, 0, tzinfo=UTC),
+        datetime(2026, 6, 1, 20, 0, tzinfo=UTC),
         datetime(2026, 6, 5, 20, 30, tzinfo=UTC),
         _USER,
     )
@@ -554,7 +562,7 @@ def test_cumulative_threshold_capped_at_ten_percent(db_session: Session) -> None
     cap: BIG (+~10.5% net) flags, MID (+7% net) does not. Neither has a single day
     beyond the per-day threshold, so this isolates the cumulative cap."""
     db_session.add_all([_stock("Big", "BIG"), _stock("Mid", "MID")])
-    start = datetime(2026, 6, 1, 16, 0, tzinfo=UTC)
+    start = datetime(2026, 6, 1, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
             _close_at("BIG", date(2026, 6, 1), 100.0, start),  # baseline
@@ -575,7 +583,7 @@ def test_cumulative_threshold_capped_at_ten_percent(db_session: Session) -> None
 
     anomalies, trading_days = detect_window_anomalies(
         db_session,
-        datetime(2026, 6, 1, 16, 0, tzinfo=UTC),
+        datetime(2026, 6, 1, 20, 0, tzinfo=UTC),
         datetime(2026, 6, 8, 20, 30, tzinfo=UTC),
         _USER,
     )
@@ -589,19 +597,15 @@ def test_cumulative_threshold_capped_at_ten_percent(db_session: Session) -> None
 
 
 def test_premarket_window_includes_start_date_close_as_anomaly(db_session: Session) -> None:
-    """A multi-day window whose start falls BEFORE that day's market close (a
-    premarket manual run, e.g. period_start = 08:13 ET on day D) must treat day
-    D's close — captured at 16:00 ET, after period_start — as the first
-    in-window trading day, not as the baseline. Previously `trade_date >
-    start_date` excluded D entirely, the baseline absorbed D's close, and a
-    violent move on D (e.g. +11%) went undetected."""
+    """Before Tuesday's official close, Monday is the exact baseline session;
+    Tuesday's official close is in-window regardless of capture time."""
     db_session.add(_stock("Intel", "INTC"))
     start = datetime(2026, 6, 9, 8, 13, tzinfo=ET)
     end = datetime(2026, 6, 10, 8, 38, tzinfo=ET)
     db_session.add_all(
         [
             # Last close before the window opens (captured well before start).
-            _close_at("INTC", date(2026, 6, 6), 100.0, datetime(2026, 6, 6, 16, 0, tzinfo=ET)),
+            _close_at("INTC", date(2026, 6, 8), 100.0, datetime(2026, 6, 8, 16, 0, tzinfo=ET)),
             # D's close, captured at 16:00 ET on D — after period_start (08:13).
             _close_at("INTC", date(2026, 6, 9), 111.0, datetime(2026, 6, 9, 16, 0, tzinfo=ET)),
         ]
@@ -621,20 +625,19 @@ def test_premarket_window_includes_start_date_close_as_anomaly(db_session: Sessi
 
 
 def test_window_closes_same_day_excludes_pre_window_capture(db_session: Session) -> None:
-    """A same-day window (start_date == end_date) cannot use the date-range
-    query (it's empty by construction), so it falls back to captured_at > start.
-    A close captured BEFORE the window started must be excluded."""
+    """A same-day window follows the exchange's official close boundary.
+    A stored same-day close is included once its official session closes,
+    even when the capture timestamp precedes the window."""
     start = datetime(2026, 6, 5, 10, 0, tzinfo=ET)
     end = datetime(2026, 6, 5, 17, 0, tzinfo=ET)
     db_session.add(_close_at("AAA", date(2026, 6, 5), 100.0, datetime(2026, 6, 5, 8, 0, tzinfo=ET)))
     db_session.flush()
 
-    assert _window_closes(db_session, "AAA", start, end) == []
+    assert len(_window_closes(db_session, "AAA", "US", start, end)) == 1
 
 
 def test_window_closes_same_day_includes_post_window_capture(db_session: Session) -> None:
-    """A close captured DURING the same-day window must be included even though
-    the multi-day trade_date-range query would be empty."""
+    """A close whose official session ends in the same-day window is included."""
     start = datetime(2026, 6, 5, 10, 0, tzinfo=ET)
     end = datetime(2026, 6, 5, 17, 0, tzinfo=ET)
     db_session.add(
@@ -642,14 +645,13 @@ def test_window_closes_same_day_includes_post_window_capture(db_session: Session
     )
     db_session.flush()
 
-    series = _window_closes(db_session, "BBB", start, end)
+    series = _window_closes(db_session, "BBB", "US", start, end)
     assert len(series) == 1
     assert series[0].close == Decimal("101.0")
 
 
 def test_trading_days_same_day_window_counts_captured_close(db_session: Session) -> None:
-    """detect_window_anomalies' trading_days count uses the same same-day
-    fallback: a close captured after period_start counts as one trading day."""
+    """The holding universe's official close contributes one calendar session."""
     start = datetime(2026, 6, 5, 10, 0, tzinfo=ET)
     end = datetime(2026, 6, 5, 17, 0, tzinfo=ET)
     db_session.add(
@@ -657,20 +659,22 @@ def test_trading_days_same_day_window_counts_captured_close(db_session: Session)
     )
     db_session.flush()
 
+    db_session.add(_stock("CCC", "CCC"))
+    db_session.flush()
     _, trading_days = detect_window_anomalies(db_session, start, end, _USER)
     assert trading_days == 1
 
 
 def test_trading_days_same_day_window_excludes_stale_capture(db_session: Session) -> None:
-    """A close captured before period_start (e.g. a backfilled row sharing
-    today's trade_date) must not count toward trading_days for a same-day window."""
+    """Capture timestamps do not change the holding universe's session count."""
     start = datetime(2026, 6, 5, 10, 0, tzinfo=ET)
     end = datetime(2026, 6, 5, 17, 0, tzinfo=ET)
+    db_session.add(_stock("DDD", "DDD"))
     db_session.add(_close_at("DDD", date(2026, 6, 5), 100.0, datetime(2026, 6, 5, 8, 0, tzinfo=ET)))
     db_session.flush()
 
     _, trading_days = detect_window_anomalies(db_session, start, end, _USER)
-    assert trading_days == 0
+    assert trading_days == 1
 
 
 # --- L0 split: compute_global_moves / select_user_anomalies (issue #128 A1) --
@@ -678,6 +682,7 @@ def test_trading_days_same_day_window_excludes_stale_capture(db_session: Session
 
 def _hk_holding(user_id: uuid.UUID, name: str, ticker: str, asset_class: str) -> Holding:
     return Holding(
+        market="US",
         user_id=user_id,
         name=name,
         ticker=ticker,
@@ -701,18 +706,18 @@ def test_select_user_anomalies_threshold_differs_by_user_asset_class(db_session:
             _hk_holding(_USER_B, "Apple", "AAPL", "EQUITY_US_TECH"),
         ]
     )
-    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
             _close_at("AAPL", date(2026, 6, 2), 100.0, start),  # baseline
             _close("AAPL", date(2026, 6, 3), 103.0),  # +3%
             _close("AAPL", date(2026, 6, 4), 106.09),  # +3%
             _close("AAPL", date(2026, 6, 5), 109.27),  # +3%
-            _close("AAPL", date(2026, 6, 6), 112.55),  # +3%; net ~+12.5%
+            _close("AAPL", date(2026, 6, 8), 112.55),  # +3%; net ~+12.5%
         ]
     )
     db_session.flush()
-    end = datetime(2026, 6, 6, 20, 30, tzinfo=UTC)
+    end = datetime(2026, 6, 8, 20, 30, tzinfo=UTC)
 
     stock_anomalies, trading_days = detect_window_anomalies(db_session, start, end, _USER)
     tech_anomalies, _ = detect_window_anomalies(db_session, start, end, _USER_B)
@@ -730,18 +735,18 @@ def test_select_user_anomalies_leverage_widens_cumulative_threshold(db_session: 
     ~+12.5%, clears STOCK's un-leveraged 10% cap) but with a 2x leverage_map
     entry — cap widens to 20%, so the same move no longer clears it."""
     db_session.add(_hk_holding(_USER, "MU Bull 2X", "MUU", "STOCK"))
-    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
             _close_at("MUU", date(2026, 6, 2), 100.0, start),
             _close("MUU", date(2026, 6, 3), 103.0),
             _close("MUU", date(2026, 6, 4), 106.09),
             _close("MUU", date(2026, 6, 5), 109.27),
-            _close("MUU", date(2026, 6, 6), 112.55),  # net ~+12.5%
+            _close("MUU", date(2026, 6, 8), 112.55),  # net ~+12.5%
         ]
     )
     db_session.flush()
-    end = datetime(2026, 6, 6, 20, 30, tzinfo=UTC)
+    end = datetime(2026, 6, 8, 20, 30, tzinfo=UTC)
 
     moves, trading_days = compute_global_moves(db_session, start, end)
     theme_map = window_data._load_theme_map(db_session)
@@ -763,7 +768,7 @@ def test_select_user_anomalies_leverage_widens_single_day_threshold(db_session: 
     cumulative cap — a leveraged product's daily move that would trip the
     un-leveraged per_day (5%) must not fire once widened (2x -> 10%)."""
     db_session.add(_hk_holding(_USER, "MU Bull 2X", "MUU", "STOCK"))
-    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
             _close_at("MUU", date(2026, 6, 2), 100.0, start),
@@ -800,18 +805,18 @@ def test_detect_window_anomalies_reads_leverage_override_from_db(db_session: Ses
             created_by=_USER,
         )
     )
-    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
             _close_at("MUU", date(2026, 6, 2), 100.0, start),
             _close("MUU", date(2026, 6, 3), 103.0),
             _close("MUU", date(2026, 6, 4), 106.09),
             _close("MUU", date(2026, 6, 5), 109.27),
-            _close("MUU", date(2026, 6, 6), 112.55),  # net ~+12.5%
+            _close("MUU", date(2026, 6, 8), 112.55),  # net ~+12.5%
         ]
     )
     db_session.flush()
-    end = datetime(2026, 6, 6, 20, 30, tzinfo=UTC)
+    end = datetime(2026, 6, 8, 20, 30, tzinfo=UTC)
 
     anomalies, _ = detect_window_anomalies(db_session, start, end, _USER)
 
@@ -827,7 +832,7 @@ def test_compute_global_moves_computes_shared_identifier_once(db_session: Sessio
             _hk_holding(_USER_B, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
         ]
     )
-    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
             _close_at("NVDA", date(2026, 6, 2), 200.0, start),
@@ -844,7 +849,7 @@ def test_compute_global_moves_computes_shared_identifier_once(db_session: Sessio
         moves, _ = compute_global_moves(db_session, start, end)
 
     assert spy.call_count == 1  # NVDA queried once, not once per holding row
-    assert set(moves.keys()) == {"NVDA"}
+    assert set(moves.keys()) == {("NVDA", "US")}
 
 
 def test_compute_global_moves_normalizes_known_collision_ticker(db_session: Session) -> None:
@@ -857,7 +862,7 @@ def test_compute_global_moves_normalizes_known_collision_ticker(db_session: Sess
     valuation and anomaly detection had already moved to the normalized
     key."""
     db_session.add(_hk_holding(_USER, "Tencent", "700.HK", "STOCK"))
-    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
             _close_at("0700.HK", date(2026, 6, 2), 58.0, start),
@@ -869,7 +874,7 @@ def test_compute_global_moves_normalizes_known_collision_ticker(db_session: Sess
 
     moves, _ = compute_global_moves(db_session, start, end)
 
-    assert set(moves.keys()) == {"0700.HK"}
+    assert set(moves.keys()) == {("0700.HK", "US")}
 
 
 def test_select_user_anomalies_no_cross_user_leakage(db_session: Session) -> None:
@@ -883,7 +888,7 @@ def test_select_user_anomalies_no_cross_user_leakage(db_session: Session) -> Non
             _hk_holding(_USER_B, "Apple", "AAPL", "STOCK"),
         ]
     )
-    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
             _close_at("NVDA", date(2026, 6, 2), 200.0, start),
@@ -896,7 +901,7 @@ def test_select_user_anomalies_no_cross_user_leakage(db_session: Session) -> Non
     end = datetime(2026, 6, 3, 20, 30, tzinfo=UTC)
 
     moves, trading_days = compute_global_moves(db_session, start, end)
-    assert set(moves.keys()) == {"NVDA", "AAPL"}  # computed globally, both present
+    assert set(moves.keys()) == {("NVDA", "US"), ("AAPL", "US")}  # computed globally, both present
 
     theme_map = window_data._load_theme_map(db_session)
 
@@ -924,7 +929,7 @@ def test_select_user_anomalies_skips_manual_pricing_mode(db_session: Session) ->
     manual = _hk_holding(_USER, "NVIDIA (manual)", "NVDA", "EQUITY_US_TECH")
     manual.pricing_mode = "manual"
     db_session.add(manual)
-    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
             _close_at("NVDA", date(2026, 6, 2), 200.0, start),
@@ -951,7 +956,7 @@ def test_select_user_anomalies_matches_mixed_case_ticker_to_global_move(
     not silently miss it because select_user_anomalies looked up with a
     different casing."""
     db_session.add(_hk_holding(_USER, "Apple", "aapl", "STOCK"))
-    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
             _close_at("AAPL", date(2026, 6, 2), 100.0, start),
@@ -978,7 +983,7 @@ def test_detect_window_anomalies_cache_shares_compute_global_moves_across_calls(
             _hk_holding(_USER_B, "NVIDIA", "NVDA", "EQUITY_US_TECH"),
         ]
     )
-    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
             _close_at("NVDA", date(2026, 6, 2), 200.0, start),
@@ -1005,7 +1010,7 @@ def test_detect_window_anomalies_without_cache_recomputes_each_call(db_session: 
     per-call behavior — no accidental cross-call state leakage between
     independent single-report generations."""
     db_session.add(_hk_holding(_USER, "NVIDIA", "NVDA", "EQUITY_US_TECH"))
-    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
             _close_at("NVDA", date(2026, 6, 2), 200.0, start),
@@ -1039,6 +1044,7 @@ def test_detect_window_anomalies_single_user_golden_fields(db_session: Session) 
         [
             _stock("Standalone Co", "STANDA"),
             Holding(
+                market="US",
                 user_id=_USER,
                 name="Theme Big",
                 ticker="THMBIG",
@@ -1053,6 +1059,7 @@ def test_detect_window_anomalies_single_user_golden_fields(db_session: Session) 
                 current_value=Decimal("999999"),
             ),
             Holding(
+                market="US",
                 user_id=_USER,
                 name="Theme Small",
                 ticker="THMSML",
@@ -1083,7 +1090,7 @@ def test_detect_window_anomalies_single_user_golden_fields(db_session: Session) 
             ),
         ]
     )
-    start = datetime(2026, 6, 2, 16, 0, tzinfo=UTC)
+    start = datetime(2026, 6, 2, 20, 0, tzinfo=UTC)
     db_session.add_all(
         [
             _close_at("STANDA", date(2026, 6, 2), 100.0, start),

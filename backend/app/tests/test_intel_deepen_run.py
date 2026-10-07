@@ -23,7 +23,7 @@ from app.services.intel_deepen_config import load_intel_deepen_config
 from app.services.intel_leads import Lead, url_key
 from app.services.intel_selection import WorkUnit, select_units
 from app.services.paid_search import PaidResult
-from app.tests.test_intel_deepen_rules import NOW
+from app.tests.test_intel_deepen_rules import NOW, SESSION_DATES
 from app.tests.test_intel_paid import slot
 
 
@@ -668,14 +668,13 @@ def test_26_search_requests_use_quiet_windows(db_session: Session) -> None:
     )
     signals["CCC"] = Signal.from_closes(
         "CCC",
-        [
-            (NOW.date() - timedelta(days=i), v)
-            for i, v in enumerate([109.1, 109, 108, 107, 106, 100])
-        ],
+        [(SESSION_DATES[i], v) for i, v in enumerate([109.1, 109, 108, 107, 106, 100])],
         cfg,
         NOW.date(),
         "post_close",
         previous,
+        market="US",
+        now=NOW,
     )
     calls = []
 
@@ -699,7 +698,7 @@ def test_26_search_requests_use_quiet_windows(db_session: Session) -> None:
         worker.close()
     assert not calls
     assert [u.window_start for u in worker.selected] == [
-        NOW.date() - timedelta(days=5),
+        SESSION_DATES[5],
         previous.astimezone(NOW.tzinfo).date(),
     ]
 

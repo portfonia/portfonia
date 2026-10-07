@@ -1,6 +1,6 @@
 """Issue #670: Parallel extract payload, weekend price selection, body markers."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from unittest.mock import patch
@@ -17,7 +17,7 @@ from app.services.intel_deepen_config import load_intel_deepen_config
 from app.services.intel_selection import select_units
 from app.services.intel_signals import Signal, compute_signals
 from app.services.paid_search import ParallelClient
-from app.tests.test_intel_deepen_rules import NOW
+from app.tests.test_intel_deepen_rules import NOW, SESSION_DATES
 
 SATURDAY = NOW + timedelta(days=1)
 
@@ -88,7 +88,7 @@ def test_670_03_weekend_signals_read_closes(db_session: Session) -> None:
                 ticker="AAA",
                 market="US",
                 session_node="close",
-                trade_date=NOW.date() - timedelta(days=5 - i),
+                trade_date=SESSION_DATES[5 - i],
                 close=Decimal(value),
             )
         )
@@ -144,14 +144,27 @@ def test_670_06_ordinary_articles_with_marker_like_text_accepted() -> None:
 def test_670_07_d1_window_reaches_last_close_across_weekend() -> None:
     cfg = load_intel_deepen_config()
     friday = NOW.date()
-    closes = [(friday - timedelta(days=i), 106.0 if i == 0 else 100.0) for i in range(6)]
+    closes = [(SESSION_DATES[i], 106.0 if i == 0 else 100.0) for i in range(6)]
     previous = NOW - timedelta(hours=12)
     sunday, monday = friday + timedelta(days=2), friday + timedelta(days=3)
     for run_date, slot in ((sunday, "post_close"), (monday, "pre_open")):
-        signal = Signal.from_closes("AAA", closes, cfg, run_date, slot, previous)
+        signal = Signal.from_closes(
+            "AAA",
+            closes,
+            cfg,
+            run_date,
+            slot,
+            previous,
+            market="US",
+            now=datetime.combine(run_date, NOW.timetz()).replace(
+                hour=8 if slot == "pre_open" else 17
+            ),
+        )
         assert signal.reason == "d1 +6.0%"
         assert signal.window_start == friday
-    weekday = Signal.from_closes("AAA", closes, cfg, friday, "post_close", previous)
+    weekday = Signal.from_closes(
+        "AAA", closes, cfg, friday, "post_close", previous, market="US", now=NOW
+    )
     assert weekday.window_start == friday - timedelta(days=1)
 
 
