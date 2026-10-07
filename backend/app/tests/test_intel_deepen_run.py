@@ -381,8 +381,8 @@ def test_23_full_slot_no_urls(
                     "results": [
                         {
                             "url": url,
-                            "raw_content": "Agreement announced. " * 40,
-                            "full_content": "Agreement announced. " * 40,
+                            "raw_content": "AAA agreement announced. " * 40,
+                            "full_content": "AAA agreement announced. " * 40,
                         }
                     ]
                 },
@@ -491,12 +491,18 @@ def test_18_worked_example_paid_waves(db_session: Session) -> None:
                     {
                         "url": u,
                         "raw_content": (
-                            "The company announced a financing agreement supporting new factory construction. "
+                            (
+                                u.split("//", 1)[1][:3].upper()
+                                + " announced a financing agreement supporting new factory construction. "
+                            )
                             * 10
                         )[: (279 if "bbb1" in u else 599)]
                         + ".",
                         "full_content": (
-                            "The company announced a financing agreement supporting new factory construction. "
+                            (
+                                u.split("//", 1)[1][:3].upper()
+                                + " announced a financing agreement supporting new factory construction. "
+                            )
                             * 10
                         )[: (279 if "bbb1" in u else 599)]
                         + ".",

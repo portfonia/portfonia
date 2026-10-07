@@ -51,6 +51,7 @@ class ExtractRules(BaseModel):
 
 class BodyCleaning(BaseModel):
     paragraph_min_words: Count
+    max_words_per_sentence: Count
     paragraph_min_cjk_chars: Count
     residue_line_patterns: list[str]
     section_block_headings: list[str]

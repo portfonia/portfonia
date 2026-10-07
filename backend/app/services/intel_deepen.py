@@ -724,6 +724,10 @@ class DeepenRun:
                 accepted, reason = body_verdict(text, self.cfg)
                 if result.status_class != "success" or lead.url not in result.bodies:
                     accepted, reason = False, "provider_error"
+                if accepted and unit.identifier:
+                    aliases = self.aliases.get(unit.identifier, [unit.identifier])
+                    if not match_instruments(text, {unit.identifier: aliases}):
+                        accepted, reason = False, "off_topic"
                 status = (
                     "accepted"
                     if accepted
@@ -764,6 +768,7 @@ class DeepenRun:
                                 "fetched_at",
                             )
                         },
+                        where=IntelArticle.status != "accepted" if reason == "off_topic" else None,
                     ).returning(IntelArticle.id)
                 )
                 themes = (
@@ -771,7 +776,7 @@ class DeepenRun:
                     if unit.kind == "macro"
                     else {unit.theme}
                 )
-                for theme in sorted(themes):
+                for theme in sorted(themes) if reason != "off_topic" else []:
                     session.execute(
                         insert(IntelArticleLink)
                         .values(

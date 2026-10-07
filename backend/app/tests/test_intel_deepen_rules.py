@@ -148,7 +148,14 @@ def test_10_body_verdict() -> None:
     assert body_verdict("x" * 400 + "Subscribe to continue", cfg) == (False, "paywall")
     assert body_verdict("Copyright " + "x" * 600 + "\n" + "y" * 400, cfg) == (False, "boilerplate")
     cleaned = clean_body(
-        "https://finance.yahoo.com/a", "Most active\n[...]\n" + "article " * 150 + ".", cfg
+        "https://finance.yahoo.com/a",
+        "Most active\n[...]\n"
+        + (
+            "The company announced a new production agreement that expands capacity worldwide. "
+            * 12
+        )
+        + "Management described the expanded capacity during public briefings.",
+        cfg,
     )
     assert "Most active" not in cleaned
     assert body_verdict(cleaned, cfg) == (True, None)

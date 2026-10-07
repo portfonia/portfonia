@@ -1,7 +1,9 @@
 non_article_path_segments: ["/video/", "/videos/", "/watch", "/gallery/", "/podcast", "/slideshow/"]
 low_value_title_patterns:
   - 'stocks? to (buy|watch|sell|own)'
-  - 'should you (buy|sell)'
+  - 'should you (buy|sell|hold)'
+  - '\binvested in\b.*\bworth\b'
+  - '\bbiggest upside\b'
   - '\bbuy (now|the dip)\b'
   - 'better buy'
   - '\bvs\.?\s'
