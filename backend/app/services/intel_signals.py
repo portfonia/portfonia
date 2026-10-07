@@ -13,6 +13,7 @@ from app.models.news import News
 from app.models.price_snapshot import PriceSnapshot
 from app.services.instrument_universe import UniverseEntry
 from app.services.intel_deepen_config import DeepenConfig
+from app.services.market_sessions import baseline_session, previous_sessions
 
 
 @dataclass
@@ -41,20 +42,30 @@ class Signal:
         run_date: date,
         slot: str,
         previous: datetime,
+        *,
+        market: str,
+        now: datetime,
     ) -> "Signal":
         from datetime import timedelta
 
         signal = cls(identifier, window_start=previous.astimezone(ET).date())
+        latest = baseline_session(market, now)
+        prices = dict(closes)
+        if latest is None or latest not in prices:
+            return signal
         measures = {}
+        comparison_dates: dict[str, date] = {}
         for name, index in [("d1", 1), ("d3", 3), ("d5", 5)]:
+            days = previous_sessions(market, latest, index)
             value = (
-                closes[0][1] / closes[index][1] - 1
-                if len(closes) > index and closes[index][1]
+                prices[latest] / prices[days[0]] - 1
+                if days and all(day in prices for day in days) and prices[days[0]]
                 else None
             )
             setattr(signal, name, value)
             if value is not None:
                 measures[name] = value
+                comparison_dates[name] = days[0]
         limits = {"d1": cfg.thresholds.single_day, "d3": cfg.thresholds.d3, "d5": cfg.thresholds.d5}
         triggered = {k: v for k, v in measures.items() if abs(v) >= limits[k]}
         if triggered:
@@ -66,11 +77,11 @@ class Signal:
             # A d1 window reaches back to the last close, so weekend and Monday runs
             # still see links published on the last trading day (#670).
             signal.window_start = (
-                closes[5][0]
+                comparison_dates["d5"]
                 if "d5" in triggered
-                else closes[3][0]
+                else comparison_dates["d3"]
                 if "d3" in triggered
-                else min(run_date - timedelta(days=2 if slot == "pre_open" else 1), closes[0][0])
+                else min(run_date - timedelta(days=2 if slot == "pre_open" else 1), latest)
             )
         else:
             near = {
@@ -83,7 +94,9 @@ class Signal:
                 signal.near = True
                 signal.strength = abs(near[key]) / getattr(cfg.thresholds, "near_" + key)
                 signal.reason = f"near_{key} {near[key]:+.1%}"
-                signal.window_start = closes[5][0] if "d5" in near else closes[3][0]
+                signal.window_start = (
+                    comparison_dates["d5"] if "d5" in near else comparison_dates["d3"]
+                )
         return signal
 
 
@@ -127,6 +140,15 @@ def compute_signals(
     history = slot_history(session, slot, now, cfg, weekend)
     result = {}
     for entry in universe:
+        latest = baseline_session(entry.market, now)
+        days = (
+            [
+                latest,
+                *{day for n in (1, 3, 5) for day in previous_sessions(entry.market, latest, n)},
+            ]
+            if latest
+            else []
+        )
         closes = [
             (r.trade_date, float(r.close))
             for r in session.scalars(
@@ -136,15 +158,21 @@ def compute_signals(
                     PriceSnapshot.market == entry.market,
                     PriceSnapshot.session_node == "close",
                     PriceSnapshot.close.is_not(None),
-                    PriceSnapshot.trade_date <= run_date,
+                    PriceSnapshot.trade_date.in_(days),
                 )
                 .order_by(PriceSnapshot.trade_date.desc())
-                .limit(6)
             )
             if r.close is not None
         ]
         signal = Signal.from_closes(
-            entry.identifier, closes, cfg, run_date, slot, prev_slot_started_at
+            entry.identifier,
+            closes,
+            cfg,
+            run_date,
+            slot,
+            prev_slot_started_at,
+            market=entry.market,
+            now=now,
         )
         kinds = list(
             session.scalars(

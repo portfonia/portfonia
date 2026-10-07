@@ -111,6 +111,7 @@ from app.services.section3_proportionality import (
     check_section3_proportionality,
 )
 from app.services.technical_position import compute_technical_positions
+from app.services.user_scope import user_holdings
 from app.services.watch_tier_config import load_watch_tier_weights
 from app.services.window_data import (
     HoldingMove,
@@ -123,6 +124,7 @@ from app.services.window_data import (
     load_news_window,
     load_related_news_by_identifier,
     mark_news_surfaced,
+    preferred_identifier_holdings,
     resolve_global_moves,
     unmark_news_surfaced,
     user_watermark,
@@ -1504,10 +1506,14 @@ def generate_report(
         } | {h for identifier in holding_news for h in related_hashes.get(identifier, [])}
         ctx.holding_news = holding_news
         window_moves, _ = resolve_global_moves(session, period_start, period_end, moves_cache)
+        preferred = preferred_identifier_holdings(user_holdings(session, user_id))
         ctx.large_holding_moves = {
-            identifier: _serialize_holding_move(window_moves[identifier])
+            identifier: _serialize_holding_move(
+                window_moves[(identifier, preferred[identifier].market)]
+            )
             for identifier in material_ids
-            if identifier in window_moves
+            if identifier in preferred
+            and (identifier, preferred[identifier].market) in window_moves
         }
 
         investor_prefs = load_investor_preferences(session, user_id)

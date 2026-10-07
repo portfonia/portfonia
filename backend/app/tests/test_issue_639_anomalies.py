@@ -46,13 +46,14 @@ def move(session: Session, closes: list[Decimal]) -> HoldingMove:
         ]
     )
     session.flush()
-    result = _compute_identifier_move(session, "AAA", START, END, START.date())
+    result = _compute_identifier_move(session, "AAA", "US", START, END)
     assert result is not None
     return result
 
 
 def holding(asset_class: str = "STOCK") -> Holding:
     return Holding(
+        market="US",
         user_id=USER,
         name="AAA",
         ticker="AAA",
@@ -76,7 +77,7 @@ def test_639_09_three_day_move_triggers_beyond_quiet_window(
     db_session: Session, latest: str, expected: str | None
 ) -> None:
     raw = move(db_session, quiet_window(latest, "100"))
-    result = select_user_anomalies({"AAA": raw}, [holding()], 2, {}, {})
+    result = select_user_anomalies({("AAA", "US"): raw}, [holding()], 2, {}, {})
     assert [a.trigger for a in result] == ([expected] if expected else [])
     assert raw.net_pct == Decimal(".0300")
     assert abs(raw.max_day_pct or Decimal(0)) < Decimal(".05")
@@ -98,7 +99,7 @@ def test_639_10_five_day_and_leveraged_thresholds(
 ) -> None:
     raw = move(db_session, quiet_window(latest, third, fifth))
     result = select_user_anomalies(
-        {"AAA": raw}, [holding("EQUITY_US_BROAD")], 2, {}, {"AAA": Decimal(leverage)}
+        {("AAA", "US"): raw}, [holding("EQUITY_US_BROAD")], 2, {}, {"AAA": Decimal(leverage)}
     )
     assert [a.trigger for a in result] == ([expected] if expected else [])
 
@@ -106,13 +107,16 @@ def test_639_10_five_day_and_leveraged_thresholds(
 def test_639_11_single_day_keeps_priority_over_five_day(db_session: Session) -> None:
     raw = move(db_session, [Decimal(x) for x in (121, 110, 110, 110, 110, 100)])
     assert raw.d5_pct == Decimal(".2100")
-    assert select_user_anomalies({"AAA": raw}, [holding()], 2, {}, {})[0].trigger == "single_day"
+    assert (
+        select_user_anomalies({("AAA", "US"): raw}, [holding()], 2, {}, {})[0].trigger
+        == "single_day"
+    )
 
 
 @pytest.mark.parametrize(
     "case",
     [
-        regression.test_detect_window_anomalies_flags_move_over_threshold,
+        regression.test_missing_sessions_do_not_turn_window_net_into_single_day_anomaly,
         regression.test_single_day_trigger_catches_violent_session,
         regression.test_cumulative_threshold_scales_with_trading_days,
         regression.test_detect_window_anomalies_single_user_golden_fields,
@@ -137,7 +141,7 @@ def test_639_11_existing_anomaly_rules_retain_results(
     original = window_data.select_user_anomalies
 
     def compare(
-        moves: dict[str, HoldingMove],
+        moves: dict[tuple[str, str | None], HoldingMove],
         holdings: Sequence[Holding],
         trading_days: int,
         theme_map: dict[str, TickerTheme],
@@ -167,7 +171,7 @@ def test_639_12_insufficient_history_has_no_rolling_trigger(db_session: Session)
     raw = move(db_session, [Decimal(102), Decimal(101), Decimal(100)])
     assert raw.d3_pct is None
     assert raw.d5_pct is None
-    assert select_user_anomalies({"AAA": raw}, [holding()], 2, {}, {}) == []
+    assert select_user_anomalies({("AAA", "US"): raw}, [holding()], 2, {}, {}) == []
 
 
 def test_639_13_rendered_report_has_rolling_columns_and_plain_triggers(db_session: Session) -> None:
@@ -215,5 +219,5 @@ def test_639_11_cumulative_keeps_priority_over_five_day(db_session: Session) -> 
     assert raw.max_day_pct is not None and abs(raw.max_day_pct) < Decimal(".05")
     assert raw.net_pct > Decimal(".10")
     assert raw.d5_pct is not None and raw.d5_pct >= Decimal(".20")
-    result = select_user_anomalies({"AAA": raw}, [holding()], 2, {}, {})
+    result = select_user_anomalies({("AAA", "US"): raw}, [holding()], 2, {}, {})
     assert result[0].trigger == "cumulative"

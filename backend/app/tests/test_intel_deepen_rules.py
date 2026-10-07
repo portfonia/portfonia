@@ -16,6 +16,7 @@ from app.services.intel_selection import assign_providers, select_units
 from app.services.intel_signals import Signal, compute_signals, spike
 
 NOW = datetime(2026, 10, 2, 16, 15, tzinfo=ET)
+SESSION_DATES = [NOW.date(), *(NOW.date() - timedelta(days=i) for i in [1, 2, 3, 4, 7])]
 
 
 def test_01_captured_signals(db_session: Session) -> None:
@@ -32,7 +33,7 @@ def test_01_captured_signals(db_session: Session) -> None:
                     ticker=ticker,
                     market="US",
                     session_node="close",
-                    trade_date=NOW.date() - timedelta(days=len(values) - i - 1),
+                    trade_date=SESSION_DATES[len(values) - i - 1],
                     close=Decimal(str(value)),
                 )
             )
@@ -65,6 +66,8 @@ def test_02_fixed_single_day_config(tmp_path: Path) -> None:
         NOW.date(),
         "post_close",
         NOW - timedelta(hours=24),
+        market="US",
+        now=NOW,
     ).mover
     data = cfg.model_dump()
     data["thresholds"]["single_day"] = 0.07
@@ -78,6 +81,8 @@ def test_02_fixed_single_day_config(tmp_path: Path) -> None:
         NOW.date(),
         "post_close",
         NOW - timedelta(hours=24),
+        market="US",
+        now=NOW,
     )
     assert not signal.mover
 
@@ -184,11 +189,16 @@ def test_25_body_url_removal() -> None:
 
 def test_26_quiet_windows() -> None:
     cfg = load_intel_deepen_config()
-    closes = [
-        (NOW.date() - timedelta(days=i), v) for i, v in enumerate([109.1, 109, 108, 107, 106, 100])
-    ]
+    closes = [(SESSION_DATES[i], v) for i, v in enumerate([109.1, 109, 108, 107, 106, 100])]
     signal = Signal.from_closes(
-        "AAA", closes, cfg, NOW.date(), "post_close", NOW - timedelta(hours=24)
+        "AAA",
+        closes,
+        cfg,
+        NOW.date(),
+        "post_close",
+        NOW - timedelta(hours=24),
+        market="US",
+        now=NOW,
     )
     assert signal.near and signal.window_start == closes[5][0]
     signal = Signal("DDD", filings=1, window_start=(NOW - timedelta(hours=24)).date())

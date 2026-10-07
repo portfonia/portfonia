@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.models.report import Report
 from app.services import window_data
@@ -37,18 +38,21 @@ def _close_at(ticker: str, d: date, value: float, captured_at: datetime) -> Pric
 
 
 def _seed_price_snapshots(db_session: Session) -> None:
+    for holding in db_session.scalars(select(Holding)):
+        if holding.ticker in {"NVDA", "AAPL", "SGOL"}:
+            holding.market = "US"
     db_session.add_all(
         [
             _close_at("NVDA", _BASELINE_DATE, 200, _BASELINE_AT),
-            *[_close("NVDA", date(2026, 6, day), 215) for day in range(2, 7)],
+            *[_close("NVDA", date(2026, 6, day if day != 6 else 8), 215) for day in range(2, 7)],
             _close_at("AAPL", _BASELINE_DATE, 100, _BASELINE_AT),
             _close("AAPL", date(2026, 6, 2), 102.5),
             _close("AAPL", date(2026, 6, 3), 105.06),
             _close("AAPL", date(2026, 6, 4), 107.69),
             _close("AAPL", date(2026, 6, 5), 110.39),
-            _close("AAPL", date(2026, 6, 6), 113.14),
+            _close("AAPL", date(2026, 6, 8), 113.14),
             _close_at("SGOL", _BASELINE_DATE, 180, _BASELINE_AT),
-            *[_close("SGOL", date(2026, 6, day), 190) for day in range(2, 7)],
+            *[_close("SGOL", date(2026, 6, day if day != 6 else 8), 190) for day in range(2, 7)],
         ]
     )
     db_session.flush()
