@@ -130,6 +130,29 @@ def test_nav_newer_point_stored_same_attempt(db_session: Session, allow_fallback
     alert.assert_not_called()
 
 
+def test_nav_successful_primary_still_checks_sina_same_attempt(db_session: Session) -> None:
+    db_session.add(_fund(CODE))
+    store(db_session, CODE, JAN4)
+    with (
+        patch(
+            "app.services.price_capture.fetch_nav_history_outcome",
+            return_value=NavHistoryOutcome((NavPoint(JAN4, Decimal("2"), "eastmoney"),)),
+        ),
+        patch(
+            "app.services.price_capture.sina_latest_nav_point",
+            return_value=NavPoint(JAN5, Decimal("2.1"), "sina"),
+        ) as sina,
+        patch("app.services.price_capture.send_ops_alert") as alert,
+    ):
+        outcome = capture_fund_navs_attempt(db_session, window=WINDOW, allow_fallback=False)
+    sina.assert_called_once()
+    assert prices(db_session, CODE)[JAN5].source == "sina"
+    assert outcome.recovered == (CODE,)
+    assert outcome.history_coverage[CODE] == "primary_window"
+    assert outcome.unresolved == ()
+    alert.assert_not_called()
+
+
 def test_nav_same_date_is_verified_without_write(db_session: Session) -> None:
     db_session.add(_fund(CODE))
     store(db_session, CODE, JAN4)
