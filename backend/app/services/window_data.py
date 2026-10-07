@@ -30,7 +30,7 @@ from app.models.ticker_theme import TickerTheme
 from app.services.asset_class_config import load_asset_class_config
 from app.services.instrument_symbols import InstrumentKey, intelligence_identifier
 from app.services.intel_deepen_config import load_intel_deepen_config
-from app.services.intel_records import headline_from_row
+from app.services.intel_records import headline_from_row, macro_labels_for_items
 from app.services.market_sessions import baseline_session, previous_sessions, sessions_closing_in
 from app.services.news_fetcher import LATE_INGEST_WINDOW, NewsItem
 from app.services.price_anomaly_detector import ConstituentMove, PriceAnomaly
@@ -169,6 +169,16 @@ def load_news_window(
         .all()
     )
     return [headline_from_row(r) for r in rows]
+
+
+def macro_news_items(session: Session, items: list[NewsItem]) -> list[NewsItem]:
+    """Filter only macro detection input; preserve the complete report/holding pool."""
+    labels = macro_labels_for_items(session, items)
+    return [
+        item
+        for item in items
+        if item.url_hash not in labels or labels[item.url_hash]["type"] == "development"
+    ]
 
 
 def load_instrument_news_by_identifier(

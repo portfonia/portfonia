@@ -27,6 +27,7 @@ def select_units(
     weekend: bool = False,
     theme_history: dict[str, list[int]] | None = None,
     window_start: date | None = None,
+    macro_development_counts: dict[str, int] | None = None,
 ) -> list[WorkUnit]:
     movers = sorted(
         (s for s in signals.values() if s.mover), key=lambda s: (-s.strength, s.identifier)
@@ -64,6 +65,12 @@ def select_units(
             )
         )
     for theme, count in sorted(macro_counts.items(), key=lambda p: (-p[1], p[0])):
+        if count == 0 or (
+            weekend
+            and macro_development_counts is not None
+            and macro_development_counts.get(theme, 0) < 1
+        ):
+            continue
         history = (theme_history or {}).get(theme, [])
         if weekend and (
             count < cfg.thresholds.weekend_macro_min_items

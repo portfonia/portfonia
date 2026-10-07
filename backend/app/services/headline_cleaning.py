@@ -9,7 +9,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 from urllib.parse import urlparse
 
 import httpx
@@ -343,6 +343,7 @@ class MacroLabel(TypedDict):
     type: str
     importance: int
     event: str
+    label_call: NotRequired[str]
 
 
 def macro_label(record: dict[str, object]) -> MacroLabel | None:
@@ -360,7 +361,10 @@ def macro_label(record: dict[str, object]) -> MacroLabel | None:
         or not event.strip()
     ):
         return None
-    return {"type": str(kind), "importance": importance, "event": event}
+    label: MacroLabel = {"type": str(kind), "importance": importance, "event": event}
+    if isinstance(record.get("label_call"), str):
+        label["label_call"] = str(record["label_call"])
+    return label
 
 
 def near_duplicate_title(left: str, right: str, threshold: float) -> bool:
@@ -370,7 +374,7 @@ def near_duplicate_title(left: str, right: str, threshold: float) -> bool:
     return bool(union) and len(a & b) / len(union) >= threshold
 
 
-MACRO_PROMPT = """You classify public financial news headlines for one macro theme.
+MACRO_PROMPT = """You classify public financial news headlines for macro developments.
 Judge only the supplied title and summary. Return one label per item:
 development = a concrete data release, policy decision, official action or market-moving event;
 commentary = opinion, an interested party interview, a promotional letter or a firm's outlook without a new macro development;

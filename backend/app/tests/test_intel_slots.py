@@ -1,5 +1,6 @@
 """Issue #620 slot, digest and first-run acceptance."""
 
+from collections.abc import Iterator
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -312,3 +313,13 @@ def test_failed_name_lookup_once_per_slot_after_run_creation(db_session: Session
     collection = db_session.scalars(select(IntelCollectionRun)).one()
     assert collection.instruments_total == collection.instruments_processed == 1
     assert collection.errors == ["profile: ValueError"]
+
+
+@pytest.fixture(autouse=True)
+def no_live_pool_classifier() -> Iterator[None]:
+    """A newly added slot classifier must never reach a provider in legacy tests."""
+    with patch(
+        "app.services.news_capture.classify_macro",
+        side_effect=AssertionError("pool classifier must be mocked"),
+    ):
+        yield

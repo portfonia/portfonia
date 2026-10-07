@@ -838,29 +838,35 @@ Problems line and does not change the batch status.
 
 ### Macro ranking, event deduplication and anchor material (issue #688)
 
-**Scheduled ranking.** Theme choice remains based on keyword counts; #690 is a
-separate follow-up for pool-side classification. Before selecting links for a
-macro unit, `DeepenRun.run_wave` sends that unit's candidate titles and summaries
-(URL-free) through `headline_cleaning.classify_macro`, once on the configured
+**Scheduled ranking.** Issue #690 supplies stored pool labels and development-only
+weekday theme counts (see below). Before selecting links for a macro unit,
+`DeepenRun.run_wave` reuses valid stored labels and sends only its remaining
+unlabeled candidate titles and summaries (URL-free) through
+`headline_cleaning.classify_macro`, once on the configured
 `INTEL_CLASSIFIER_MODEL`, with low reasoning, `data_collection: deny`, attribution
 headers and no retry. This is shared batch work, never a per-user/report call.
 `macro_label` validates the shared metadata shape: `type` is
 `development|commentary|off_topic`, `importance` is an integer 1-3, and `event` is
-a nonempty short slug. There is no migration or pool-side classification.
+a nonempty short slug. `label_call` retains the classification request identity
+when supplied by #690. There is no migration.
 
 Valid developments rank by importance descending, then publication time
 descending; unlabeled candidates follow by recency. Commentary and off-topic
 items do not consume extraction slots. Missing/invalid labels leave individual
-candidates unlabeled. Partial responses count their unlabeled candidates in
-`macro_rank_partial`; a call error or zero valid labels makes that unit fall
-back to recency and increments `macro_rank_failed`. Both counters appear in
+candidates unlabeled. Partial responses count only the unlabeled remainder of
+the in-deepening call in `macro_rank_partial`; a call error or zero valid labels
+leaves that remainder in recency order and increments `macro_rank_failed`.
+Stored labels still apply, and fully labeled units make zero classifier calls.
+Both counters appear in
 Part 2 of the batch email and stay outside the error list that changes batch
 status. `macro_classifier_cost_usd` records classifier spend separately from
 Tavily/Parallel usage; existing provider run/month limits and caps remain.
 Instrument lead selection is unchanged.
 
 **Event identity and writes.** Within one classifier call, only one lead per
-`event` survives. Slugs are not compared across calls. Across units in a batch,
+`event` survives. With #690, equal `event` and `label_call` identify that call's
+event; different calls use URL key or near-duplicate title instead. Slugs are
+not compared across calls. Across units in a batch,
 identity is the same `url_key` or a near-duplicate title under the existing
 `headline_cleaning.tokens` Jaccard threshold. The first unit in processing order
 owns extraction; a later duplicate adds its theme to the first article's
@@ -869,13 +875,17 @@ existing distinct-domain rule and `macro_links_per_theme` cap still apply to
 new extraction leads. A URL already selected in this batch is returned
 separately for linking and does not consume the later theme's extraction cap,
 including reused candidates encountered after that cap fills (G2 review fix).
-Before choosing new extraction leads, reused URLs claim their current-call event
-slugs; a same-slug sibling is skipped in either ranking order, even when its
-title is dissimilar (G3 review fix).
+Before choosing new extraction leads, reused URLs claim their `(event, label_call)`
+pairs; a sibling with the same pair is skipped in either ranking order, even
+when its title is dissimilar (G3 review fix). Across calls, identity uses
+`url_key` or near-duplicate title, not the event slug. Within a unit,
+`select_leads` drops URL-key or near-duplicate-title duplicates before they
+consume `macro_links_per_theme`.
 A unit with only reused leads records `linked_existing`; the batch email says
 it reused an article already extracted this batch, rather than claiming no news.
-Accepted articles store `type`, `importance` and `event` directly in their
-URL-free `record` JSON alongside the existing article fields. Unlabeled/fallback
+Accepted articles store `type`, `importance`, `event` and the supplied
+`label_call` directly in their URL-free `record` JSON alongside the existing
+article fields. Unlabeled/fallback
 articles omit these fields.
 
 **Report reader and Pass 2.** `_load_report_articles` collects accepted macro
@@ -894,6 +904,51 @@ instruction prefers developments (data, policy, official actions and market
 events); a single source's opinion or a firm's outlook can support or counter
 that anchor, and can itself be the anchor only when no development is available.
 Compliance scans, layer-3 boundaries and continuity storage are unchanged.
+
+### Slot pool macro classification and development counts (issue #690)
+
+**Slot-only labels.** After path/title cleaning, storage and holding alias linking,
+`news_capture.capture_news` classifies macro-theme matches only when
+`slot_run_id` is supplied. It detects all matching kept headlines, groups each
+unlabeled headline under its first matching theme in detector order, and sends
+chunks of at most 30 through the existing classifier configuration. Every call
+gets a fresh 12-character UUID hex `label_call`. The prompt's first line is
+macro-theme agnostic; its Layer-3 sentence and JSON schema are unchanged.
+Calls retain low reasoning, `data_collection: deny`, `OR_ATTRIBUTION_HEADERS`,
+and no retry or fallback model.
+
+Valid `type`/`importance`/`event` labels and `label_call` are added to the existing
+`news.record` JSON without replacing other fields. The event is URL-free through
+`macro_label`. Already labeled headlines are reused on later fetches, including
+pre-deploy rows labeled on their first slot fetch. Missing/invalid labels or a
+failed call leave the row unlabeled. Commentary and off-topic rows remain stored
+for audit and retain holding links. The 16 per-market `capture-news-*` entries do
+not classify and remain `False` in `API_QUIET_BEAT_ENTRIES`; there is no new Beat
+entry, Settings field or migration.
+
+**Counts and selection.** `DeepenRun.finish` still builds `fresh` from this slot's
+kept fetch and the existing fetched-time boundary. `details.theme_counts` keeps
+raw keyword counts and the existing raw history. The new
+`details.theme_counts_development` counts development and unlabeled fallback
+items in that same `fresh` subset. Weekday ranking and its macro cap use these
+counts; zero-count themes are not selected. Weekends retain all existing raw
+thresholds/history and additionally require `counts_dev[theme] >= 1`. A previously
+stored development that is merely re-fetched does not satisfy this requirement.
+Recalibrating weekend thresholds remains a separate owner decision.
+
+**Consumers and evidence.** Macro deepening excludes stored commentary/off-topic
+labels, reuses development labels, and classifies only the unlabeled remainder
+per unit as described in #688 above. Holding selection never reads macro labels.
+For reports, `window_data.macro_news_items` filters only the input to macro
+signal detection; the original `news_items` and every holding-news path remain
+unchanged. Unlabeled rows behave as before, and reports add no LLM call.
+
+Each RSS collection run stores `stats.macro_classification`: `candidates`,
+`labeled`, `calls`, `failed_calls`, `cost_usd`, `development`, `commentary` and
+`off_topic`. A call error or zero valid labels increments `failed_calls`; partial
+labels leave only the missing items unlabeled. PART 1 of the batch email shows
+one line with all these numbers. Pool classification failure does not abort the
+run; unlabeled headlines remain available to the fallback paths.
 
 ### Headline and body cleaning (issue #687)
 
