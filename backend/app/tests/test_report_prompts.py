@@ -171,6 +171,11 @@ def test_section2_eligibility_independent_of_direct_holdings_match() -> None:
     exactly the narrow #171-era contract #440 replaces. A holdings-quiet
     period must not, by itself, read as "no macro developments"."""
     text = " ".join(rp._SECTION2_INSTRUCTIONS.split())
+    assert (
+        "Choose the anchor from developments (data, policy, official actions, market events)."
+        in text
+    )
+    assert "unless the material contains no development." in text
     assert "not gated on a direct holdings match" in text
     assert "no direct, concrete mapping to an identifier actually held" not in text
     assert "never by itself grounds to declare macro developments absent" in text

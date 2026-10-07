@@ -16,6 +16,7 @@ from app.core.timezones import ET
 from app.models.intel import NewsInstrument
 from app.models.news import News
 from app.models.paid_intel import IntelArticle
+from app.services.headline_cleaning import MacroLabel
 from app.services.instrument_news_sources import CollectedItem
 from app.services.instrument_profiles import match_instruments
 from app.services.intel_deepen_config import DeepenConfig
@@ -34,6 +35,7 @@ class Lead:
     title: str
     published_at: datetime | None = None
     news_id: uuid.UUID | None = None
+    macro_label: MacroLabel | None = None
 
 
 def url_key(url: str) -> str:
@@ -106,8 +108,18 @@ def select_leads(
     aliases: list[str],
     cfg: DeepenConfig,
     now: datetime,
+    *,
+    macro_labels: dict[int, MacroLabel] | None = None,
+    macro_selected_keys: set[str] | None = None,
+    linked_existing: list[Lead] | None = None,
 ) -> list[Lead]:
+    """Return extraction leads; return reused macro leads separately via linked_existing."""
     candidates = []
+    ranked = (
+        {id(item): macro_labels.get(i) for i, item in enumerate(items)}
+        if macro_labels is not None
+        else {}
+    )
     for item in items:
         if item.url_kind not in ("direct", "finnhub_redirect") or item.kind == "filing":
             continue
@@ -128,7 +140,15 @@ def select_leads(
             is None
         ):
             continue
+        label = ranked.get(id(item))
+        if not unit.identifier and label and label["type"] != "development":
+            continue
         candidates.append(item)
+
+    def importance(item: CollectedItem) -> int:
+        label = ranked.get(id(item))
+        return -label["importance"] if label else 0
+
     candidates.sort(
         key=lambda item: (
             (
@@ -137,7 +157,11 @@ def select_leads(
                 -item.published_at.timestamp(),
             )
             if unit.identifier
-            else (0, False, -item.published_at.timestamp())
+            else (
+                importance(item),
+                False,
+                -item.published_at.timestamp(),
+            )
         )
     )
     limit = (
@@ -147,18 +171,38 @@ def select_leads(
         if unit.kind == "quiet"
         else cfg.caps.macro_links_per_theme
     )
-    out = []
+    out: list[Lead] = []
     domains = set()
+    events: set[str] = set()
+    if unit.kind == "macro":
+        # Reused URLs claim their current-call event before any new lead is picked.
+        for item in candidates:
+            label = ranked.get(id(item))
+            if label and url_key(item.url) in (macro_selected_keys or set()):
+                events.add(label["event"])
     for item in candidates:
+        label = ranked.get(id(item))
         url = resolve_redirect(item.url) if item.url_kind == "finnhub_redirect" else item.url
-        if not url or excluded(url, cfg) or accepted_recently(session, url, cfg, now):
+        if not url or excluded(url, cfg):
+            continue
+        if unit.kind == "macro" and url_key(url) in (macro_selected_keys or set()):
+            if linked_existing is not None:
+                linked_existing.append(
+                    Lead(url, item.title, item.published_at, item.news_id, label)
+                )
+            continue
+        if len(out) >= limit or (label and label["event"] in events):
+            continue
+        if accepted_recently(session, url, cfg, now):
             continue
         host = urlsplit(url).hostname
         if host in domains:
             continue
         domains.add(host)
-        out.append(Lead(url, item.title, item.published_at, item.news_id))
-        if len(out) >= limit:
+        if label:
+            events.add(label["event"])
+        out.append(Lead(url, item.title, item.published_at, item.news_id, label))
+        if len(out) >= limit and unit.kind != "macro":
             break
     return out
 

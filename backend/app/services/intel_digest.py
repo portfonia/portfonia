@@ -250,6 +250,8 @@ def build_batch_report(
     kept_units = {unit_name(o) for o in outcomes if number(o.get("accepted"))}
 
     def outcome_text(outcome: dict[str, object]) -> str | None:
+        if outcome.get("note") == "linked_existing":
+            return "reused an article already extracted this batch, no paid call"
         accepted = number(outcome.get("accepted"))
         # The "nothing usable" text names no provider, so skip it for a unit that kept
         # articles through another provider (search fallback or A/B sibling).
@@ -288,6 +290,10 @@ def build_batch_report(
         ]
         picked.append(f"  {name} ({words})" + (": " + "; ".join(texts) if texts else ""))
     lines += ["Picked:", *picked] if picked else ["Picked: none"]
+    if "macro_rank_failed" in deep:
+        lines.append(
+            f"Macro ranking fallback units (macro_rank_failed: {number(deep.get('macro_rank_failed')):g}); unlabeled candidates (macro_rank_partial: {number(deep.get('macro_rank_partial')):g})."
+        )
     metrics = {p: obj(v) for p, v in obj(deep.get("metrics")).items()}
     kept = sum(number(m.get("accepted")) for m in metrics.values())
     failed = sum(number(obj(m.get("rejected")).get("provider_error")) for m in metrics.values())

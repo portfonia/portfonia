@@ -9,6 +9,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+from typing import TypedDict
 from urllib.parse import urlparse
 
 import httpx
@@ -336,3 +337,66 @@ def openrouter_json(system: str, content: str) -> tuple[dict[str, object], float
     usage = mapping(data.get("usage") or {})
     cost = usage.get("cost", 0)
     return mapping(json.loads(raw)), float(cost) if isinstance(cost, (int, float)) else 0.0
+
+
+class MacroLabel(TypedDict):
+    type: str
+    importance: int
+    event: str
+
+
+def macro_label(record: dict[str, object]) -> MacroLabel | None:
+    """The shared URL-free ranking metadata boundary for a headline (#688/#690)."""
+    from app.services.intel_body import without_urls
+
+    kind, importance, event = record.get("type"), record.get("importance"), record.get("event")
+    if isinstance(event, str):
+        event = without_urls(event).strip()
+    if (
+        kind not in ("development", "commentary", "off_topic")
+        or type(importance) is not int
+        or not 1 <= importance <= 3
+        or not isinstance(event, str)
+        or not event.strip()
+    ):
+        return None
+    return {"type": str(kind), "importance": importance, "event": event}
+
+
+def near_duplicate_title(left: str, right: str, threshold: float) -> bool:
+    """Use the existing headline Jaccard rule for cross-call event identity."""
+    a, b = tokens(left), tokens(right)
+    union = a | b
+    return bool(union) and len(a & b) / len(union) >= threshold
+
+
+MACRO_PROMPT = """You classify public financial news headlines for one macro theme.
+Judge only the supplied title and summary. Return one label per item:
+development = a concrete data release, policy decision, official action or market-moving event;
+commentary = opinion, an interested party interview, a promotional letter or a firm's outlook without a new macro development;
+off_topic = merely contains a macro keyword, with no macro development (including sports or an individual company's routine contract).
+importance = systemic significance: 3 for major economy-wide data, central-bank decisions or broad shocks; 2 for other material macro developments; 1 for limited systemic significance.
+event = a short lowercase hyphenated slug describing the specific event. Reports of the same event with no new material fact share a slug. Slugs are comparable only within this request.
+Do not provide investment advice. Stay within Layer 3: facts, contextual relationships and observable signals, never instructions, price targets or forecasts.
+Output ONLY JSON: {"labels": [{"id": int, "type": "development|commentary|off_topic", "importance": 1|2|3, "event": "short-slug"}]}"""
+
+
+def classify_macro(items: list[CollectedItem]) -> tuple[dict[int, MacroLabel], float, str | None]:
+    """One scheduled, classifier-model request per macro unit; no retry."""
+    from app.services.intel_body import without_urls
+
+    content = "\n".join(
+        f"{i}\t{without_urls(item.title)}\t{without_urls(item.summary or '')[:500]}"
+        for i, item in enumerate(items)
+    )
+    try:
+        data, cost = openrouter_json(MACRO_PROMPT, content)
+        labels: dict[int, MacroLabel] = {}
+        for row in rows(data["labels"]):
+            idx = row.get("id")
+            label = macro_label(row)
+            if type(idx) is int and 0 <= idx < len(items) and label is not None:
+                labels[idx] = label
+        return labels, cost, None
+    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+        return {}, 0.0, classifier_error(exc)
