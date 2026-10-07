@@ -1,8 +1,8 @@
 """Owner-maintained holding relationship table (#681).
 
-A holding listed with an empty list has been reviewed and has no relations; a
-holding missing from the file has not been reviewed yet (the weekly name and
-relation check suggests entries for it).
+Only an explicit empty list ([]) means reviewed with no relations; an empty
+value is invalid. A holding missing from the file has not been reviewed yet
+(the weekly name and relation check suggests entries for it).
 """
 
 from __future__ import annotations
@@ -25,14 +25,21 @@ class Relation:
 
 
 def load_relations(path: Path | None = None) -> dict[str, list[Relation]]:
-    data = yaml.safe_load((path or _PATH).read_text(encoding="utf-8")) or {}
+    data = yaml.safe_load((path or _PATH).read_text(encoding="utf-8"))
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        raise ValueError("document must be a mapping")
     raw = data.get("relations")
     if not isinstance(raw, dict):
         raise ValueError("relations must be a mapping")
     result: dict[str, list[Relation]] = {}
     for identifier, entries in raw.items():
-        entries = entries or []
-        if not isinstance(entries, list) or len(entries) > MAX_RELATIONS:
+        if not isinstance(identifier, str) or not identifier.strip():
+            raise ValueError("identifier must be a string")
+        if not isinstance(entries, list):
+            raise ValueError(f"{identifier}: relations must be a list ([] = reviewed, none)")
+        if len(entries) > MAX_RELATIONS:
             raise ValueError(f"{identifier}: at most {MAX_RELATIONS} relations")
         relations = []
         for entry in entries:
@@ -49,5 +56,5 @@ def load_relations(path: Path | None = None) -> dict[str, list[Relation]]:
             ):
                 raise ValueError(f"{identifier}: invalid entry")
             relations.append(Relation(name.strip(), tuple(a.strip() for a in aliases), relation))
-        result[str(identifier)] = relations
+        result[identifier] = relations
     return result

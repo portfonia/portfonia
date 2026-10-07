@@ -769,8 +769,11 @@ cleaning strips `Co.,Ltd` without a space after the comma.
 
 **Relationship table.** `config/instrument_relations.yml`
 (`instrument_relations.load_relations`, validated each slot; at most 8 entries
-per holding; relation `supplier|customer|competitor|input`; an empty list means
-reviewed, a missing key means not reviewed). During collection, a non-filing
+per holding; relation `supplier|customer|competitor|input`; only an explicit `[]`
+means reviewed, a missing key means not reviewed). Schema violations raise
+`ValueError`: the document and `relations` must be mappings, identifiers must
+be nonblank strings, and values must be lists (including `[]`; an empty value,
+`false`, or `{}` is invalid), in addition to the entry and count checks (#683). During collection, a non-filing
 item that fails the holding's alias rule but names a related entity (title or
 summary) goes through the remaining rules (low-value, near-duplicate against
 direct and stored related titles), then `headline_cleaning.classify_related`:
@@ -812,7 +815,9 @@ the aliases (count >= 1) and related entities missing from the table
 (count >= 2), and asks for suggested aliases and relations for every universe
 instrument without a relation key. Results are stored in
 `intel_slot_runs.details.weekly_check` and rendered as Part 3 of that batch's
-report with ready-to-paste YAML. Nothing is written to configuration;
+report with ready-to-paste YAML. Suggested YAML is serialized with PyYAML,
+preserving name/alias strings, Unicode and ordering when parsed (#683).
+Nothing is written to configuration;
 suggestions are applied by an owner-requested PR. A failure appears in Part 3's
 Problems line and does not change the batch status.
 

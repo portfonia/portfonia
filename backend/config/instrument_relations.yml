@@ -7,7 +7,8 @@
 #   aliases:  match terms (same matcher as entity_aliases: CJK substring; Latin
 #             word match, case-sensitive for 4 characters or fewer)
 #   relation: supplier | customer | competitor | input
-# An empty list means "reviewed, no relations". A holding missing here gets a
+# Only [] means "reviewed, no relations"; an empty value is invalid.
+# A holding missing here gets a
 # suggestion in the weekly name and relation check (Sunday 07:30 ET batch).
 
 relations:
