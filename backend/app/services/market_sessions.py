@@ -13,7 +13,7 @@ import pandas as pd
 from app.services.email_sender import send_ops_alert as send_ops_alert
 
 logger = logging.getLogger(__name__)
-_warned_calendars: set[str] = set()
+_warned_keys: set[str] = set()
 
 _CALENDARS = {
     "US": "XNYS",
@@ -46,8 +46,14 @@ def _check_coverage(market: str | None, cal: _Calendar, instant: datetime) -> bo
     name = _CALENDARS[market or ""]
     last = cast(date, cal.schedule.index[-1].date())
     evaluated = instant.astimezone(UTC).date()
-    if (not covered or (last - evaluated).days <= 30) and name not in _warned_calendars:
-        _warned_calendars.add(name)
+    remaining = (last - evaluated).days
+    key = f"calendar-coverage-{name}-{last.isoformat()}"
+    if remaining < 0:
+        key += "-expired"
+    elif 1 <= remaining <= 5:
+        key += f"-{evaluated.isoformat()}"
+    if (not covered or remaining <= 30) and key not in _warned_keys:
+        _warned_keys.add(key)
         body = (
             f"The {name} calendar for {market} has loaded coverage ending on {last.isoformat()}. "
             f"The evaluated date is {evaluated.isoformat()}. Calendar coverage is outside "
@@ -56,11 +62,28 @@ def _check_coverage(market: str | None, cal: _Calendar, instant: datetime) -> bo
             "are unavailable. Bump exchange_calendars once a release covers the next year, "
             "then redeploy. No weekday approximation is used."
         )
+        if name == "XSHG":
+            body += (
+                " The China fund-NAV/ETF lag check and Sina/Tencent fallback in capture "
+                "(china_session_calendar, #389) also pause outside coverage; a stale primary "
+                "NAV would not be detected."
+            )
+        body += (
+            "\n\nMaintenance prompt for a Claude Code session:\n"
+            "In /Users/garyj/Portfonia: check PyPI for the newest exchange_calendars release "
+            "and confirm its XSHG calendar covers the next year (last_session after the current "
+            "coverage end). If none does yet, report that and stop. Otherwise create a worktree "
+            "on a new branch from origin/main, bump exchange_calendars in backend/requirements.txt, "
+            "run backend/app/tests/test_market_sessions.py and the china_session_calendar tests, "
+            "then the full gate (ruff format, ruff check, mypy, pytest -q), open a PR referencing "
+            "the calendar coverage alert, and stop. Merge and production deployment need the "
+            "product owner's explicit approval."
+        )
         logger.warning("%s", body)
         send_ops_alert(
             subject=f"[Portfonia] {name} calendar coverage ends {last.isoformat()}",
             body=body,
-            idempotency_key=f"calendar-coverage-{name}-{last.isoformat()}",
+            idempotency_key=key,
             severity="WARNING",
         )
     return covered

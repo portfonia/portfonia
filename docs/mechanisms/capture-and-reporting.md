@@ -1124,11 +1124,17 @@ layer** (per-user, incremental).
   and redeployment each year. An early-January gap can occur even with an
   immediate bump: the SSE announced 2026 holidays on 2025-12-22, and 4.12
   shipped that coverage on 2026-01-08.
-  A mapped calendar evaluated outside coverage, or within 30 days of its
-  last session, emits one WARNING and ops alert per calendar per process.
-  The alert key is `calendar-coverage-{calendar}-{last_session}` and the
-  alert names the affected market, coverage end, unavailable price outputs
-  and required bump/redeploy action. Unmapped markets remain silent;
+  A mapped calendar emits a WARNING and ops alert within 30 days of its
+  last session, using `calendar-coverage-{calendar}-{last_session}`. Each
+  of the last five UTC dates before that session instead uses a daily key
+  with `-{YYYY-MM-DD}` appended; after coverage ends the key ends in
+  `-expired`. Each key is emitted once per process and deduplicated across
+  processes by the existing Ops alert mechanism. The alert names the
+  affected market, coverage end, unavailable price outputs and required
+  bump/redeploy action, with a ready-to-paste Claude Code maintenance prompt.
+  For XSHG it also explains that the China fund-NAV/ETF lag check and
+  Sina/Tencent fallback pause outside coverage, leaving stale primary NAVs
+  undetected. Unmapped markets remain silent;
   out-of-coverage behavior remains unavailable. There is no date-dependent
   pytest guard requiring a package release before it exists.
   Global moves are keyed by `(identifier, declared holding market)` and read
