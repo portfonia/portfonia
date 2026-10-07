@@ -202,6 +202,7 @@ def test_05_weekday_counts_and_zero_theme(db_session: Session) -> None:
     assert w.theme_counts_development[fed_theme] == 2
     assert w.theme_counts_development[oil_theme] == 0
     assert all(u.theme != oil_theme for u in wave.call_args.args[0])
+    assert any(u.theme == fed_theme for u in wave.call_args.args[0])
     assert not select_units({}, {"empty": 0}, load_intel_deepen_config())
 
 
@@ -286,8 +287,9 @@ def test_08_event_scope(db_session: Session, same_call: bool, expected: int) -> 
     assert len(leads) == expected
 
 
-@pytest.mark.parametrize("same_url", [False, True])
-def test_08_cross_call_e1(db_session: Session, same_url: bool) -> None:
+@pytest.mark.parametrize("same_url", [False, True], ids=["different-url", "same-url"])
+@pytest.mark.parametrize("different_event", [False, True], ids=["same-event", "different-event"])
+def test_08_cross_call_e1(db_session: Session, same_url: bool, different_event: bool) -> None:
     items = [
         CollectedItem("Factory output expands", NOW, "https://one.example/a"),
         CollectedItem("Factory output expands!", NOW, "https://two.example/a"),
@@ -303,7 +305,13 @@ def test_08_cross_call_e1(db_session: Session, same_url: bool) -> None:
                 [],
                 load_intel_deepen_config(),
                 NOW,
-                macro_labels={0: label(), 1: label(call="other")},
+                macro_labels={
+                    0: label(),
+                    1: {
+                        **label(call="other"),
+                        "event": "other-event" if different_event else "event",
+                    },
+                },
             )
         )
         == 1
@@ -442,6 +450,7 @@ def test_d3_mixed_labels_only_classify_remainder(
     assert {x.title for x in classifier.call_args.args[0]} == {x.title for x in headlines[2:]}
     assert w.macro_rank_failed == failed and w.macro_rank_partial == partial
     assert headlines[1].title not in [lead.title for _, lead in batches]
+    assert {headline.title for headline in headlines[2:]} <= {lead.title for _, lead in batches}
     stored = next(lead for _, lead in batches if lead.title == headlines[0].title)
     assert stored.macro_label == label(call="call-0")
     for _, lead in batches:

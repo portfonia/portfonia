@@ -875,9 +875,12 @@ existing distinct-domain rule and `macro_links_per_theme` cap still apply to
 new extraction leads. A URL already selected in this batch is returned
 separately for linking and does not consume the later theme's extraction cap,
 including reused candidates encountered after that cap fills (G2 review fix).
-Before choosing new extraction leads, reused URLs claim their current-call event
-slugs; a same-slug sibling is skipped in either ranking order, even when its
-title is dissimilar (G3 review fix).
+Before choosing new extraction leads, reused URLs claim their `(event, label_call)`
+pairs; a sibling with the same pair is skipped in either ranking order, even
+when its title is dissimilar (G3 review fix). Across calls, identity uses
+`url_key` or near-duplicate title, not the event slug. Within a unit,
+`select_leads` drops URL-key or near-duplicate-title duplicates before they
+consume `macro_links_per_theme`.
 A unit with only reused leads records `linked_existing`; the batch email says
 it reused an article already extracted this batch, rather than claiming no news.
 Accepted articles store `type`, `importance`, `event` and the supplied
