@@ -895,6 +895,42 @@ events); a single source's opinion or a firm's outlook can support or counter
 that anchor, and can itself be the anchor only when no development is available.
 Compliance scans, layer-3 boundaries and continuity storage are unchanged.
 
+### Headline and body cleaning (issue #687)
+
+The shared low-value title rules reject `should you buy/sell/hold`, return
+projections matching `invested in ... worth`, and `biggest upside` rankings.
+They apply to direct collection, related-company links and the macro RSS pool.
+The related-entity classifier also drops stock opinion/thesis pieces, return
+projections and headlines whose only fact is the related entity's share-price
+performance. Its keep definition and JSON schema are unchanged; macro
+classification is unchanged.
+
+English paragraph detection additionally requires at most
+`body_cleaning.max_words_per_sentence` (80) words per sentence terminator.
+Terminators match `[.!?]["\u201d\u2019)]?(?=\s|$)`, including one closing
+quote or parenthesis; the divisor is at least one. The existing minimum word
+count and punctuation check still apply. CJK detection is unchanged. This
+removes a leading country selector even when its line ends with a punctuated
+form sentence, while keeping article paragraphs before the 2,000-character
+cap. A selector without remaining prose is rejected as `empty`.
+
+After a successful extraction passes `body_verdict`, identifier units match
+only the cleaned body against the existing public aliases (identifier fallback
+when no profile exists). The lead title cannot rescue a body extracted from
+another story. No match produces the per-unit `off_topic` rejection; macro
+units bypass this check. It adds no link for that unit and does not increment
+accepted counts or the provider's accepted URL set. Existing per-provider and
+per-unit rejected counts include `off_topic`, so the batch email needs no new
+section.
+
+An off-topic upsert inserts a rejected row with no record, or updates an
+existing non-accepted row. It never changes an accepted row or another unit's
+links. A later on-topic unit may accept the same URL and create its own link,
+regardless of processing order. Rejected rows remain eligible for later
+extraction under the existing accepted-only skip rule. There is no migration,
+stored-row reprocessing, report-path call, relation-table change or frontend
+change. Merge and deployment require separate owner approval.
+
 ### Intel deepening and paid usage
 
 Issue #639 applies the same pre-classifier earnings-recap rule and stale

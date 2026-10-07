@@ -36,6 +36,7 @@ paywall_markers: ["Subscribe to continue", "subscribers only", "Upgrade options"
 yahoo_nav_markers: ["Most active", "Day gainers", "Day losers", "Stock splits", "Oops, something went wrong", "Private companies", "Trending tickers"]
 body_cleaning:
   paragraph_min_words: 12
+  max_words_per_sentence: 80
   paragraph_min_cjk_chars: 30
   residue_line_patterns:
     - '^sign up now'

@@ -43,8 +43,12 @@ def strip_residue(text: str, cfg: DeepenConfig) -> str:
     rules = cfg.body_cleaning
 
     def is_para(line: str) -> bool:
-        english = len(line.split()) >= rules.paragraph_min_words and bool(
-            re.search(r'[.!?"\u201d\u2019)]$|\. ', line)
+        words = len(line.split())
+        terminators = len(re.findall(r'[.!?]["\u201d\u2019)]?(?=\s|$)', line))
+        english = (
+            words >= rules.paragraph_min_words
+            and bool(re.search(r'[.!?"\u201d\u2019)]$|\. ', line))
+            and words / max(1, terminators) <= rules.max_words_per_sentence
         )
         cjk = len(
             re.findall(r"[\u3400-\u9fff\uf900-\ufaff]", line)

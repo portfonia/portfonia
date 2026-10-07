@@ -205,7 +205,7 @@ def test_635_extract_fallback_retains_headline_outcome(worker: deepen.DeepenRun)
                         Decimal(1),
                         Decimal(".001"),
                         bodies={
-                            lead.url: "The company announced an agreement to build a new factory and expand manufacturing capacity. "
+                            lead.url: "AAA announced an agreement to build a new factory and expand manufacturing capacity. "
                             * 10
                         },
                     ),
@@ -231,8 +231,7 @@ def test_638_search_fallback_preserves_provider_attribution(
     a = Lead("https://fixture.example/a", "AAA agreement", NOW)
     b = Lead("https://fixture.example/b", "AAA factory", NOW)
     body = (
-        "The company announced an agreement to build a new factory and expand manufacturing capacity. "
-        * 10
+        "AAA announced an agreement to build a new factory and expand manufacturing capacity. " * 10
     )
     with (
         patch(
