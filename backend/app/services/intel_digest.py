@@ -60,7 +60,7 @@ DROPS = (
     ("Already collected in an earlier batch ....", ("duplicate_earlier",)),
     ("Same story as another headline, reworded .", ("duplicate", "duplicate_llm")),
     ("Stock picks, promotion, routine price recaps", ("low_value_rule", "promo_llm")),
-    ("Old news republished with a new date .....", ("stale_rule", "stale_llm", "undated")),
+    ("Search results with no publication date ..", ("undated",)),
     ("Not an article page ......................", ("non_article",)),
 )
 MARKETS = {"HK": "Hong Kong", "A-Share": "China A-share"}
@@ -218,11 +218,7 @@ def build_batch_report(
     deep = obj(slot.details.get("deepening"))
     for metric in obj(deep.get("metrics")).values():
         filtered = obj(obj(metric).get("search_filtered"))
-        for reason in ("stale_rule", "stale_llm", "stale_lookup_failed", "undated"):
-            cleaning[reason] += int(number(filtered.get(reason)))
-    for reason, raw in obj(deep.get("search_samples")).items():
-        if isinstance(raw, list):
-            samples.setdefault(reason, []).extend(str(v) for v in raw)
+        cleaning["undated"] += int(number(filtered.get("undated")))
     # Related-company candidates (#681) dropped by a rule count under the same reason.
     for reason in ("low_value_rule", "duplicate", "duplicate_earlier"):
         cleaning[reason] += cleaning["related_" + reason]
@@ -241,13 +237,6 @@ def build_batch_report(
         f"Kept: {cleaning['kept'] - cleaning['filings_stored']:g} headlines and {cleaning['filings_stored']:g} company filings ({inserted:g} of them new to the database).",
         *related_lines(cleaning),
         f"AI review: checked {classifier['items']:g} headlines in {classifier['batches']:g} calls, cost ${classifier['cost_usd']:.3f}, {classifier['failed_batches']:g} failed calls; {cleaning['stored_null_label']:g} kept without a label.",
-        *(
-            [
-                f"Earnings-date check failed for {cleaning['stale_lookup_failed']:,.0f} earnings-recap headlines; they were kept."
-            ]
-            if cleaning["stale_lookup_failed"]
-            else []
-        ),
         *problem_lines(free_errors),
         "",
         "PART 2 - PAID DEEPENING",

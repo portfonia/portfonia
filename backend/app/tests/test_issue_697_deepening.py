@@ -1,7 +1,6 @@
 """Issue #697 acceptance: dated search leads, body residue and search budget."""
 
 from collections.abc import Iterator
-from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -9,11 +8,13 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.timezones import ET
+from app.models.intel import InstrumentProfile
 from app.models.paid_intel import IntelArticle
+from app.services import headline_cleaning as hc
+from app.services import instrument_news_capture as capture
 from app.services import intel_deepen as deepen
-from app.services.headline_cleaning import EarningsCache, load_cleaning_config
 from app.services.instrument_news_sources import CollectedItem
+from app.services.instrument_universe import UniverseEntry
 from app.services.intel_body import body_verdict, clean_body
 from app.services.intel_deepen_config import load_intel_deepen_config
 from app.services.intel_digest import build_batch_report
@@ -21,6 +22,7 @@ from app.services.intel_leads import Lead
 from app.services.intel_selection import WorkUnit
 from app.services.paid_search import PaidResult
 from app.tests.test_intel_paid import slot
+from app.tests.test_issue_630_classifier import response
 from app.tests.test_issue_635_deepening import headline
 from app.tests.test_issue_635_deepening import worker as worker
 from app.tests.test_issue_635_report import collection
@@ -66,7 +68,7 @@ def no_external_calls() -> Iterator[None]:
     with (
         patch("httpx.Client.send", side_effect=AssertionError("HTTP must be mocked")),
         patch("httpx.AsyncClient.send", side_effect=AssertionError("HTTP must be mocked")),
-        patch.object(EarningsCache, "_dates", return_value=[]),
+        patch("yfinance.Ticker", side_effect=AssertionError("earnings lookup removed")),
     ):
         yield
 
@@ -140,33 +142,103 @@ def test_697_05_benzinga_section_menu_removed() -> None:
     assert cleaned == prose
 
 
-def test_697_06_digest_counts_undated_as_old_news(db_session: Session) -> None:
+def test_697_06_digest_counts_undated_without_earnings_rows(db_session: Session) -> None:
     run = slot(db_session)
-    collection(db_session, run, {"cleaning": {"stale_rule": 2, "stale_llm": 1}})
+    collection(
+        db_session, run, {"cleaning": {"stale_rule": 2, "stale_llm": 1, "stale_lookup_failed": 3}}
+    )
     run.details = {
         "deepening": {
             "metrics": {
                 "tavily": {"search_filtered": {"undated": 1, "stale_rule": 2}},
                 "parallel": {"search_filtered": {"undated": 3, "stale_llm": 1}},
-            }
+            },
+            "search_samples": {"stale_rule": ["Old earnings sample"]},
         }
     }
     body = build_batch_report(db_session, run)[1]
-    assert "Old news republished with a new date ..... 10" in body
+    assert "Search results with no publication date .. 4" in body
+    assert "Old news" not in body
+    assert "Earnings-date" not in body
+    assert "Old earnings sample" not in body
 
 
-def test_697_07_earnings_loom_preview_and_real_recap() -> None:
-    published = datetime(2026, 10, 6, 8, tzinfo=ET)
-    cache, cfg = EarningsCache(), load_cleaning_config()
-    item = CollectedItem("Samsung, SK Hynix shares drop as Q3 earnings loom", published, "")
-    last = published.date() - timedelta(days=30)
-    with patch.object(cache, "_dates", return_value=[last, published.date() + timedelta(days=16)]):
-        assert cache.stale_reason(item, "SKHY", cfg) is None
-    with patch.object(cache, "_dates", return_value=[last, published.date() + timedelta(days=60)]):
-        assert cache.stale_reason(item, "SKHY", cfg) == "stale_rule"
-    recap = CollectedItem("Q3 earnings beat estimates", published, "")
-    with patch.object(cache, "_dates", return_value=[last, published.date() + timedelta(days=16)]):
-        assert cache.stale_reason(recap, "SKHY", cfg) == "stale_rule"
+EARNINGS_TITLES = [
+    ("SKHY", "SK Hynix", "Samsung, SK Hynix shares drop as Q3 earnings loom"),
+    (
+        "AMKR",
+        "Amkor",
+        "Amkor Technology to Announce Third Quarter 2026 Financial Results on October 26, 2026",
+    ),
+]
+
+
+@pytest.mark.parametrize("identifier,alias,title", EARNINGS_TITLES, ids=["skhy", "amkor"])
+def test_697_07_collection_keeps_earnings_without_yfinance(
+    db_session: Session, identifier: str, alias: str, title: str
+) -> None:
+    from app.tests.test_intel_deepen_rules import NOW
+
+    item = CollectedItem(title, NOW, "https://fixture.example/earnings")
+    db_session.add(
+        InstrumentProfile(identifier=identifier, market="US", name_en=alias, aliases=[alias])
+    )
+    db_session.flush()
+    with (
+        patch("yfinance.Ticker", side_effect=AssertionError("earnings lookup removed")) as ticker,
+        patch.object(capture, "sources_for", return_value=[("yahoo", lambda: [item])]),
+        patch.object(capture, "classify_headlines", hc.classify_headlines),
+        patch("httpx.post", return_value=response([{"id": 0, "label": "keep", "recap": True}])),
+    ):
+        result = capture.collect_instrument_news(
+            db_session, UniverseEntry(identifier, identifier, "US"), NOW, hc.load_cleaning_config()
+        )
+    ticker.assert_not_called()
+    assert result.leads == [item]
+    assert item.label == "keep"
+    assert result.cleaning.get("kept") == 1
+
+
+@pytest.mark.parametrize("identifier,alias,title", EARNINGS_TITLES, ids=["skhy", "amkor"])
+def test_697_07_paid_search_keeps_earnings_without_yfinance(
+    worker: deepen.DeepenRun, identifier: str, alias: str, title: str
+) -> None:
+    worker.aliases[identifier] = [alias]
+    lead = Lead("https://fixture.example/earnings", title, worker.now)
+    with (
+        patch("yfinance.Ticker", side_effect=AssertionError("earnings lookup removed")) as ticker,
+        patch.object(
+            worker,
+            "_call",
+            return_value=("tavily", PaidResult(200, Decimal(1), Decimal(0), leads=[lead])),
+        ),
+        patch.object(deepen, "classify_headlines", hc.classify_headlines),
+        patch("httpx.post", return_value=response([{"id": 0, "label": "keep", "recap": True}])),
+    ):
+        provider, leads = worker._search_headline(
+            "tavily", WorkUnit("quiet", identifier), CollectedItem(title, worker.now, ""), set()
+        )
+    ticker.assert_not_called()
+    assert provider == "tavily" and leads == [lead]
+    assert worker.metrics[provider]["search_filtered"] == {}
+    assert "search_samples" not in worker.details()
+
+
+def test_697_07_classifier_ignores_recap_and_omits_earnings_prompt() -> None:
+    from app.tests.test_intel_deepen_rules import NOW
+
+    item = CollectedItem(EARNINGS_TITLES[0][2], NOW, "")
+    with patch(
+        "httpx.post", return_value=response([{"id": 0, "label": "keep", "recap": True}])
+    ) as post:
+        labels, _, error = hc.classify_headlines(
+            [item], "SKHY", ["SK Hynix"], recent_titles=["Earlier development"]
+        )
+    assert labels == {0: "keep"} and error is None
+    prompt = post.call_args.kwargs["json"]["messages"][0]["content"]
+    assert "recap =" not in prompt and '"recap":' not in prompt
+    assert "Batch date (ET)" not in prompt
+    assert '"label": "keep|mention|promo|unrelated", "duplicate_of": "e<k>" | int | null}' in prompt
 
 
 @pytest.mark.parametrize("first_resolves", [True, False], ids=["resolved", "unresolved"])

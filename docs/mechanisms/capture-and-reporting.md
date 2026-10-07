@@ -572,33 +572,21 @@ and `data_collection: deny`. Filings bypass classification. Failed or missing
 labels remain null; promo and unrelated labels are dropped. RSS pool items
 receive only the path and low-value-title rules and are never classified.
 
-Issue #639 adds an earnings-recap rule before the existing classifier. The
-configured title patterns in `intel_deepen.yml` trigger one cached yfinance
-`Ticker.get_earnings_dates` lookup per matching instrument per slot, using its
-Yahoo symbol. The latest earnings date on or before publication (ET) older than
-14 calendar days produces `stale_rule`. Missing dates or lookup errors retain
-the title and count `stale_lookup_failed`. The earnings-date rule does not add a classifier call.
+Issue #697 removes the earnings-date stale check introduced in #639 and refined
+in #653/#657. Free collection and paid search no longer look up earnings dates,
+classify recap status or drop headlines based on earnings previews/recaps. The
+classifier retains `keep|mention|promo|unrelated` and the existing `duplicate_of`
+behavior, and ignores an extra `recap` field in a response. The cached earnings
+lookup, its four configuration keys, stale counters/samples and lookup-failure
+report line are removed. The `lxml` requirement is removed because it had no
+remaining requirer or code import. No stored news or historical run stats are
+reprocessed.
 
-Issue #653 corrects two production defects in this rule. First, `lxml` is now a
-pinned dependency: `get_earnings_dates` scrapes Yahoo's earnings-calendar HTML
-page and parses its table with `pandas.read_html`, so without `lxml` every lookup
-failed and was counted as `stale_lookup_failed`. Second, the classifier no longer
-judges age. Its inputs are headlines from the last 48 hours and it has no search,
-so its `stale` label could only guess from training data (it dropped a current
-acquisition and kept headlines dated "in August"). The classifier now returns a
-text-only `recap` flag (the item reports or reacts to the company's own periodic
-results). For a `keep`/`mention` item with `recap=true` whose title did not
-already match the patterns, the same earnings-date check runs
-(`stale_reason(..., recap=True)` skips the pattern gate). If the item is more
-than 14 days old it is labelled `stale` and dropped as `stale_llm`; if the lookup
-fails it is kept and counted in `stale_lookup_failed`. The model's own `stale`
-label is no longer accepted. The batch report prints "Earnings-date check failed
-for N earnings-recap headlines; they were kept." whenever lookups failed in free
-collection or paid search.
-RSS pool cleaning is unchanged. The #635 digest merges both drop reasons from
-free and paid collection into one line, "Old news republished with a new date",
-with at most three sample titles. Instrument lookback and report late-ingestion
-allowance share `LATE_INGEST_WINDOW` (48 hours).
+Publication-date windows remain the recency boundary: instrument lookback and
+report late-ingestion allowance share `LATE_INGEST_WINDOW` (48 hours). Undated
+paid-search results are rejected before the window check and reported only as
+"Search results with no publication date". A republished article with a new
+in-window publication date remains eligible for the other rules and Pass 2.
 
 Issue #630 gathers all instrument sources before applying the rule chain and
 stably orders candidates by publication time, oldest first. The existing
@@ -728,18 +716,11 @@ invalid-key and quota/rate wording by matching only the status text before
 ` HTTP `, so those tokens inside a response excerpt cannot change the category.
 Other HTTP failures render as `request failed (HTTP <status>)`.
 
-Earnings-preview patterns in `intel_deepen.yml` run before the recap rule, even
-if the classifier marks the title as a recap. The cached dates for the linked
-instrument's Yahoo symbol supply the earliest earnings date on or after the
-ET publication date, including that same ET date even if earnings were earlier
-in the day. The first preview pattern allows at most four words between the cue
-and `earnings`, `results` or `EPS`, so a distant results mention after a product
-event cue does not turn the headline into a preview. A date within 21 calendar
-days keeps the preview; a later date drops it as `stale_rule`. No future date or a lookup failure keeps it and
-counts `stale_lookup_failed` once per headline. Filings bypass the earnings
-check; non-preview titles retain the #653 recap behavior and 14-day limit.
-Both collection and paid search avoid repeating a pre-classifier preview check.
-No classifier prompt change or additional lookup per symbol is introduced.
+Issue #697 removes #657's earnings-preview patterns and all earnings-date
+checking rather than narrowing the patterns. The SKHY earnings-loom headline
+and Amkor reporting-date announcement remain eligible when the other checks
+and classifier keep them. No yfinance earnings lookup is made by collection
+or paid search. Google News remains disabled by default.
 
 The Jaccard duplicate comparison reads stored titles back through
 `LATE_INGEST_WINDOW + near_duplicate_hours` (96 hours with current settings).
@@ -804,9 +785,8 @@ holding and a related entity of several holdings) take row locks in the same
 order and cannot deadlock (a real two-worker test covers this). Related items
 are stored with `news_instruments.relation` and
 `related_to` set (migration `d68100000001`; both NULL means a direct link;
-downgrade deletes related links). Related items skip earnings-date checks,
-never seed the direct chain's duplicate checks or EXISTING context, never
-reach paid leads, and are excluded from fresh/filing signals, news-spike
+downgrade deletes related links). Related items never seed the direct chain's
+duplicate checks or EXISTING context, never reach paid leads, and are excluded from fresh/filing signals, news-spike
 counts, `stored_headlines` and the agent pull API. An invalid relation file
 records `relations: <Exception>` and collection proceeds with direct
 headlines only.
@@ -952,15 +932,12 @@ run; unlabeled headlines remain available to the fallback paths.
 
 ### Headline and body cleaning (issue #687)
 
-Issue #697 extends the shared earnings-preview patterns with earnings/results
-followed by loom, approach, near (including configured inflections) or due.
-Previews use the next earnings date and the existing 21-day bound before recap
-rules run: the SKHY Q3 earnings-loom headline is kept with earnings 16 days ahead
-and rejected as `stale_rule` at 60 days. Real recaps remain subject to the
-14-day bound against the last earnings date. The batch report sums undated paid
-search drops with `stale_rule` and `stale_llm` under "Old news republished with
-a new date". No stored rows are reprocessed; macro selection, limits, URL
-removal and the 2,000-character body cap are unchanged.
+Issue #697 removes the #639/#653/#657 earnings-date stale mechanism, including
+the earlier proposed earnings-loom preview regex. Name, low-value and duplicate
+rules remain. Undated paid-search drops appear on their own "Search results
+with no publication date" row; the old-news and earnings-lookup-failure rows
+are removed. Macro selection, limits, URL removal and the 2,000-character body
+cap are unchanged.
 
 The shared low-value title rules reject `should you buy/sell/hold`, return
 projections matching `invested in ... worth`, and `biggest upside` rankings.
@@ -998,14 +975,14 @@ change. Merge and deployment require separate owner approval.
 
 ### Intel deepening and paid usage
 
-Issue #639 applies the same pre-classifier earnings-recap rule and stale
-check to paid-search results (since #653 the classifier's `recap` flag plus the
-earnings date, not a model `stale` label). Results without publication timestamps
-use the existing batch-time substitution (`lead.published_at or self.now`).
-`search_filtered` includes `stale_rule`, `stale_llm` and fail-open
-`stale_lookup_failed`; dropped-title samples feed the merged collection digest.
-The earnings-date cache is shared with free collection for the slot.
-
+Issue #697 removes #639/#653/#657's earnings-date stale steps from paid search
+and free collection. There is no shared earnings cache, `recap_is_stale` hook,
+`stale` label handling or stale-title sample collection. Dated results retain
+the existing publication window and remaining rule/classifier checks; undated
+results are counted per provider under `search_filtered.undated` and excluded.
+The digest sums only these paid-search counts on "Search results with no
+publication date". The classifier's batch-date parameter and prompt line are
+also removed: `git log -S` traces both solely to #639's stale judgment.
 
 Issue #621 extends the daily intelligence slots with rule-based paid deepening.
 `config/intel_deepen.yml` is validated and loaded afresh for each slot. The

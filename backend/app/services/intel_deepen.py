@@ -23,7 +23,6 @@ from app.models.news import News
 from app.models.paid_intel import IntelArticle, IntelArticleLink
 from app.services.headline_cleaning import (
     CleaningConfig,
-    EarningsCache,
     MacroLabel,
     block_reason,
     classify_headlines,
@@ -113,12 +112,7 @@ class DeepenRun:
         previous: datetime,
         universe: list[UniverseEntry],
         signals: dict[str, Signal],
-        *,
-        earnings_cache: EarningsCache | None = None,
     ) -> None:
-        self.earnings_cache = earnings_cache or EarningsCache()
-        self.symbols = {entry.identifier: entry.ticker for entry in universe}
-        self.search_samples: dict[str, list[str]] = {}
         self.run_id = run.id
         self.run_date = run.run_date
         self.slot = run.slot
@@ -411,49 +405,13 @@ class DeepenRun:
                         filtered = self.metrics[chosen]["search_filtered"]
                         filtered[reason] = filtered.get(reason, 0) + 1
                     continue
-                stale = self.earnings_cache.stale_reason(
-                    item, self.symbols.get(unit.identifier, unit.identifier), self.cleaning
-                )
-                if stale:
-                    with self.lock:
-                        filtered = self.metrics[chosen]["search_filtered"]
-                        filtered[stale] = filtered.get(stale, 0) + 1
-                        if stale == "stale_rule":
-                            samples = self.search_samples.setdefault(stale, [])
-                            if len(samples) < 3:
-                                samples.append(item.title)
-                    if stale == "stale_rule":
-                        continue
                 survivors.append((lead, item))
             if survivors:
                 items = [item for _, item in survivors]
-                symbol = self.symbols.get(unit.identifier, unit.identifier)
-
-                def recap_is_stale(
-                    item: CollectedItem,
-                    symbol: str = symbol,
-                    provider: str = chosen,
-                    cleaning: CleaningConfig = self.cleaning,
-                ) -> bool:
-                    # A title matching the earnings or preview patterns was already checked above.
-                    if any(
-                        p.search(item.title)
-                        for p in cleaning.earnings_patterns + cleaning.preview_patterns
-                    ):
-                        return False
-                    reason = self.earnings_cache.stale_reason(item, symbol, cleaning, recap=True)
-                    if reason == "stale_lookup_failed":
-                        with self.lock:
-                            filtered = self.metrics[provider]["search_filtered"]
-                            filtered[reason] = filtered.get(reason, 0) + 1
-                    return reason == "stale_rule"
-
                 labels, cost, failed = classify_headlines(
                     items,
                     unit.identifier,
                     aliases,
-                    batch_date=self.now.astimezone(ET).date(),
-                    recap_is_stale=recap_is_stale,
                 )
                 with self.lock:
                     self.metrics[chosen]["search_classifier_cost_usd"] = (
@@ -481,16 +439,11 @@ class DeepenRun:
                             else {
                                 "promo": "promo_llm",
                                 "unrelated": "unrelated_llm",
-                                "stale": "stale_llm",
                             }.get(label, "unlabeled_llm")
                         )
                         with self.lock:
                             filtered = self.metrics[chosen]["search_filtered"]
                             filtered[reason] = filtered.get(reason, 0) + 1
-                            if reason == "stale_llm":
-                                samples = self.search_samples.setdefault(reason, [])
-                                if len(samples) < 3:
-                                    samples.append(_item.title)
                     leads = kept
             else:
                 leads = []
@@ -920,7 +873,6 @@ class DeepenRun:
             "macro_rank_partial": self.macro_rank_partial,
             "macro_classifier_cost_usd": self.macro_classifier_cost_usd,
             "outcomes": self.outcomes,
-            "search_samples": self.search_samples,
             "selections": [
                 {
                     **asdict(u),
