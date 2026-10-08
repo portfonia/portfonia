@@ -97,17 +97,19 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Construct forwarded headers only after getUser has refreshed request cookies.
+  // Next snapshots forwarded headers when constructing next/rewrite responses.
+  // Finish URL-derived mutations after session refresh and before construction.
   const headers = new Headers(request.headers);
   headers.delete(ROUTE_LOCALE_HEADER);
+  const { locale: routeLocale, path } = splitLocalePrefix(pathname);
+  if (routeLocale) headers.set(ROUTE_LOCALE_HEADER, routeLocale);
+  else if (isSeoPath(path)) headers.set(ROUTE_LOCALE_HEADER, "en");
   const refreshedCookies = response.cookies.getAll();
   response = NextResponse.next({ request: { headers } });
   refreshedCookies.forEach((cookie) => response.cookies.set(cookie));
   Object.entries(refreshHeaders).forEach(([key, value]) => response.headers.set(key, value));
 
-  const { locale: routeLocale, path } = splitLocalePrefix(pathname);
   if (routeLocale) {
-    headers.set(ROUTE_LOCALE_HEADER, routeLocale);
     const url = request.nextUrl.clone();
     url.pathname = path;
     const localizedResponse = isSeoPath(path)

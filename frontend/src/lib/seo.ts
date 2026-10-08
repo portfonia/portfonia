@@ -9,6 +9,7 @@ export const SEO_PAGES = {
   privacy: "/privacy", terms: "/terms", refund: "/refund",
 } as const;
 export type SeoPageKey = keyof typeof SEO_PAGES;
+// Shared segment-cache keys require dynamic pages, staleTimes.dynamic = 0, and no cacheComponents/PPR to avoid cross-locale reuse.
 export const ROUTE_LOCALE_HEADER = "x-portfonia-locale";
 export const PROTECTED_PATH_PREFIXES = ["/holdings", "/portfolio", "/profile", "/questionnaire", "/reports", "/welcome"];
 export const HREFLANG: Record<Locale, string[]> = {

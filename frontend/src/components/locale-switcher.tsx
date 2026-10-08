@@ -41,7 +41,7 @@ function Flag({ locale }: { locale: Locale }) {
 
 export function LocaleSwitcher() {
   const tMenu = useTranslations("menu");
-  const { locale, setLocale } = useLocale();
+  const { locale, setLocale, rememberLocale } = useLocale();
   const pathname = usePathname();
   const { path } = splitLocalePrefix(typeof window === "undefined" ? pathname : window.location.pathname);
   const seoPage = isSeoPath(path);
@@ -65,7 +65,7 @@ export function LocaleSwitcher() {
       }
     >
       {LOCALES.map((l) => seoPage ? (
-        <MenuItemLink key={l.value} nativeAnchor href={localizedPath(path, l.value) + suffix} onClick={() => setLocale(l.value)}>
+        <MenuItemLink key={l.value} nativeAnchor href={localizedPath(path, l.value) + suffix} onClick={() => rememberLocale(l.value)}>
           <Flag locale={l.value} />
           {l.label}
         </MenuItemLink>

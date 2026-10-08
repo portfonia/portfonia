@@ -8,7 +8,7 @@ import { useLocale } from "./locale-provider";
 
 export function LanguageLinks() {
   const pathname = usePathname();
-  const { locale, setLocale } = useLocale();
+  const { locale, rememberLocale } = useLocale();
   const { path } = splitLocalePrefix(typeof window === "undefined" ? pathname : window.location.pathname);
   if (!isSeoPath(path)) return null;
 
@@ -19,7 +19,7 @@ export function LanguageLinks() {
         {option.value === locale ? (
         <span aria-current="page">{option.label}</span>
       ) : (
-        <a href={localizedPath(path, option.value)} onClick={() => setLocale(option.value)} className="underline underline-offset-2">
+        <a href={localizedPath(path, option.value)} onClick={() => rememberLocale(option.value)} className="underline underline-offset-2">
           {option.label}
         </a>
       )}

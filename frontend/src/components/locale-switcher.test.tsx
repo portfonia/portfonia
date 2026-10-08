@@ -1,6 +1,9 @@
 import { createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const navigation = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: navigation.push }), usePathname: () => "/" }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import { LocaleSwitcher } from "./locale-switcher";
@@ -61,6 +64,7 @@ describe("issue #702 native language navigation", () => {
   const storageDescriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
   const stored = new Map<string, string>();
   beforeEach(() => {
+    navigation.push.mockClear();
     stored.clear();
     Object.defineProperty(window, "localStorage", { configurable: true, value: { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => stored.set(key, value) } });
     window.history.replaceState(null, "", "/zh-Hans/pricing?x=1#plans");
@@ -80,6 +84,7 @@ describe("issue #702 native language navigation", () => {
     fireEvent(en, event);
     expect(event.defaultPrevented).toBe(false);
     expect(stored.get("portfonia:locale")).toBe("en");
+    expect(navigation.push).not.toHaveBeenCalled();
   });
   it("keeps button options on a non-SEO page", async () => {
     window.history.replaceState(null, "", "/portfolio");

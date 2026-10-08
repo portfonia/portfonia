@@ -487,6 +487,9 @@ the root layout and SEO pages use it to resolve the proxy locale header.
 
 Proxy removes client-supplied locale headers on every request and constructs
 forwarded headers after session refresh, retaining refreshed request cookies.
+It sets `en` on unprefixed SEO paths, Chinese on prefixed paths, and no locale
+header on other unprefixed paths. All header mutations precede response
+construction, including RSC flight and waitlist server-action requests.
 Proxy rewrites Chinese SEO URLs to the unprefixed route and forwards
 `x-portfonia-locale`. Chinese unknown paths also forward that header without
 rewriting or redirecting. Both branches preserve refreshed session cookies
@@ -499,15 +502,21 @@ Malformed escapes remain unprotected for Next to handle. The existing `/api/` be
 
 The async root layout renders the URL locale in `<html lang>` and initializes
 `LocaleProvider` with it. Reading headers makes page rendering dynamic.
-Unprefixed app/auth pages retain #209's English-first storage restore.
+Unprefixed SEO pages always display English without reading or overwriting
+a stored Chinese preference. Chinese route mounts persist their locale.
+App/auth pages retain #209's English-first storage restore.
 Public-page links preserve locale. A visible, server-rendered `LanguageLinks`
 row ends all seven SEO pages; its current locale is unlinked and marked
 `aria-current="page"`. Cross-locale links use native anchors. The header
 switcher also uses native anchors on SEO pages, preserving query and hash,
 and retains buttons on other pages. Anchor clicks persist the selected locale
-without preventing the full document load. After mount, pathname changes and `popstate` synchronize
-SEO-page state from `window.location.pathname`; non-SEO state is unchanged.
-Initial unprefixed-page storage restore is deliberately preserved.
+through `rememberLocale`, without navigation or preventing the full document
+load. `setLocale` also changes only state and storage. After mount, pathname
+changes, `popstate` and `routeLocale` prop changes synchronize SEO-page state
+from `window.location.pathname`; non-SEO pages restore the stored preference.
+The document-language effect depends on both locale and route locale. The
+shared segment-cache keys remain safe while pages render dynamically with
+`staleTimes.dynamic = 0` and without `cacheComponents`/PPR.
 
 Each SEO page emits catalog title/description, absolute canonical and ten
 language alternates (`en`, `zh-Hans`, `zh-CN`, `zh-SG`, `zh`, `zh-Hant`, `zh-TW`, `zh-HK`, `zh-MO`,

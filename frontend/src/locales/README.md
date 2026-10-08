@@ -51,7 +51,10 @@ English is unprefixed; Simplified and Traditional Chinese use `/zh-Hans`
 and `/zh-Hant`. Proxy rewrites these URLs to the existing page routes and
 forwards `x-portfonia-locale`; the root layout and page metadata read it
 through `lib/seo-server.ts`. The provider initializes from that route locale,
-so the initial HTML and `<html lang>` match the Chinese URL. The shared
+so the initial HTML and `<html lang>` match the URL. Unprefixed SEO paths
+receive `en`; those pages ignore storage without overwriting it. Chinese
+route mounts store their locale; non-SEO mounts restore the stored preference.
+The shared
 `lib/seo.ts` URL helpers contain no server-only API imports.
 
 A prefixed unknown URL passes through without rewriting or redirecting, but
@@ -59,11 +62,13 @@ keeps its locale header for the localized 404. Public links retain the current
 locale. Each public SEO page ends with a visible, server-rendered language
 row using native anchors; the current language is unlinked. The header menu
 also uses native anchors on SEO pages, preserving query and hash. Clicks
-persist the locale without preventing a full document load. Other pages keep
+use `rememberLocale` to persist the locale and update state without any
+client navigation or preventing a full document load. Other pages keep
 the existing language buttons. After the initial mount, pathname changes and browser Back/
-Forward synchronize SEO-page state from the real browser URL; app/auth
-navigation leaves locale state unchanged. Initial unprefixed-page storage
-restore remains unchanged, and there is no automatic locale redirect.
+Forward and route-locale prop changes synchronize SEO-page state from the
+real browser URL; app/auth navigation restores the stored preference. Both
+`setLocale` and `rememberLocale` update only state and storage. There is no
+automatic locale redirect.
 
 The new `seo`, `about`, and `notFound` namespaces provide metadata, sample
 image text, the product description, and the 404 in all three catalogs.

@@ -283,7 +283,7 @@ describe("issue #702 follow-up header and path boundaries", () => {
     getUser.mockResolvedValue({ data: { user: null } });
     expect((await proxy(new NextRequest(`https://portfonia.com${path}`))).headers.get("location")).toBeNull();
   });
-  it.each([["/pricing", null], ["/login", null], ["/api/holdings", null], ["/zh-Hant/pricing", "zh-Hant"]])("trusts only the URL locale on %s and forwards the refreshed cookie", async (path, expected) => {
+  it.each([["/pricing", "en"], ["/login", null], ["/api/holdings", null], ["/zh-Hant/pricing", "zh-Hant"]])("trusts only the URL locale on %s and forwards the refreshed cookie", async (path, expected) => {
     getUser.mockResolvedValue({ data: { user: AUTHED_USER } });
     getSession.mockResolvedValue({ data: { session: { access_token: ACCESS_TOKEN } } });
     const res = await proxy(new NextRequest(`https://portfonia.com${path}`, { headers: { "x-portfonia-locale": "zh-Hans" } }));
@@ -291,6 +291,24 @@ describe("issue #702 follow-up header and path boundaries", () => {
     const keys = res.headers.get("x-middleware-override-headers")?.split(",") ?? [];
     if (expected) expect(keys).toContain("x-portfonia-locale"); else expect(keys).not.toContain("x-portfonia-locale");
     expect(res.headers.get("x-middleware-request-cookie")).toContain("sb-refreshed-session=new-token-value");
+    expect(res.cookies.get("sb-refreshed-session")?.value).toBe("new-token-value");
+    for (const [key, value] of Object.entries(REFRESH_HEADERS)) expect(res.headers.get(key)).toBe(value);
+  });
+});
+
+
+describe("7i locale headers on returned responses", () => {
+  it.each([
+    ["/pricing", "GET", {}, "en"],
+    ["/pricing/", "GET", {}, "en"],
+    ["/pricing?_rsc=x", "GET", { RSC: "1" }, "en"],
+    ["/waitlist", "POST", { "Next-Action": "action-id" }, "en"],
+    ["/zh-Hans/waitlist", "GET", {}, "zh-Hans"],
+    ["/login", "GET", {}, null],
+  ] as const)("forwards URL locale for %s %s", async (path, method, headers, expected) => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    const res = await proxy(new NextRequest(`https://portfonia.com${path}`, { method, headers: { ...headers, "x-portfonia-locale": "zh-Hant" } }));
+    expect(res.headers.get("x-middleware-request-x-portfonia-locale")).toBe(expected);
     expect(res.cookies.get("sb-refreshed-session")?.value).toBe("new-token-value");
     for (const [key, value] of Object.entries(REFRESH_HEADERS)) expect(res.headers.get(key)).toBe(value);
   });

@@ -1,7 +1,7 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { isSeoPath, localizedPath, splitLocalePrefix } from "@/lib/seo";
 import { NextIntlClientProvider, useTranslations } from "next-intl";
 
@@ -17,24 +17,20 @@ const LEGACY_ZH_VALUE = "zh";
 const LocaleContext = createContext<{
   locale: Locale;
   setLocale: (locale: Locale) => void;
+  rememberLocale: (locale: Locale) => void;
 } | null>(null);
 
 export function LocaleProvider({ children, routeLocale }: { children: React.ReactNode; routeLocale: Locale | null }) {
   const [locale, setLocaleState] = useState<Locale>(routeLocale ?? DEFAULT_LOCALE);
-  const router = useRouter();
   const pathname = usePathname();
-  const previousPathname = useRef(pathname);
+  const previousRoute = useRef({ pathname, routeLocale });
+  const initialRouteLocale = useRef(routeLocale);
 
-  useEffect(() => {
-    // URL locales match SSR; unprefixed routes restore storage after hydration.
+  const restoreStoredLocale = useCallback(() => {
     try {
-      if (routeLocale) {
-        window.localStorage.setItem(STORAGE_KEY, routeLocale);
-        return;
-      }
       const stored = window.localStorage.getItem(STORAGE_KEY);
       if (stored === LEGACY_ZH_VALUE) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
+
         setLocaleState("zh-Hans");
         // blacktomb42 round-2 review (PR #226, non-blocking): rewrite the
         // stored value too, not just the in-memory state — otherwise every
@@ -48,28 +44,43 @@ export function LocaleProvider({ children, routeLocale }: { children: React.Reac
       // Storage inaccessible (private browsing, blocked, quota) — fall
       // back to the default already set; nothing to restore.
     }
-  }, [routeLocale]);
+  }, []);
+
+  useEffect(() => {
+    const initial = initialRouteLocale.current;
+    if (initial === "en") return;
+    if (initial === null) {
+      restoreStoredLocale();
+      return;
+    }
+    try {
+      window.localStorage.setItem(STORAGE_KEY, initial);
+    } catch {
+      // URL locale remains authoritative when storage is unavailable.
+    }
+  }, [restoreStoredLocale]);
 
   useEffect(() => {
     // Keep the real document language aligned with both URL and stored preferences.
     document.documentElement.lang = locale;
-  }, [locale]);
+  }, [locale, routeLocale]);
 
   useEffect(() => {
     function syncUrlLocale() {
       const { locale: prefix, path } = splitLocalePrefix(window.location.pathname);
       if (isSeoPath(path)) setLocaleState(prefix ?? DEFAULT_LOCALE);
+      else restoreStoredLocale();
     }
-    // The first mount keeps the existing unprefixed-page storage restore.
-    if (previousPathname.current !== pathname) {
-      previousPathname.current = pathname;
+    // Initial state and storage policy are handled by the mount effect.
+    if (previousRoute.current.pathname !== pathname || previousRoute.current.routeLocale !== routeLocale) {
+      previousRoute.current = { pathname, routeLocale };
       syncUrlLocale();
     }
     window.addEventListener("popstate", syncUrlLocale);
     return () => window.removeEventListener("popstate", syncUrlLocale);
-  }, [pathname]);
+  }, [pathname, routeLocale, restoreStoredLocale]);
 
-  function setLocale(next: Locale) {
+  function rememberLocale(next: Locale) {
     setLocaleState(next);
     try {
       window.localStorage.setItem(STORAGE_KEY, next);
@@ -77,12 +88,10 @@ export function LocaleProvider({ children, routeLocale }: { children: React.Reac
       // Persistence best-effort only — the toggle still works for this
       // session even if it can't be saved.
     }
-    const { path } = splitLocalePrefix(window.location.pathname);
-    if (isSeoPath(path)) router.push(localizedPath(path, next) + window.location.search + window.location.hash);
   }
 
   return (
-    <LocaleContext.Provider value={{ locale, setLocale }}>
+    <LocaleContext.Provider value={{ locale, setLocale: rememberLocale, rememberLocale }}>
       {/* Project-wide ET default; also silences next-intl's ENVIRONMENT_FALLBACK during prerender. */}
       <NextIntlClientProvider locale={locale} messages={catalogs[locale]} timeZone="America/New_York">
         {children}
