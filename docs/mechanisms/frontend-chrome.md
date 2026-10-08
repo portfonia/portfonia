@@ -485,28 +485,39 @@ URL helpers, protected prefixes, language alternates, and metadata builders.
 It is safe for client imports. Only `lib/seo-server.ts` reads `next/headers`;
 the root layout and SEO pages use it to resolve the proxy locale header.
 
+Proxy removes client-supplied locale headers on every request and constructs
+forwarded headers after session refresh, retaining refreshed request cookies.
 Proxy rewrites Chinese SEO URLs to the unprefixed route and forwards
 `x-portfonia-locale`. Chinese unknown paths also forward that header without
 rewriting or redirecting. Both branches preserve refreshed session cookies
 and the cache-prevention headers supplied by Supabase. Only `/holdings`,
 `/portfolio`, `/profile`, `/questionnaire`, `/reports`, `/welcome`, and their
 subpaths redirect anonymous visitors to `/login`; unknown URLs reach the
-localized Next 404. The existing `/api/` bearer injection is unchanged.
+localized Next 404. Protected-path checks decode once and collapse repeated
+slashes, match whole path segments, and do not resolve decoded dot segments.
+Malformed escapes remain unprotected for Next to handle. The existing `/api/` bearer injection is unchanged.
 
 The async root layout renders the URL locale in `<html lang>` and initializes
 `LocaleProvider` with it. Reading headers makes page rendering dynamic.
 Unprefixed app/auth pages retain #209's English-first storage restore.
-Public-page links preserve locale; the switcher changes SEO URLs with query
-and hash intact. After mount, pathname changes and `popstate` synchronize
+Public-page links preserve locale. A visible, server-rendered `LanguageLinks`
+row ends all seven SEO pages; its current locale is unlinked and marked
+`aria-current="page"`. Cross-locale links use native anchors. The header
+switcher also uses native anchors on SEO pages, preserving query and hash,
+and retains buttons on other pages. Anchor clicks persist the selected locale
+without preventing the full document load. After mount, pathname changes and `popstate` synchronize
 SEO-page state from `window.location.pathname`; non-SEO state is unchanged.
 Initial unprefixed-page storage restore is deliberately preserved.
 
-Each SEO page emits catalog title/description, absolute canonical and eight
-language alternates (`en`, `zh-CN`, `zh-SG`, `zh`, `zh-TW`, `zh-HK`, `zh-MO`,
+Each SEO page emits catalog title/description, absolute canonical and ten
+language alternates (`en`, `zh-Hans`, `zh-CN`, `zh-SG`, `zh`, `zh-Hant`, `zh-TW`, `zh-HK`, `zh-MO`,
 `x-default`), complete Open Graph metadata and a large-image Twitter card.
-`robots.ts` allows public URLs, disallows protected/auth flows and names the
+`robots.ts` allows public URLs, disallows protected routes, `/api/` and `/agent/revoke` and names the
 sitemap. `sitemap.ts` lists 21 localized URLs with the same alternates and no
-invented modification dates. The home page contains Organization and
+invented modification dates. The six auth-flow pages remain crawlable but
+export shared `NOINDEX_METADATA` (`index: false`, `follow: true`), with no
+canonical/hreflang and no sitemap entries. The home page contains WebSite,
+Organization and
 SoftwareApplication JSON-LD, with `<` escaped as literal `\u003c`, without
 prices, ratings or reviews.
 

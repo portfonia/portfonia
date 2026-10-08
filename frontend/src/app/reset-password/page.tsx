@@ -1,3 +1,6 @@
+import type { Metadata } from "next";
+import { NOINDEX_METADATA } from "@/lib/seo";
+
 import { ResetPasswordHeading } from "./reset-password-heading";
 import { ResetPasswordForm } from "./reset-password-form";
 
@@ -9,3 +12,5 @@ export default function ResetPasswordPage() {
     </main>
   );
 }
+
+export const metadata: Metadata = { ...NOINDEX_METADATA };

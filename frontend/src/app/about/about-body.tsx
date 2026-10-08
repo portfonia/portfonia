@@ -1,4 +1,5 @@
 "use client";
+import { LanguageLinks } from "../_components/language-links";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useLocalizedHref } from "../_components/locale-provider";
@@ -18,5 +19,6 @@ export function AboutBody() {
       <Link href={href("/waitlist")} className="underline">{t("cta.waitlist")}</Link>
       <Link href={href("/pricing")} className="underline">{t("cta.pricing")}</Link>
     </nav>
+      <LanguageLinks />
   </main>;
 }

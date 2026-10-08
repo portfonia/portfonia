@@ -8,6 +8,7 @@ import { HomeSections } from "./_components/home-sections";
 export default async function HomePage() {
   const locale = (await getRouteLocale()) ?? "en";
   const data = [
+    { "@context": "https://schema.org", "@type": "WebSite", name: "Portfonia", url: SITE_URL },
     { "@context": "https://schema.org", "@type": "Organization", name: "Portfonia", url: SITE_URL },
     { "@context": "https://schema.org", "@type": "SoftwareApplication", name: "Portfonia", applicationCategory: "FinanceApplication", operatingSystem: "Web", url: SITE_URL + localizedPath("/", locale), inLanguage: locale, description: catalogs[locale].seo.pages.home.description },
   ];

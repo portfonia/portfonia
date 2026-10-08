@@ -30,7 +30,14 @@ import { supabasePublicEnv } from "@/lib/supabase/env";
 //    lib/server-api.ts.
 
 function isProtectedPath(pathname: string): boolean {
-  return PROTECTED_PATH_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  let path: string;
+  try {
+    // Decode once, collapse separators, and preserve decoded dot segments.
+    path = decodeURIComponent(pathname).replace(/\/+/g, "/");
+  } catch {
+    return false;
+  }
+  return PROTECTED_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
 
 // blacktomb42 review, PR #506: next.config.ts sets no `trailingSlash`
@@ -45,6 +52,7 @@ function stripTrailingSlash(pathname: string): string {
 }
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
+  request.headers.delete(ROUTE_LOCALE_HEADER);
   const pathname = stripTrailingSlash(request.nextUrl.pathname);
 
   let response = NextResponse.next({ request });
@@ -89,9 +97,16 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Construct forwarded headers only after getUser has refreshed request cookies.
+  const headers = new Headers(request.headers);
+  headers.delete(ROUTE_LOCALE_HEADER);
+  const refreshedCookies = response.cookies.getAll();
+  response = NextResponse.next({ request: { headers } });
+  refreshedCookies.forEach((cookie) => response.cookies.set(cookie));
+  Object.entries(refreshHeaders).forEach(([key, value]) => response.headers.set(key, value));
+
   const { locale: routeLocale, path } = splitLocalePrefix(pathname);
   if (routeLocale) {
-    const headers = new Headers(request.headers);
     headers.set(ROUTE_LOCALE_HEADER, routeLocale);
     const url = request.nextUrl.clone();
     url.pathname = path;

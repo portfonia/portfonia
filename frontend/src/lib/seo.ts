@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { catalogs, type Locale } from "@/locales";
 
+export const NOINDEX_METADATA: Metadata = { robots: { index: false, follow: true } };
+
 export const SITE_URL = "https://portfonia.com";
 export const SEO_PAGES = {
   home: "/", about: "/about", pricing: "/pricing", waitlist: "/waitlist",
@@ -10,7 +12,7 @@ export type SeoPageKey = keyof typeof SEO_PAGES;
 export const ROUTE_LOCALE_HEADER = "x-portfonia-locale";
 export const PROTECTED_PATH_PREFIXES = ["/holdings", "/portfolio", "/profile", "/questionnaire", "/reports", "/welcome"];
 export const HREFLANG: Record<Locale, string[]> = {
-  en: ["en"], "zh-Hans": ["zh-CN", "zh-SG", "zh"], "zh-Hant": ["zh-TW", "zh-HK", "zh-MO"],
+  en: ["en"], "zh-Hans": ["zh-Hans", "zh-CN", "zh-SG", "zh"], "zh-Hant": ["zh-Hant", "zh-TW", "zh-HK", "zh-MO"],
 };
 export const OG_LOCALE: Record<Locale, string> = { en: "en_US", "zh-Hans": "zh_CN", "zh-Hant": "zh_TW" };
 

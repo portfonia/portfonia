@@ -50,15 +50,20 @@ export function MenuDropdown({
 export function MenuItemLink({
   href,
   children,
+  nativeAnchor = false,
+  onClick,
 }: {
   href: string;
   children: React.ReactNode;
+  nativeAnchor?: boolean;
+  onClick?: React.MouseEventHandler<HTMLAnchorElement>;
 }) {
   return (
     <Menu.LinkItem
       href={href}
       closeOnClick
-      render={<Link href={href} />}
+      render={nativeAnchor ? <a href={href} /> : <Link href={href} />}
+      onClick={onClick}
       className="flex items-center gap-2 rounded-md px-3 py-2 text-sm outline-none data-[highlighted]:bg-muted data-[highlighted]:text-foreground"
     >
       {children}

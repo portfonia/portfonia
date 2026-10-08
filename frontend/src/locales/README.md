@@ -56,8 +56,11 @@ so the initial HTML and `<html lang>` match the Chinese URL. The shared
 
 A prefixed unknown URL passes through without rewriting or redirecting, but
 keeps its locale header for the localized 404. Public links retain the current
-locale. Switching language on a public SEO page changes its URL, preserving
-query and hash. After the initial mount, pathname changes and browser Back/
+locale. Each public SEO page ends with a visible, server-rendered language
+row using native anchors; the current language is unlinked. The header menu
+also uses native anchors on SEO pages, preserving query and hash. Clicks
+persist the locale without preventing a full document load. Other pages keep
+the existing language buttons. After the initial mount, pathname changes and browser Back/
 Forward synchronize SEO-page state from the real browser URL; app/auth
 navigation leaves locale state unchanged. Initial unprefixed-page storage
 restore remains unchanged, and there is no automatic locale redirect.

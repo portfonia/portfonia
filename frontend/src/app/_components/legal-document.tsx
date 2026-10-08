@@ -1,5 +1,6 @@
 "use client";
 
+import { LanguageLinks } from "./language-links";
 import Link from "next/link";
 
 import { useLegalMessages, useLocalizedHref } from "./locale-provider";
@@ -54,6 +55,7 @@ export function LegalDocument({ doc }: { doc: LegalDocKey }) {
           </Link>
         ))}
       </nav>
+      <LanguageLinks />
     </main>
   );
 }

@@ -651,3 +651,9 @@ it.each(LOCALES)("issue #702 shows the %s product image before the sample report
     expect(container.querySelector(`a[href="${prefix}/${path}"]`), path).not.toBeNull();
   }
 });
+
+
+it("renders crawlable language choices inside the home footer", () => {
+  const { container } = render(<LocaleProvider routeLocale="zh-Hans"><HomeSections /></LocaleProvider>);
+  expect(container.querySelector('footer a[href="/zh-Hant"]')).not.toBeNull();
+});

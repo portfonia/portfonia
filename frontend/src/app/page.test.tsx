@@ -12,6 +12,7 @@ it("publishes localized metadata and escaped JSON-LD before the home content", a
   const script = container.querySelector('script[type="application/ld+json"]');
   expect(script).not.toBeNull();
   expect(JSON.parse(script?.textContent ?? "")).toEqual([
+    { "@context": "https://schema.org", "@type": "WebSite", name: "Portfonia", url: "https://portfonia.com" },
     { "@context": "https://schema.org", "@type": "Organization", name: "Portfonia", url: "https://portfonia.com" },
     { "@context": "https://schema.org", "@type": "SoftwareApplication", name: "Portfonia", applicationCategory: "FinanceApplication", operatingSystem: "Web", url: "https://portfonia.com/zh-Hant", inLanguage: "zh-Hant", description: catalogs["zh-Hant"].seo.pages.home.description },
   ]);

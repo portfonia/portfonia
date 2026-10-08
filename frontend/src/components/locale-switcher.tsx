@@ -10,9 +10,11 @@
 // so a plain "🇺🇸" text glyph was never on the table as an alternative here.
 import "flag-icons/css/flag-icons.css";
 import { ChevronDown } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { isSeoPath, localizedPath, splitLocalePrefix } from "@/lib/seo";
 import { useTranslations } from "next-intl";
 
-import { MenuDropdown, MenuItemButton } from "@/components/ui/menu";
+import { MenuDropdown, MenuItemButton, MenuItemLink } from "@/components/ui/menu";
 import { useLocale } from "@/app/_components/locale-provider";
 import { LOCALES, type Locale } from "@/locales";
 
@@ -40,6 +42,10 @@ function Flag({ locale }: { locale: Locale }) {
 export function LocaleSwitcher() {
   const tMenu = useTranslations("menu");
   const { locale, setLocale } = useLocale();
+  const pathname = usePathname();
+  const { path } = splitLocalePrefix(typeof window === "undefined" ? pathname : window.location.pathname);
+  const seoPage = isSeoPath(path);
+  const suffix = typeof window === "undefined" ? "" : window.location.search + window.location.hash;
   const current = LOCALES.find((l) => l.value === locale) ?? LOCALES[0];
 
   return (
@@ -58,7 +64,12 @@ export function LocaleSwitcher() {
         </>
       }
     >
-      {LOCALES.map((l) => (
+      {LOCALES.map((l) => seoPage ? (
+        <MenuItemLink key={l.value} nativeAnchor href={localizedPath(path, l.value) + suffix} onClick={() => setLocale(l.value)}>
+          <Flag locale={l.value} />
+          {l.label}
+        </MenuItemLink>
+      ) : (
         <MenuItemButton key={l.value} onClick={() => setLocale(l.value)}>
           <Flag locale={l.value} />
           {l.label}

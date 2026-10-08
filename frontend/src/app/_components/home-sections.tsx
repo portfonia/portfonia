@@ -1,5 +1,6 @@
 "use client";
 
+import { LanguageLinks } from "./language-links";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
@@ -393,6 +394,7 @@ export function HomeSections() {
             {tLegalNav("refund")}
           </Link>
         </div>
+      <LanguageLinks />
       </footer>
     </>
   );

@@ -1,3 +1,6 @@
+import type { Metadata } from "next";
+import { NOINDEX_METADATA } from "@/lib/seo";
+
 import { UnsubscribeForm } from "./unsubscribe-form";
 
 // Public route (proxy.ts PUBLIC_PATH_PREFIXES) — the token itself is the
@@ -40,3 +43,5 @@ export default async function UnsubscribePage({
     </main>
   );
 }
+
+export const metadata: Metadata = { ...NOINDEX_METADATA };

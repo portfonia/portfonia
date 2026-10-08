@@ -1,3 +1,6 @@
+import type { Metadata } from "next";
+import { NOINDEX_METADATA } from "@/lib/seo";
+
 import { ForgotPasswordHeading } from "./forgot-password-heading";
 import { ForgotPasswordForm } from "./forgot-password-form";
 
@@ -9,3 +12,5 @@ export default function ForgotPasswordPage() {
     </main>
   );
 }
+
+export const metadata: Metadata = { ...NOINDEX_METADATA };

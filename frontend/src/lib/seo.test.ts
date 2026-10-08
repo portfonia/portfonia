@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { readdirSync } from "node:fs";
+import { readdirSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { catalogs } from "@/locales";
 const requestHeaders = vi.hoisted(() => new Headers());
 vi.mock("next/headers", () => ({ headers: async () => requestHeaders }));
@@ -25,9 +27,9 @@ describe("issue #702 SEO helpers", () => {
     const image = "https://portfonia.com/og/zh-Hant";
     expect(buildPageMetadata("pricing", "zh-Hant")).toEqual({ title, description,
       alternates: { canonical: "https://portfonia.com/zh-Hant/pricing", languages: {
-        en: "https://portfonia.com/pricing", "zh-CN": "https://portfonia.com/zh-Hans/pricing",
+        en: "https://portfonia.com/pricing", "zh-Hans": "https://portfonia.com/zh-Hans/pricing", "zh-CN": "https://portfonia.com/zh-Hans/pricing",
         "zh-SG": "https://portfonia.com/zh-Hans/pricing", zh: "https://portfonia.com/zh-Hans/pricing",
-        "zh-TW": "https://portfonia.com/zh-Hant/pricing", "zh-HK": "https://portfonia.com/zh-Hant/pricing",
+        "zh-Hant": "https://portfonia.com/zh-Hant/pricing", "zh-TW": "https://portfonia.com/zh-Hant/pricing", "zh-HK": "https://portfonia.com/zh-Hant/pricing",
         "zh-MO": "https://portfonia.com/zh-Hant/pricing", "x-default": "https://portfonia.com/pricing",
       } },
       openGraph: { type: "website", siteName: "Portfonia", url: "https://portfonia.com/zh-Hant/pricing",
@@ -45,10 +47,26 @@ describe("issue #702 SEO helpers", () => {
     expect(await getRouteLocale()).toBeNull();
   });
   it("classifies every app route directory explicitly", () => {
-    const publicPaths = ["/about", "/agent", "/forgot-password", "/login", "/pricing", "/privacy", "/refund", "/reset-password", "/signup", "/terms", "/unsubscribe", "/verify-email", "/waitlist"];
-    for (const dir of readdirSync("src/app", { withFileTypes: true })) {
-      if (!dir.isDirectory() || ["_components", "api", "og"].includes(dir.name)) continue;
-      expect([...PROTECTED_PATH_PREFIXES, ...publicPaths], dir.name).toContain(`/${dir.name}`);
+    const publicPaths = ["/about", "/agent", "/agent/revoke", "/forgot-password", "/login", "/pricing", "/privacy", "/refund", "/reset-password", "/signup", "/terms", "/unsubscribe", "/verify-email", "/waitlist"];
+    for (const path of routeDirectories("src/app")) {
+      expect(PROTECTED_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`)) || publicPaths.includes(path), path).toBe(true);
     }
   });
+  it("descends through route groups without adding URL segments and exposes unknown routes", () => {
+    const root = mkdtempSync(join(tmpdir(), "702-route-coverage-"));
+    try {
+      mkdirSync(join(root, "(marketing)", "(nested)", "pricing"), { recursive: true });
+      mkdirSync(join(root, "(marketing)", "careers"), { recursive: true });
+      expect(routeDirectories(root).sort()).toEqual(["/careers", "/pricing"]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
 });
+
+function routeDirectories(root: string, prefix = ""): string[] {
+  return readdirSync(root, { withFileTypes: true }).flatMap((dir) => {
+    if (!dir.isDirectory() || ["_components", "api", "og"].includes(dir.name)) return [];
+    if (dir.name.startsWith("(") && dir.name.endsWith(")")) return routeDirectories(join(root, dir.name), prefix);
+    const path = `${prefix}/${dir.name}`;
+    return [path, ...routeDirectories(join(root, dir.name), path)];
+  });
+}

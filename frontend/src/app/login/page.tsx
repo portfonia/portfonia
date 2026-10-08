@@ -1,3 +1,6 @@
+import type { Metadata } from "next";
+import { NOINDEX_METADATA } from "@/lib/seo";
+
 import { ExpiredSessionBanner } from "@/components/expired-session-banner";
 import { LoginHeading } from "./login-heading";
 import { LoginForm } from "./login-form";
@@ -17,3 +20,5 @@ export default async function LoginPage({
     </main>
   );
 }
+
+export const metadata: Metadata = { ...NOINDEX_METADATA };

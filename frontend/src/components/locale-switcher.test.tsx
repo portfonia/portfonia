@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import { LocaleSwitcher } from "./locale-switcher";
@@ -53,5 +53,40 @@ describe("LocaleSwitcher", () => {
     await waitFor(() =>
       expect(screen.getByRole("button").querySelector(".fi-cn")).toBeInTheDocument(),
     );
+  });
+});
+
+
+describe("issue #702 native language navigation", () => {
+  const storageDescriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
+  const stored = new Map<string, string>();
+  beforeEach(() => {
+    stored.clear();
+    Object.defineProperty(window, "localStorage", { configurable: true, value: { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => stored.set(key, value) } });
+    window.history.replaceState(null, "", "/zh-Hans/pricing?x=1#plans");
+  });
+  afterEach(() => {
+    window.history.replaceState(null, "", "/");
+    if (storageDescriptor) Object.defineProperty(window, "localStorage", storageDescriptor);
+  });
+  it("7f opens native anchors on a SEO page and persists locale without preventing default", async () => {
+    render(<LocaleProvider routeLocale="zh-Hans"><LocaleSwitcher /></LocaleProvider>);
+    await userEvent.click(screen.getByRole("button"));
+    const en = await screen.findByRole("menuitem", { name: "English" });
+    expect(en.tagName).toBe("A");
+    expect(en).toHaveAttribute("href", "/pricing?x=1#plans");
+    expect(screen.getByRole("menuitem", { name: "繁體中文" })).toHaveAttribute("href", "/zh-Hant/pricing?x=1#plans");
+    const event = createEvent.click(en, { bubbles: true, cancelable: true });
+    fireEvent(en, event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(stored.get("portfonia:locale")).toBe("en");
+  });
+  it("keeps button options on a non-SEO page", async () => {
+    window.history.replaceState(null, "", "/portfolio");
+    render(<LocaleProvider routeLocale={null}><LocaleSwitcher /></LocaleProvider>);
+    await userEvent.click(screen.getByRole("button"));
+    const item = await screen.findByRole("menuitem", { name: "English" });
+    expect(item).not.toHaveAttribute("href");
+    expect(item.tagName).not.toBe("A");
   });
 });
