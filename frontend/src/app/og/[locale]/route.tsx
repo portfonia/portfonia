@@ -40,7 +40,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ loc
       </div>
       <div style={{ display: "flex", fontFamily: "Serif", fontSize: locale === "en" ? 56 : 52, lineHeight: 1.15, marginTop: 8, flexShrink: 0 }}>{copy.headline}</div>
       <div style={{ display: "flex", marginTop: 24, flex: 1, alignItems: "stretch" }}>
-        <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", width: 340, gap: 16, flexShrink: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", width: 356, gap: 16, flexShrink: 0 }}>
           {inputs.map(input => (
             <div key={input.title} style={{ display: "flex", flexDirection: "column", padding: "20px 22px", borderRadius: 18, backgroundColor: "#0d1c22", border: "1.5px solid rgba(238,243,241,0.12)", flexShrink: 0 }}>
               <div style={{ display: "flex", fontSize: locale === "en" ? 30 : 32, fontWeight: 600 }}>{input.title}</div>

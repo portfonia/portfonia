@@ -51,3 +51,18 @@ it("renders the five English sections in report order without the removed sample
   expect(rendered.filter((value) => sectionTitles.includes(value))).toEqual(sectionTitles);
   for (const old of ["Daily briefings across brokers and markets — US, Hong Kong, China A-shares and more.", "Illustrative company: quarterly results published.", "Macro calendar: inflation release this week.", "Portfolio context: exposure across markets."]) expect(rendered).not.toContain(old);
 });
+
+it.each(["en", "zh-Hans", "zh-Hant"] as Locale[])("keeps the %s input column 356px wide for chip padding", async (locale) => {
+  await GET(new Request(`https://portfonia.com/og/${locale}`), { params: Promise.resolve({ locale }) });
+  function findInputColumn(node: ReactNode): React.CSSProperties[] {
+    return Children.toArray(node).flatMap(child => {
+      if (!isValidElement<{ children?: ReactNode; style?: React.CSSProperties }>(child)) return [];
+      const { children, style } = child.props;
+      const matches = style?.flexDirection === "column" && strings(children).includes(catalogs[locale].home.how.cards[0].title);
+      return [...(matches && style ? [style] : []), ...findInputColumn(children)];
+    });
+  }
+  const columns = findInputColumn(captured.element).filter(style => style.justifyContent === "center");
+  expect(columns).toHaveLength(1);
+  expect(columns[0].width).toBe(356);
+});
