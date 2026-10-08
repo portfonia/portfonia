@@ -1,6 +1,8 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { isSeoPath, localizedPath, splitLocalePrefix } from "@/lib/seo";
 import { NextIntlClientProvider, useTranslations } from "next-intl";
 
 import { catalogs, DEFAULT_LOCALE, isLocale, type Locale, type Messages } from "@/locales";
@@ -15,21 +17,20 @@ const LEGACY_ZH_VALUE = "zh";
 const LocaleContext = createContext<{
   locale: Locale;
   setLocale: (locale: Locale) => void;
+  rememberLocale: (locale: Locale) => void;
 } | null>(null);
 
-export function LocaleProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(DEFAULT_LOCALE);
+export function LocaleProvider({ children, routeLocale }: { children: React.ReactNode; routeLocale: Locale | null }) {
+  const [locale, setLocaleState] = useState<Locale>(routeLocale ?? DEFAULT_LOCALE);
+  const pathname = usePathname();
+  const previousRoute = useRef({ pathname, routeLocale });
+  const initialRouteLocale = useRef(routeLocale);
 
-  useEffect(() => {
-    // One-time hydration-safe restore: render the default locale on both
-    // server and first client paint (no mismatch), then swap to the stored
-    // preference right after mount. A lazy useState initializer would read
-    // localStorage during the client's first render too, which is exactly
-    // what causes a hydration text mismatch against the server-rendered HTML.
+  const restoreStoredLocale = useCallback(() => {
     try {
       const stored = window.localStorage.getItem(STORAGE_KEY);
       if (stored === LEGACY_ZH_VALUE) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
+
         setLocaleState("zh-Hans");
         // blacktomb42 round-2 review (PR #226, non-blocking): rewrite the
         // stored value too, not just the in-memory state — otherwise every
@@ -46,19 +47,40 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // blacktomb42 review (PR #226): issue #209 requires html/lang to match
-    // the selected locale on every route. AppShell's `lang` on its wrapper
-    // div was never enough — screen readers and in-browser translate key
-    // off the real `<html>` element, which layout.tsx must render
-    // statically as "en" server-side (locale is client-only — see this
-    // directory's README's "No URL-based locale routing" section). This
-    // effect is the one place that keeps the real element in sync, since
-    // LocaleProvider is the only place `locale` state changes (both the
-    // storage restore above and setLocale below).
-    document.documentElement.lang = locale;
-  }, [locale]);
+    const initial = initialRouteLocale.current;
+    if (initial === "en") return;
+    if (initial === null) {
+      restoreStoredLocale();
+      return;
+    }
+    try {
+      window.localStorage.setItem(STORAGE_KEY, initial);
+    } catch {
+      // URL locale remains authoritative when storage is unavailable.
+    }
+  }, [restoreStoredLocale]);
 
-  function setLocale(next: Locale) {
+  useEffect(() => {
+    // Keep the real document language aligned with both URL and stored preferences.
+    document.documentElement.lang = locale;
+  }, [locale, routeLocale]);
+
+  useEffect(() => {
+    function syncUrlLocale() {
+      const { locale: prefix, path } = splitLocalePrefix(window.location.pathname);
+      if (isSeoPath(path)) setLocaleState(prefix ?? DEFAULT_LOCALE);
+      else restoreStoredLocale();
+    }
+    // Initial state and storage policy are handled by the mount effect.
+    if (previousRoute.current.pathname !== pathname || previousRoute.current.routeLocale !== routeLocale) {
+      previousRoute.current = { pathname, routeLocale };
+      syncUrlLocale();
+    }
+    window.addEventListener("popstate", syncUrlLocale);
+    return () => window.removeEventListener("popstate", syncUrlLocale);
+  }, [pathname, routeLocale, restoreStoredLocale]);
+
+  function rememberLocale(next: Locale) {
     setLocaleState(next);
     try {
       window.localStorage.setItem(STORAGE_KEY, next);
@@ -69,7 +91,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <LocaleContext.Provider value={{ locale, setLocale }}>
+    <LocaleContext.Provider value={{ locale, setLocale: rememberLocale, rememberLocale }}>
       {/* Project-wide ET default; also silences next-intl's ENVIRONMENT_FALLBACK during prerender. */}
       <NextIntlClientProvider locale={locale} messages={catalogs[locale]} timeZone="America/New_York">
         {children}
@@ -82,6 +104,11 @@ export function useLocale() {
   const ctx = useContext(LocaleContext);
   if (!ctx) throw new Error("useLocale must be used within a LocaleProvider");
   return ctx;
+}
+
+export function useLocalizedHref() {
+  const { locale } = useLocale();
+  return (path: string) => isSeoPath(path) ? localizedPath(path, locale) : path;
 }
 
 // Convenience wrapper for home-sections.tsx (issue #209): the home catalog

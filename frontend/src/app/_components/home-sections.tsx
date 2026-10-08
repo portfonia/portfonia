@@ -1,10 +1,11 @@
 "use client";
 
+import { LanguageLinks } from "./language-links";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
 import { HomeProductPreviews } from "./home-product-previews";
-import { useHomeMessages, useLocale } from "./locale-provider";
+import { useHomeMessages, useLocale, useLocalizedHref } from "./locale-provider";
 
 const CARD_ICONS = [
   <path key="ingest" d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />,
@@ -34,6 +35,8 @@ const TD_CLS = "border-b border-white/5 px-2 py-1.5 align-top text-foreground/70
 
 export function HomeSections() {
   const t = useHomeMessages();
+  const href = useLocalizedHref();
+  const tSeo = useTranslations("seo");
   const { locale } = useLocale();
   const tCommon = useTranslations("common");
   const tLegalNav = useTranslations("legal.nav");
@@ -156,6 +159,10 @@ export function HomeSections() {
               {t.preview.tag}
             </span>
           </div>
+
+          {/* Fixed-size generated PNG; no image optimizer is needed. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={`/og/${locale}`} alt={tSeo("ogImageAlt")} width={1200} height={630} loading="lazy" className="mb-10 h-auto w-full rounded-2xl border border-white/10" />
 
           <div className="rounded-2xl border border-dashed border-white/15 bg-card p-6 sm:p-8">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 font-mono text-[11px] uppercase tracking-wide text-foreground/55">
@@ -374,19 +381,20 @@ export function HomeSections() {
           </span>
         </div>
         <div className="mx-auto mt-5 flex max-w-4xl items-center gap-4 text-xs text-foreground/45">
-          <Link href="/pricing" className="underline underline-offset-2 hover:text-foreground/70">
+          <Link href={href("/pricing")} className="underline underline-offset-2 hover:text-foreground/70">
             {tLegalNav("pricing")}
           </Link>
-          <Link href="/terms" className="underline underline-offset-2 hover:text-foreground/70">
+          <Link href={href("/terms")} className="underline underline-offset-2 hover:text-foreground/70">
             {tLegalNav("terms")}
           </Link>
-          <Link href="/privacy" className="underline underline-offset-2 hover:text-foreground/70">
+          <Link href={href("/privacy")} className="underline underline-offset-2 hover:text-foreground/70">
             {tLegalNav("privacy")}
           </Link>
-          <Link href="/refund" className="underline underline-offset-2 hover:text-foreground/70">
+          <Link href={href("/refund")} className="underline underline-offset-2 hover:text-foreground/70">
             {tLegalNav("refund")}
           </Link>
         </div>
+      <LanguageLinks />
       </footer>
     </>
   );

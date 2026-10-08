@@ -26,7 +26,7 @@ vi.mock("@/lib/template", async () => {
   const actual = await vi.importActual<typeof import("@/lib/template")>("@/lib/template");
   return { ...actual, downloadFile };
 });
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => window.location.pathname, useRouter: () => ({ push }) }));
 // lib/api.ts's real (importActual'd) exports now import logout() from
 // auth-actions.ts, which pulls in the server-only-guarded Supabase server
 // client — that throws when bundled into a Client Component test unless
@@ -68,7 +68,7 @@ const _CONFIRMED: HoldingOut[] = [];
 
 function renderManager(mode?: "onboarding" | "normal", initialHoldings: HoldingOut[] = []) {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <HoldingsManager initialHoldings={initialHoldings} mode={mode} />
     </LocaleProvider>,
   );

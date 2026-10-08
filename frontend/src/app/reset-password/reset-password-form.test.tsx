@@ -7,7 +7,7 @@ const { updateUser, push } = vi.hoisted(() => ({
   push: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => window.location.pathname, useRouter: () => ({ push }) }));
 vi.mock("@/lib/supabase/browser", () => ({
   createClient: () => ({ auth: { updateUser } }),
 }));
@@ -17,7 +17,7 @@ import { ResetPasswordForm } from "./reset-password-form";
 
 function renderForm() {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <ResetPasswordForm />
     </LocaleProvider>,
   );

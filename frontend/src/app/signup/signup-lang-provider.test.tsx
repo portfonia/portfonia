@@ -25,7 +25,7 @@ describe("signup link locale with LocaleProvider", () => {
   it("overrides and persists a stored preference", () => {
     window.localStorage.setItem("portfonia:locale", "en");
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <SignupLang initialLang="zh-Hant" />
         <CurrentLocale />
       </LocaleProvider>,

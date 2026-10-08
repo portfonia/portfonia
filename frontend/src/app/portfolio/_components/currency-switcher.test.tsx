@@ -7,7 +7,7 @@ import { CurrencySwitcher } from "./currency-switcher";
 
 function renderSwitcher(onChange = vi.fn()) {
   render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <CurrencySwitcher value="USD" onChange={onChange} />
     </LocaleProvider>,
   );
@@ -100,7 +100,7 @@ describe("CurrencySwitcher", () => {
     // switcher doesn't list at all. Must never silently show "USD" while
     // the page is actually normalized to something else.
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <CurrencySwitcher value="JPY" onChange={vi.fn()} />
       </LocaleProvider>,
     );

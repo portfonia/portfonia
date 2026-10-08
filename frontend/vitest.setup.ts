@@ -1,3 +1,12 @@
+import { vi } from "vitest";
+
+// LocaleProvider now reads App Router navigation on every route.
+vi.mock("next/navigation", async (importOriginal) => ({
+  ...await importOriginal<typeof import("next/navigation")>(),
+  usePathname: () => window.location.pathname,
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+}));
+
 import "@testing-library/jest-dom/vitest";
 
 // NEXT_PUBLIC_* vars are normally inlined at build time (see

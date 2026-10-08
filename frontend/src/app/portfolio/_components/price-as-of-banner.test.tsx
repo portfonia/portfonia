@@ -6,7 +6,7 @@ import { PriceAsOfBanner } from "./price-as-of-banner";
 
 function renderBanner(priceAsOfDate: string | null) {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <PriceAsOfBanner priceAsOfDate={priceAsOfDate} />
     </LocaleProvider>,
   );

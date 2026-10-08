@@ -1,3 +1,6 @@
+import type { Metadata } from "next";
+import { NOINDEX_METADATA } from "@/lib/seo";
+
 import { headers } from "next/headers";
 
 import { SignupHeading } from "./signup-heading";
@@ -43,3 +46,5 @@ export default async function SignupPage({
     </main>
   );
 }
+
+export const metadata: Metadata = { ...NOINDEX_METADATA };

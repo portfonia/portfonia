@@ -10,7 +10,7 @@ const { usePathname, getUser } = vi.hoisted(() => ({
   getUser: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ usePathname }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), usePathname }));
 
 // GetStartedMenu calls the browser Supabase client on mount — stub it so
 // these route-chrome tests don't depend on real env vars or network.
@@ -35,7 +35,7 @@ vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 
 function renderHeader() {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <SiteHeader />
     </LocaleProvider>,
   );
@@ -133,4 +133,17 @@ describe("SiteHeader", () => {
     expect(screen.getByRole("menuitem", { name: "简体中文" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "繁體中文" })).toBeInTheDocument();
   });
+
+  it.each(["zh-Hans", "zh-Hant"] as const)("keeps the brand #top anchor on the %s home URL", (locale) => {
+    usePathname.mockReturnValue(`/${locale}`);
+    render(<LocaleProvider routeLocale={locale}><SiteHeader /></LocaleProvider>);
+    expect(screen.getByRole("link", { name: /portfonia/i })).toHaveAttribute("href", "#top");
+  });
+
+  it("keeps the localized home link on /zh-Hans/pricing", () => {
+    usePathname.mockReturnValue("/zh-Hans/pricing");
+    render(<LocaleProvider routeLocale="zh-Hans"><SiteHeader /></LocaleProvider>);
+    expect(screen.getByRole("link", { name: /portfonia/i })).toHaveAttribute("href", "/zh-Hans");
+  });
+
 });

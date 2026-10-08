@@ -43,7 +43,7 @@ describe("ExportPortfolioButtons", () => {
     });
     exportPortfolio.mockResolvedValue({ blob: new Blob(["data"]), filename: "portfolio.md" });
     const user = userEvent.setup();
-    render(<LocaleProvider><ExportPortfolioButtons baseCurrency="USD" /></LocaleProvider>);
+    render(<LocaleProvider routeLocale={null}><ExportPortfolioButtons baseCurrency="USD" /></LocaleProvider>);
     for (const format of ["xlsx", "md"]) {
       await user.click(screen.getByRole("button", { name: new RegExp(`\\.${format}`, "i") }));
       await waitFor(() => expect(exportPortfolio).toHaveBeenCalledWith(format, "USD", expected));
@@ -58,7 +58,7 @@ describe("ExportPortfolioButtons", () => {
     exportPortfolio.mockResolvedValue({ blob, filename: "portfolio-x.xlsx" });
     const user = userEvent.setup();
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <ExportPortfolioButtons baseCurrency="USD" />
       </LocaleProvider>,
     );
@@ -80,7 +80,7 @@ describe("ExportPortfolioButtons", () => {
     exportPortfolio.mockResolvedValue({ blob, filename: "portfolio-x.md" });
     const user = userEvent.setup();
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <ExportPortfolioButtons baseCurrency="CNY" />
       </LocaleProvider>,
     );
@@ -99,7 +99,7 @@ describe("ExportPortfolioButtons", () => {
     exportPortfolio.mockRejectedValue(new Error("network down"));
     const user = userEvent.setup();
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <ExportPortfolioButtons baseCurrency="USD" />
       </LocaleProvider>,
     );
@@ -115,7 +115,7 @@ describe("ExportPortfolioButtons", () => {
 
   it("is disabled while a currency switch is in flight", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <ExportPortfolioButtons baseCurrency="USD" disabled />
       </LocaleProvider>,
     );

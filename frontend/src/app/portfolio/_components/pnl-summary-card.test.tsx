@@ -30,7 +30,7 @@ function summary(overrides: Partial<PortfolioSummary>): PortfolioSummary {
 
 function renderCard(s: PortfolioSummary) {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <PnlSummaryCard summary={s} />
     </LocaleProvider>,
   );

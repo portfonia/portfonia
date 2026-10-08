@@ -14,7 +14,7 @@ import { UnsubscribeForm } from "./unsubscribe-form";
 
 function renderForm(status: UnsubscribeStatus, token = "tok-1") {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <UnsubscribeForm token={token} status={status} />
     </LocaleProvider>,
   );

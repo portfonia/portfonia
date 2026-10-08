@@ -11,7 +11,7 @@ vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return { ...actual, putInvestmentContext };
 });
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => window.location.pathname, useRouter: () => ({ push }) }));
 // lib/api.ts's real (importActual'd) exports now import logout() from
 // auth-actions.ts, which pulls in the server-only-guarded Supabase server
 // client — that throws when bundled into a Client Component test unless
@@ -27,7 +27,7 @@ function renderForm(
   mode?: "onboarding" | "edit",
 ) {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <QuestionnaireForm initialContext={initialContext} mode={mode} />
     </LocaleProvider>,
   );

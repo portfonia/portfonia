@@ -34,7 +34,7 @@ describe("DownloadConfirmDialog (#679)", () => {
     const onClose = vi.fn();
     const user = userEvent.setup();
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <DownloadConfirmDialog pending={pending} onClose={onClose} />
       </LocaleProvider>,
     );
@@ -55,7 +55,7 @@ describe("DownloadConfirmDialog (#679)", () => {
     const onClose = vi.fn();
     const user = userEvent.setup();
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <DownloadConfirmDialog pending={pending} onClose={onClose} />
       </LocaleProvider>,
     );
@@ -69,7 +69,7 @@ describe("DownloadConfirmDialog (#679)", () => {
 
   it("renders nothing while no download is pending", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <DownloadConfirmDialog pending={null} onClose={vi.fn()} />
       </LocaleProvider>,
     );

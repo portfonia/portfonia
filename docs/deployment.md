@@ -257,6 +257,14 @@ the Obsidian doc to identify it if you need to confirm you're not touching
 it.
 
 
+### Caddy configuration changes
+
+A deployment containing a `Caddyfile` change requires a Caddy reload after
+updating the deployed configuration; rebuilding the frontend does not apply
+Caddy routing changes. Issue #702 uses this step for the `www.portfonia.com`
+301 redirect to `https://portfonia.com`, preserving path and query. The owner
+validates Caddy syntax and verifies the redirect after the authorized deploy.
+
 ### Env-only sync to production (no code change involved)
 
 **An explicit request to push `.env` changes (secret rotation, config value

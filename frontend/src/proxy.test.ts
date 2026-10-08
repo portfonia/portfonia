@@ -230,3 +230,86 @@ describe("issue #652 agent-readable documentation", () => {
     expect(text).toContain("https://portfonia.com/agent");
   });
 });
+
+
+describe("issue #702 public SEO routing", () => {
+  it.each([["/zh-Hans/pricing", "/pricing", "zh-Hans"], ["/zh-Hant", "/", "zh-Hant"], ["/zh-Hant/about", "/about", "zh-Hant"]])("rewrites %s with locale and refreshed session", async (path, target, locale) => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    const res = await proxy(makeRequest(path));
+    expect(res.headers.get("location")).toBeNull();
+    expect(res.headers.get("x-middleware-rewrite")).toBe(`https://portfonia.com${target}`);
+    expect(res.headers.get("x-middleware-request-x-portfonia-locale")).toBe(locale);
+    expect(res.headers.get("x-middleware-override-headers")?.split(",")).toContain("x-portfonia-locale");
+    expect(res.cookies.get("sb-refreshed-session")?.value).toBe("new-token-value");
+    for (const [key, value] of Object.entries(REFRESH_HEADERS)) expect(res.headers.get(key)).toBe(value);
+  });
+  it.each(["/zh-Hans/login", "/zh-Hans/careers", "/zh-Hans/holdings"])("forwards locale for the unmatched path %s without rewriting", async (path) => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    const res = await proxy(makeRequest(path));
+    expect(res.headers.get("location")).toBeNull();
+    expect(res.headers.get("x-middleware-rewrite")).toBeNull();
+    expect(res.headers.get("x-middleware-request-x-portfonia-locale")).toBe("zh-Hans");
+    expect(res.headers.get("x-middleware-override-headers")?.split(",")).toContain("x-portfonia-locale");
+    expect(res.cookies.get("sb-refreshed-session")?.value).toBe("new-token-value");
+    for (const [key, value] of Object.entries(REFRESH_HEADERS)) expect(res.headers.get(key)).toBe(value);
+  });
+  it.each(["/about", "/careers", "/robots.txt", "/sitemap.xml", "/og/en", "/holdingsx"])("passes anonymous %s through", async (path) => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    expect((await proxy(makeRequest(path))).headers.get("location")).toBeNull();
+  });
+  it.each(["/holdings", "/portfolio/x", "/reports", "/profile", "/questionnaire", "/welcome"])("keeps anonymous %s protected", async (path) => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    const res = await proxy(makeRequest(path));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("https://portfonia.com/login");
+  });
+  it("does not redirect an unknown signed-in URL", async () => {
+    getUser.mockResolvedValue({ data: { user: AUTHED_USER } });
+    expect((await proxy(makeRequest("/careers"))).headers.get("location")).toBeNull();
+  });
+});
+
+
+describe("issue #702 follow-up header and path boundaries", () => {
+  it.each(["/%68oldings", "//holdings", "/%2Fholdings", "/holdings%2F..%2Fcareers"])("normalizes %s before protection", async (path) => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    // A network-path reference must not change the URL host in this fixture.
+    const request = new NextRequest(`https://portfonia.com${path}`);
+    const res = await proxy(request);
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("https://portfonia.com/login");
+  });
+  it.each(["/reports-sample", "/%2568oldings", "/zh-Hans/holdings", "/bad%escape", "/missing%2f..%2fholdings"])("7g leaves %s unprotected without a second decode or dot-segment resolution", async (path) => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    expect((await proxy(new NextRequest(`https://portfonia.com${path}`))).headers.get("location")).toBeNull();
+  });
+  it.each([["/pricing", "en"], ["/login", null], ["/api/holdings", null], ["/zh-Hant/pricing", "zh-Hant"]])("trusts only the URL locale on %s and forwards the refreshed cookie", async (path, expected) => {
+    getUser.mockResolvedValue({ data: { user: AUTHED_USER } });
+    getSession.mockResolvedValue({ data: { session: { access_token: ACCESS_TOKEN } } });
+    const res = await proxy(new NextRequest(`https://portfonia.com${path}`, { headers: { "x-portfonia-locale": "zh-Hans" } }));
+    expect(res.headers.get("x-middleware-request-x-portfonia-locale")).toBe(expected);
+    const keys = res.headers.get("x-middleware-override-headers")?.split(",") ?? [];
+    if (expected) expect(keys).toContain("x-portfonia-locale"); else expect(keys).not.toContain("x-portfonia-locale");
+    expect(res.headers.get("x-middleware-request-cookie")).toContain("sb-refreshed-session=new-token-value");
+    expect(res.cookies.get("sb-refreshed-session")?.value).toBe("new-token-value");
+    for (const [key, value] of Object.entries(REFRESH_HEADERS)) expect(res.headers.get(key)).toBe(value);
+  });
+});
+
+
+describe("7i locale headers on returned responses", () => {
+  it.each([
+    ["/pricing", "GET", {}, "en"],
+    ["/pricing/", "GET", {}, "en"],
+    ["/pricing?_rsc=x", "GET", { RSC: "1" }, "en"],
+    ["/waitlist", "POST", { "Next-Action": "action-id" }, "en"],
+    ["/zh-Hans/waitlist", "GET", {}, "zh-Hans"],
+    ["/login", "GET", {}, null],
+  ] as const)("forwards URL locale for %s %s", async (path, method, headers, expected) => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    const res = await proxy(new NextRequest(`https://portfonia.com${path}`, { method, headers: { ...headers, "x-portfonia-locale": "zh-Hant" } }));
+    expect(res.headers.get("x-middleware-request-x-portfonia-locale")).toBe(expected);
+    expect(res.cookies.get("sb-refreshed-session")?.value).toBe("new-token-value");
+    for (const [key, value] of Object.entries(REFRESH_HEADERS)) expect(res.headers.get(key)).toBe(value);
+  });
+});

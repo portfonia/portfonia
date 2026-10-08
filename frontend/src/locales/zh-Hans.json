@@ -1571,5 +1571,94 @@
       "zh": "简体中文",
       "zh-Hant": "繁体中文"
     }
+  },
+  "seo": {
+    "pages": {
+      "home": {
+        "title": "Portfonia — 多券商持仓每日简报",
+        "description": "汇总跨券商及美股、港股、中国A股和其他市场的持仓，每日获取与每笔持仓相关的新闻和宏观动态简报。"
+      },
+      "about": {
+        "title": "关于 Portfonia",
+        "description": "Portfonia 是一款软件工具，持续追踪新闻、宏观和公司动态，并将其映射到您录入的跨券商、跨市场持仓。仅供参考，不构成投资建议。"
+      },
+      "pricing": {
+        "title": "定价 — Portfonia",
+        "description": "每周、隔日（周一、周三、周五）或工作日每日简报，以 US$10 起的预付服务点数支付。购买后 120 天内，未使用的已购点数可申请退款。"
+      },
+      "waitlist": {
+        "title": "加入候补名单 — Portfonia",
+        "description": "申请 Portfonia 邀请，获取将市场新闻和宏观动态映射到您跨券商持仓的简报服务。"
+      },
+      "privacy": {
+        "title": "隐私政策 — Portfonia",
+        "description": "Portfonia 如何收集、加密、使用和删除您的账户与持仓数据。"
+      },
+      "terms": {
+        "title": "服务条款 — Portfonia",
+        "description": "使用 Portfonia 持仓信息服务的条款。本服务不提供投资建议。"
+      },
+      "refund": {
+        "title": "退款政策 — Portfonia",
+        "description": "Portfonia 预付服务点数的退款方式。"
+      }
+    },
+    "ogImageAlt": "Portfonia 每日简报示例",
+    "og": {
+      "headline": "什么值得关注，就藏在你的持仓里。",
+      "subline": "跨券商、跨市场每日简报——美股、港股、中国A股及更多市场。",
+      "sampleTitle": "简报示例",
+      "sampleRows": [
+        "示例公司：季度业绩已发布。",
+        "宏观日历：本周公布通胀数据。",
+        "投资组合背景：跨市场敞口。"
+      ]
+    }
+  },
+  "about": {
+    "title": "关于 Portfonia",
+    "intro": "将新闻、宏观事件和公司动态映射到您录入的持仓。",
+    "sections": [
+      {
+        "heading": "Portfonia 是什么",
+        "body": [
+          "Portfonia 是一款软件工具，持续追踪新闻、宏观事件和公司动态，并将其系统地映射到您录入的持仓。"
+        ]
+      },
+      {
+        "heading": "适合谁",
+        "body": [
+          "适合在多家券商和多个市场拥有持仓的投资者：美股、港股、中国A股、英国、欧洲、日本和韩国市场。"
+        ]
+      },
+      {
+        "heading": "简报涵盖什么",
+        "body": [
+          "通过 CSV、Excel 或 Markdown 上传持仓，并可逐行编辑。查看投资组合配置、相对基准的表现、历史波动和风险。",
+          "简报涵盖价格异动、技术位置、与持仓相关的宏观和公司新闻，以及宏观与财报事件的前瞻日历。每条因果判断均附置信度标注。"
+        ]
+      },
+      {
+        "heading": "明确不做的事",
+        "body": [
+          "Portfonia 是信息服务。它不提供投资建议或交易指令，不执行交易，也不计算税务。"
+        ]
+      },
+      {
+        "heading": "语言",
+        "body": [
+          "简报和网站提供英文、简体中文和繁体中文。"
+        ]
+      }
+    ],
+    "cta": {
+      "waitlist": "加入候补名单",
+      "pricing": "查看定价"
+    }
+  },
+  "notFound": {
+    "title": "找不到页面",
+    "body": "您访问的页面不存在。",
+    "homeLink": "返回首页"
   }
 }

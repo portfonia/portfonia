@@ -18,7 +18,7 @@ import { ForgotPasswordForm } from "./forgot-password-form";
 
 function renderForm() {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <ForgotPasswordForm />
     </LocaleProvider>,
   );

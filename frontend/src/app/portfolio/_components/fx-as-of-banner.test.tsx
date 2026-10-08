@@ -6,7 +6,7 @@ import { FxAsOfBanner } from "./fx-as-of-banner";
 
 function renderBanner(fxRatesAsOf: Record<string, string>, staleFxPairs: string[] = []) {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <FxAsOfBanner fxRatesAsOf={fxRatesAsOf} staleFxPairs={staleFxPairs} />
     </LocaleProvider>,
   );

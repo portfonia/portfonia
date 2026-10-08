@@ -54,7 +54,7 @@ const MSFT = holding({
 
 function renderEditor(holdings: HoldingOut[] = [AAPL, MSFT]) {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <HoldingsGroupsEditor initialHoldings={holdings} />
     </LocaleProvider>,
   );

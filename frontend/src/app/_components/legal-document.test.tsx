@@ -8,14 +8,14 @@ import { LocaleProvider } from "./locale-provider";
 describe("LegalDocument", () => {
   it.each(["pricing", "refund"] as const)("renders %s and links to the other documents", (doc) => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <LegalDocument doc={doc} />
       </LocaleProvider>,
     );
 
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(catalogs.en.legal[doc].title);
     expect(screen.getByRole("heading", { level: 2, name: catalogs.en.legal[doc].sections[0].heading })).toBeInTheDocument();
-    const links = within(screen.getByRole("main")).getAllByRole("link");
+    const links = within(screen.getByRole("navigation")).getAllByRole("link");
     expect(links.map((link) => link.getAttribute("href"))).toEqual(
       ["pricing", "terms", "privacy", "refund"].filter((key) => key !== doc).map((key) => `/${key}`),
     );
@@ -23,7 +23,7 @@ describe("LegalDocument", () => {
 
   it("renders the reseller notice and merchant name without leftover placeholders", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <LegalDocument doc="refund" />
       </LocaleProvider>,
     );
@@ -33,4 +33,12 @@ describe("LegalDocument", () => {
     expect(main).toHaveTextContent(`${MERCHANT_OF_RECORD}'s Buyer Terms`);
     expect(main.textContent).not.toMatch(/\{(merchantOfRecord|resellerNotice)\}/);
   });
+});
+
+
+it.each(["pricing", "privacy", "terms", "refund"] as const)("renders language choices at the bottom of %s", (doc) => {
+  window.history.replaceState(null, "", `/zh-Hans/${doc}`);
+  const { container } = render(<LocaleProvider routeLocale="zh-Hans"><LegalDocument doc={doc} /></LocaleProvider>);
+  expect(container.querySelector(`a[href="/zh-Hant/${doc}"]`)).not.toBeNull();
+  window.history.replaceState(null, "", "/");
 });

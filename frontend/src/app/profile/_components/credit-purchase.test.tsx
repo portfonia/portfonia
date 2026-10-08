@@ -26,7 +26,7 @@ const {
 }));
 vi.mock("@/lib/api", () => ({ getCheckoutConfig, getPurchaseStatus }));
 vi.mock("@paddle/paddle-js", () => ({ initializePaddle }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: routerRefresh }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => window.location.pathname, useRouter: () => ({ refresh: routerRefresh }) }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import { CreditPurchase } from "./credit-purchase";
@@ -54,7 +54,7 @@ beforeEach(() => {
 });
 
 async function renderReady() {
-  render(<LocaleProvider><CreditPurchase /></LocaleProvider>);
+  render(<LocaleProvider routeLocale={null}><CreditPurchase /></LocaleProvider>);
   expect(await screen.findByText("HK$78.00")).toBeInTheDocument();
 }
 
@@ -213,11 +213,11 @@ it("still handles checkout events when an earlier Paddle init finishes last", as
     return Promise.resolve({ PricePreview: pricePreview, Checkout: { open: checkoutOpen, close: checkoutClose } });
   });
 
-  const first = render(<LocaleProvider><CreditPurchase /></LocaleProvider>);
+  const first = render(<LocaleProvider routeLocale={null}><CreditPurchase /></LocaleProvider>);
   await act(async () => { await Promise.resolve(); });
   first.unmount();
 
-  render(<LocaleProvider><CreditPurchase /></LocaleProvider>);
+  render(<LocaleProvider routeLocale={null}><CreditPurchase /></LocaleProvider>);
   expect(await screen.findByText("HK$78.00")).toBeInTheDocument();
   expect(initializePaddle).toHaveBeenCalledTimes(1);
 
@@ -239,7 +239,7 @@ it("still handles checkout events when an earlier Paddle init finishes last", as
 it("ignores checkout.completed after the component unmounts", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {
-    const view = render(<LocaleProvider><CreditPurchase /></LocaleProvider>);
+    const view = render(<LocaleProvider routeLocale={null}><CreditPurchase /></LocaleProvider>);
     expect(await screen.findByText("HK$78.00")).toBeInTheDocument();
     view.unmount();
     act(() => { onEvent?.({ name: "checkout.completed", data: { transaction_id: "txn_A" } }); });
@@ -252,11 +252,11 @@ it("ignores checkout.completed after the component unmounts", async () => {
 
 it("shows unavailable when config is missing or preview fails", async () => {
   getCheckoutConfig.mockResolvedValueOnce(null);
-  const first = render(<LocaleProvider><CreditPurchase /></LocaleProvider>);
+  const first = render(<LocaleProvider routeLocale={null}><CreditPurchase /></LocaleProvider>);
   expect(await screen.findByText("Purchasing is temporarily unavailable.")).toBeInTheDocument();
   first.unmount();
   pricePreview.mockRejectedValueOnce(new Error("preview failed"));
-  render(<LocaleProvider><CreditPurchase /></LocaleProvider>);
+  render(<LocaleProvider routeLocale={null}><CreditPurchase /></LocaleProvider>);
   await waitFor(() => expect(screen.getByText("Purchasing is temporarily unavailable.")).toBeInTheDocument());
 });
 

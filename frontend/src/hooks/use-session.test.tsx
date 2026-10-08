@@ -13,7 +13,7 @@ const { usePathname, getUser, onAuthStateChange, unsubscribe, fetchMock } = vi.h
   fetchMock: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ usePathname }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), usePathname }));
 
 vi.mock("@/lib/supabase/browser", () => ({
   createClient: () => ({
