@@ -223,6 +223,8 @@ class Settings(BaseSettings):
     INTEL_COLLECT_BUDGET_PRE_OPEN_S: int = 1800
     INTEL_COLLECT_BUDGET_POST_CLOSE_S: int = 900
     INTEL_CLASSIFIER_MODEL: str = "openai/gpt-6-luna"
+    # Issue #700: first-stage screen ahead of INTEL_CLASSIFIER_MODEL.
+    INTEL_SCREEN_MODEL: str = "anthropic/claude-haiku-5.5"
     INTEL_CLASSIFIER_BATCH: int = 100
     INTEL_GOOGLE_NEWS_ENABLED: bool = False
     FINNHUB_API_KEY: SecretStr | None = None

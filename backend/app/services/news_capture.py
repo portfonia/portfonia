@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.intel import InstrumentProfile, IntelCollectionRun
 from app.models.news import News
 from app.services.headline_cleaning import (
+    STAGE_STATS,
     block_reason,
     classify_macro,
     load_cleaning_config,
@@ -103,6 +104,7 @@ def capture_news(
             "commentary": 0,
             "off_topic": 0,
         }
+        stage_stats: dict[str, float] = dict.fromkeys(STAGE_STATS, 0.0)
         seen: set[str] = set()
         for hit in detect_macro_signals(kept, max_articles_per_theme=len(kept) or 1).hits:
             candidates = []
@@ -122,11 +124,14 @@ def capture_news(
                     [
                         CollectedItem(item.title, item.published_at, item.url, item.summary)
                         for item, _ in batch
-                    ]
+                    ],
+                    stats=stage_stats,
                 )
                 stats["calls"] += 1
                 stats["cost_usd"] += cost
-                if error or not labels:
+                if error:
+                    errors.append(error)
+                if not labels:
                     stats["failed_calls"] += 1
                     continue
                 for index, (_, row) in enumerate(batch):
@@ -135,7 +140,7 @@ def capture_news(
                         row.record = {**row.record, **label, "label_call": label_call}
                         stats["labeled"] += 1
                         stats[label["type"]] += 1
-        run.stats = {**run.stats, "macro_classification": stats}
+        run.stats = {**run.stats, "macro_classification": {**stats, **stage_stats}}
     run.errors = errors[:50]
     run.finished_at = datetime.now(UTC)
     run.status = "partial" if errors else "ok"

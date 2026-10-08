@@ -567,8 +567,9 @@ fields. URLs and URL kinds remain in the in-memory `CollectedItem` only.
 
 `headline_cleaning.py` applies path, alias, low-value-title and near-duplicate
 rules in order. Each instrument job classifies its surviving articles in
-batches of at most 100 through one OpenRouter request per batch, with no retry
-and `data_collection: deny`. Filings bypass classification. Failed or missing
+batches of at most 100 with `data_collection: deny`; since issue #700 each
+batch is screened and then reviewed by two models, each call retried once
+(see "Two-stage intel classification" below). Filings bypass classification. Failed or missing
 labels remain null; promo and unrelated labels are dropped. RSS pool items
 receive only the path and low-value-title rules and are never classified.
 
@@ -972,6 +973,53 @@ regardless of processing order. Rejected rows remain eligible for later
 extraction under the existing accepted-only skip rule. There is no migration,
 stored-row reprocessing, report-path call, relation-table change or frontend
 change. Merge and deployment require separate owner approval.
+
+### Two-stage intel classification and LLM JSON parsing (issue #700)
+
+Every intel classifier in `headline_cleaning.py` runs two models in sequence:
+`INTEL_SCREEN_MODEL` (default `anthropic/claude-haiku-5.5`) over all items, then
+`INTEL_CLASSIFIER_MODEL` (`openai/gpt-6-luna`) over the screen's survivors,
+re-indexed `0..m-1` with the same prompt and `EXISTING` block. Prompts,
+`reasoning.effort: low`, `response_format`, `max_tokens`, `data_collection: deny`,
+batch size and the 100-title `EXISTING` cap are unchanged; per call the input
+stays around 5–15K tokens, below the 100K-token level where Haiku pricing rises.
+The stricter verdict wins:
+
+- `classify_headlines` (instrument collection and paid-search results): an item
+  is dropped when either stage labels it `promo`, `unrelated` or duplicate; it
+  is `keep` only when both stages say `keep`, otherwise `mention`.
+- `classify_related`: stage 2 reviews items stage 1 did not `drop`; an item is
+  kept only when both keep it, with stage 2's entity.
+- `classify_macro`: stage 2 reviews items stage 1 did not mark `off_topic`. The
+  type is the stricter of the two (`off_topic` > `commentary` > `development`),
+  importance the lower, and the event slug stage 2's. A screen-only label keeps
+  its slug prefixed `s1-` when stage 2 answered for the call (slugs compare only
+  within one call), unprefixed when stage 2 failed.
+
+`openrouter_json` makes at most two attempts per call. A stage that still fails
+contributes nothing and the other stage decides (fail-open); the returned error
+ends with `(fail-open)`. When both fail, behaviour is as before: collection
+stores headlines with null labels, deepening drops search results
+(`classifier_failed`), related headlines are dropped as not reviewed, macro
+items stay unlabelled. The cost of failed but billed attempts is carried on the
+exception and counted. Callers pass a `stats` dict that receives
+`screen_cost_usd`, `review_cost_usd`, `retries`, `screen_failed` and
+`review_failed`; collection keeps them in the run's `classifier` and
+`macro_classification` stats, deepening in `details.deepening.classifier_stages`
+(per-call dicts merged under the worker lock). Macro labelling in the slot pool
+and in deepening applies labels whenever any were returned and records the
+error. Any `classifier:` error raises the batch email to WARNING; a fail-open
+error renders as "AI review stage failed, other stage applied", and the AI
+review lines show total and per-stage cost, retries and failed stages. A run
+with a classifier error is `partial`, which reports still read.
+
+All model JSON is parsed by `app/services/llm_json.py`, a port of the Homepage
+`llm_json_utils.py`: the longest balanced JSON value is extracted (fences and
+prose ignored), and a strict-parse failure goes through `json-repair`
+(`json-repair==0.63.5`) before raising. The port keeps the upstream logic and
+tests; it differs only in type annotations and a module-level `repair_json`
+import, which the upstream tests already assume. Measured on 2026-10-07: about
+one Haiku call in six wrapped valid JSON in a Markdown fence.
 
 ### Intel deepening and paid usage
 

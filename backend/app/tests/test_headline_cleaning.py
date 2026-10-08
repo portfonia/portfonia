@@ -83,15 +83,16 @@ def test_acceptance_17_classifier_mapping() -> None:
         labels, cost, failed = hc.classify_headlines(
             [lead(i) for i in range(4)], "NVDA", ["Nvidia"]
         )
+    # #700: the same fixture answers both stages, so the cost is counted twice.
     assert (
         labels == {0: "keep", 1: "mention", 2: "promo", 3: "unrelated"}
-        and cost == 0.001
+        and cost == 0.002
         and not failed
     )
 
 
 @pytest.mark.parametrize("failure", ["http", "timeout", "json"])
-def test_acceptance_18_classifier_failure_no_retry(failure: str) -> None:
+def test_acceptance_18_classifier_failure_retries_then_fails(failure: str) -> None:
     resp = (
         httpx.Response(500, request=httpx.Request("POST", "https://fixture.example"))
         if failure == "http"
@@ -104,12 +105,16 @@ def test_acceptance_18_classifier_failure_no_retry(failure: str) -> None:
         return_value=resp,
     ) as post:
         labels, _, failed = hc.classify_headlines([lead(0)], "NVDA", ["Nvidia"])
-    expected = {
-        "http": "classifier: HTTPStatusError HTTP 500",
-        "timeout": "classifier: ReadTimeout",
-        "json": "classifier: JSONDecodeError",
-    }
-    assert labels == {} and failed == expected[failure] and post.call_count == 1
+    # #700: each stage retries once, then both stages fail; json_repair turns
+    # unparseable text into an empty string, which still fails to decode.
+    reason = {
+        "http": "HTTPStatusError HTTP 500",
+        "timeout": "ReadTimeout",
+        "json": "JSONDecodeError",
+    }[failure]
+    assert labels == {}
+    assert failed == f"classifier: screen {reason}; classifier: review {reason}"
+    assert post.call_count == 4
 
 
 def test_acceptance_19_missing_ids() -> None:

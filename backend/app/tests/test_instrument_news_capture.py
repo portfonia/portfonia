@@ -78,7 +78,7 @@ def test_acceptance_10_source_isolation(db_session: Session) -> None:
         patch.object(
             cap,
             "classify_headlines",
-            side_effect=lambda items, ticker, aliases, recent_titles=None: (
+            side_effect=lambda items, ticker, aliases, recent_titles=None, stats=None: (
                 {i: "keep" for i in range(len(items))},
                 0,
                 None,
@@ -133,6 +133,7 @@ def test_acceptance_20_per_instrument_chunks(db_session: Session) -> None:
         ticker: str,
         aliases: list[str],
         recent_titles: Sequence[str] | None = None,
+        stats: dict[str, float] | None = None,
     ) -> tuple[dict[int, str], float, str | None]:
         return {i: "keep" for i in range(len(items))}, 0, None
 
@@ -452,6 +453,7 @@ def test_acceptance_20_separate_instrument_calls(db_session: Session) -> None:
         ticker: str,
         aliases: list[str],
         recent_titles: Sequence[str] | None = None,
+        stats: dict[str, float] | None = None,
     ) -> tuple[dict[int, str], float, str | None]:
         assert len(items) == 5
         events.append(("classified", ticker))

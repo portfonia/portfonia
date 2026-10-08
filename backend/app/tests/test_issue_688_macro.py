@@ -60,11 +60,23 @@ def labels() -> list[dict[str, object]]:
     ]
 
 
+def by_title(
+    system: str, content: str, model: str | None = None, stats: object = None
+) -> tuple[dict[str, object], float]:
+    """#700: answer each stage by title, so re-indexed review calls stay aligned."""
+    fixture = {c.title: row for c, row in zip(candidates(), labels(), strict=True)}
+    out = []
+    for line in content.splitlines():
+        index, title = line.split("\t")[:2]
+        out.append({**fixture[title], "id": int(index)})
+    return {"labels": out}, 0.001
+
+
 def test_ranking_fixture(db_session: Session) -> None:
     assert hasattr(hc, "classify_macro"), "D1 requires the macro classifier helper"
-    with patch.object(hc, "openrouter_json", return_value=({"labels": labels()}, 0.001)):
+    with patch.object(hc, "openrouter_json", side_effect=by_title):
         ranked, cost, error = hc.classify_macro(candidates())
-    assert error is None and cost == 0.001
+    assert error is None and cost == 0.002  # screen and review
     leads = select_leads(
         db_session,
         WorkUnit("macro", theme="politics"),
@@ -176,7 +188,7 @@ def test_fallback_partial_digest(
         details = w.details()
         assert details["macro_rank_failed"] == failed
         assert details["macro_rank_partial"] == partial
-        assert w.errors == []
+        assert w.errors == ([error] if error else [])  # #700: surfaced for the ops WARNING
         assert batches[0][1].title == (OIL if failed else TRADE)
         run = db_session.get(IntelSlotRun, w.run_id)
         assert run is not None

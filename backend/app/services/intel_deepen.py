@@ -22,6 +22,7 @@ from app.models.intel import InstrumentProfile, IntelSlotRun
 from app.models.news import News
 from app.models.paid_intel import IntelArticle, IntelArticleLink
 from app.services.headline_cleaning import (
+    STAGE_STATS,
     CleaningConfig,
     MacroLabel,
     block_reason,
@@ -171,8 +172,14 @@ class DeepenRun:
         self.macro_rank_failed = 0
         self.macro_rank_partial = 0
         self.macro_classifier_cost_usd = 0.0
+        self.classifier_stages: dict[str, float] = dict.fromkeys(STAGE_STATS, 0.0)
         self.macro_leads: list[Lead] = []
         self.macro_themes: dict[str, set[str]] = {}
+
+    def _merge_stage_stats(self, stats: dict[str, float]) -> None:
+        """Caller holds self.lock; per-call dicts keep worker threads apart (#700)."""
+        for key, value in stats.items():
+            self.classifier_stages[key] = self.classifier_stages.get(key, 0.0) + value
 
     def collected(self, identifier: str, items: list[CollectedItem]) -> None:
         with self.lock:
@@ -406,16 +413,21 @@ class DeepenRun:
             leads: list[Lead]
             if survivors:
                 items = [item for _, item in survivors]
+                call_stats: dict[str, float] = {}
                 labels, cost, failed = classify_headlines(
                     items,
                     unit.identifier,
                     aliases,
+                    stats=call_stats,
                 )
                 with self.lock:
                     self.metrics[chosen]["search_classifier_cost_usd"] = (
                         float(self.metrics[chosen]["search_classifier_cost_usd"]) + cost
                     )
-                if failed:
+                    self._merge_stage_stats(call_stats)
+                    if failed and labels:
+                        self.errors.append(failed)  # one stage failed open (#700)
+                if failed and not labels:
                     with self.lock:
                         filtered = self.metrics[chosen]["search_filtered"]
                         filtered["classifier_failed"] = filtered.get("classifier_failed", 0) + len(
@@ -521,9 +533,16 @@ class DeepenRun:
                     remainder = [i for i in range(len(candidates)) if i not in macro_labels]
                     if remainder:
                         label_call = uuid.uuid4().hex[:12]
-                        labels, cost, error = classify_macro([candidates[i] for i in remainder])
+                        macro_stats: dict[str, float] = {}
+                        labels, cost, error = classify_macro(
+                            [candidates[i] for i in remainder], stats=macro_stats
+                        )
                         self.macro_classifier_cost_usd += cost
-                        if error or not labels:
+                        with self.lock:
+                            self._merge_stage_stats(macro_stats)
+                            if error:
+                                self.errors.append(error)
+                        if not labels:
                             self.macro_rank_failed += 1
                         else:
                             for index, label in labels.items():
@@ -870,6 +889,7 @@ class DeepenRun:
             "macro_rank_failed": self.macro_rank_failed,
             "macro_rank_partial": self.macro_rank_partial,
             "macro_classifier_cost_usd": self.macro_classifier_cost_usd,
+            "classifier_stages": self.classifier_stages,
             "outcomes": self.outcomes,
             "selections": [
                 {
