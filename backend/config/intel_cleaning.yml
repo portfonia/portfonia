@@ -31,6 +31,7 @@ low_value_title_patterns:
   - '\b(class action notice|deadline alert)\b'
   - '^investor alert\b'
   - '^form 4\b'
+  - '\bq[1-4] results:\s*benchmarking\b'
 near_duplicate_jaccard: 0.8
 near_duplicate_hours: 48
 # Issue #681: kept related-company headlines per instrument per attempt.

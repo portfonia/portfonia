@@ -942,7 +942,12 @@ cap are unchanged.
 
 The shared low-value title rules reject `should you buy/sell/hold`, return
 projections matching `invested in ... worth`, and `biggest upside` rankings.
-They apply to direct collection, related-company links and the macro RSS pool.
+Issue #699 additionally rejects StockStory titles matching the case-insensitive
+`\bq[1-4] results:\s*benchmarking\b` template as `low_value_rule`.
+`ASML Poised for Q3 Upside on Strong EUV Demand, RBC Says` and
+`AMD to Report Fiscal Third Quarter 2026 Financial Results` remain eligible
+when their aliases match. These rules apply to direct collection,
+related-company links and the macro RSS pool.
 The related-entity classifier also drops stock opinion/thesis pieces, return
 projections and headlines whose only fact is the related entity's share-price
 performance. Its keep definition and JSON schema are unchanged; macro
@@ -1137,8 +1142,21 @@ retaining the last `# ` title before the first paragraph and dropping short
 numbered menu entries.
 Issue #697 never counts a line starting with `|` as a paragraph, so a news-list
 table without prose yields an empty body. Case-insensitive residue rules also
-remove `FILE.` / `_FILE.` caption lines and the Benzinga navigation line starting
+remove caption lines and the Benzinga navigation line starting
 `Markets & News Breaking Headlines`, before first/last paragraph selection.
+Issue #699 widens the caption pattern to `^_?file\s*[.\-–]\s`, covering
+`File -`, `FILE.`, an en dash, and an optional leading underscore. It also
+removes lines starting `The above button links to Coinbase`,
+`Market News and Data brought to you by Benzinga`, or
+`To add Benzinga News as your preferred source`; lines containing
+`partially produced with the help of AI tools` or `<h5>`; and standalone
+`Ad` / `Read this article` lines. Matching is case-insensitive. Non-paragraph
+headings starting `Posted In`, `Connect With Us`, `About Benzinga` or
+`Read Next` skip a block until the next paragraph. Prose such as
+"Analysts said they will read next week's data closely before revising
+estimates for the coming quarter." is preserved. These are configuration-only
+changes for new collection and deepening; stored rows are not reprocessed,
+and a deployment takes effect at the next slot configuration load.
 No paragraph yields an empty rejection. Domain-only lines, optionally behind
 a short source prefix, are dropped; domain-with-path tokens are removed within
 prose. Sentence-contained domains without paths, such as company names, stay.
