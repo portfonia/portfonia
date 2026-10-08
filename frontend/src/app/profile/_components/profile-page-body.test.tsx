@@ -48,7 +48,7 @@ import { ProfilePageBody } from "./profile-page-body";
 
 function renderBody(me: Me | null, hadLoadError = false) {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <ProfilePageBody me={me} hadLoadError={hadLoadError} />
     </LocaleProvider>,
   );

@@ -18,7 +18,7 @@ function renderMenu(
   allMode: "none" | "all-options" = "none",
 ) {
   render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <MultiSelectMenu
         label="Markets"
         options={OPTIONS}

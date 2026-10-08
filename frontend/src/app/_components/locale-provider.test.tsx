@@ -1,7 +1,11 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { renderToString } from "react-dom/server";
+import { useTranslations } from "next-intl";
+const navigation = vi.hoisted(() => ({ pathname: "/", push: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: navigation.push }), usePathname: () => navigation.pathname }));
 import { LocaleProvider, useLocale } from "./locale-provider";
 
 function LocaleSwitcherProbe() {
@@ -47,7 +51,7 @@ describe("LocaleProvider keeps document.documentElement.lang in sync", () => {
 
   it("sets documentElement.lang to the default locale on mount", async () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <p>content</p>
       </LocaleProvider>,
     );
@@ -58,7 +62,7 @@ describe("LocaleProvider keeps document.documentElement.lang in sync", () => {
   it("updates documentElement.lang when setLocale is called", async () => {
     const user = userEvent.setup();
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <LocaleSwitcherProbe />
       </LocaleProvider>,
     );
@@ -73,7 +77,7 @@ describe("LocaleProvider keeps document.documentElement.lang in sync", () => {
     withLocaleStorage("zh-Hans");
 
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <p>content</p>
       </LocaleProvider>,
     );
@@ -89,7 +93,7 @@ describe("LocaleProvider keeps document.documentElement.lang in sync", () => {
     withLocaleStorage("zh-Hant");
 
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <p>content</p>
       </LocaleProvider>,
     );
@@ -107,12 +111,65 @@ describe("LocaleProvider migrates a legacy stored 'zh' value", () => {
     withLocaleStorage("zh");
 
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <p>content</p>
       </LocaleProvider>,
     );
 
     await waitFor(() => expect(document.documentElement.lang).toBe("zh-Hans"));
     expect(window.localStorage.getItem("portfonia:locale")).toBe("zh-Hans");
+  });
+});
+
+
+function SeoLocaleProbe() {
+  const { locale, setLocale } = useLocale();
+  const t = useTranslations("seo");
+  return <><span data-testid="locale">{locale}</span><span>{t("ogImageAlt")}</span><button onClick={() => setLocale("en")}>English</button></>;
+}
+
+describe("issue #702 route locale", () => {
+  beforeEach(() => { navigation.push.mockClear(); navigation.pathname = "/"; window.history.replaceState(null, "", "/"); withLocaleStorage(); });
+  it("renders Chinese on the server and ignores a conflicting stored locale", () => {
+    withLocaleStorage("zh-Hant");
+    expect(renderToString(<LocaleProvider routeLocale="zh-Hans"><SeoLocaleProbe /></LocaleProvider>)).toContain("zh-Hans");
+    render(<LocaleProvider routeLocale="zh-Hans"><SeoLocaleProbe /></LocaleProvider>);
+    expect(screen.getByTestId("locale")).toHaveTextContent("zh-Hans");
+    expect(window.localStorage.getItem("portfonia:locale")).toBe("zh-Hans");
+  });
+  it("preserves initial localStorage restore on an unprefixed SEO page", () => {
+    withLocaleStorage("zh-Hant");
+    render(<LocaleProvider routeLocale={null}><SeoLocaleProbe /></LocaleProvider>);
+    expect(screen.getByTestId("locale")).toHaveTextContent("zh-Hant");
+  });
+  it("switches the SEO URL and preserves query and hash", async () => {
+    window.history.replaceState(null, "", "/zh-Hans/pricing?x=1#plans");
+    render(<LocaleProvider routeLocale="zh-Hans"><SeoLocaleProbe /></LocaleProvider>);
+    await userEvent.click(screen.getByRole("button", { name: "English" }));
+    expect(navigation.push).toHaveBeenCalledWith("/pricing?x=1#plans");
+  });
+  it("switches the plain SEO URL without adding a suffix", async () => {
+    window.history.replaceState(null, "", "/zh-Hans/pricing");
+    render(<LocaleProvider routeLocale="zh-Hans"><SeoLocaleProbe /></LocaleProvider>);
+    await userEvent.click(screen.getByRole("button", { name: "English" }));
+    expect(navigation.push).toHaveBeenCalledWith("/pricing");
+  });
+  it("does not navigate on an auth page", async () => {
+    window.history.replaceState(null, "", "/login");
+    render(<LocaleProvider routeLocale="zh-Hans"><SeoLocaleProbe /></LocaleProvider>);
+    await userEvent.click(screen.getByRole("button", { name: "English" }));
+    expect(navigation.push).not.toHaveBeenCalled();
+  });
+  it("7c follows the real URL on pathname changes and browser Back, leaving auth state alone", () => {
+    window.history.replaceState(null, "", "/zh-Hans/pricing"); navigation.pathname = "/pricing";
+    const view = render(<LocaleProvider routeLocale="zh-Hans"><SeoLocaleProbe /></LocaleProvider>);
+    window.history.pushState(null, "", "/pricing"); navigation.pathname = "/";
+    view.rerender(<LocaleProvider routeLocale="zh-Hans"><SeoLocaleProbe /></LocaleProvider>);
+    expect(screen.getByTestId("locale")).toHaveTextContent("en");
+    act(() => { window.history.replaceState(null, "", "/zh-Hans/pricing"); window.dispatchEvent(new PopStateEvent("popstate")); });
+    expect(screen.getByTestId("locale")).toHaveTextContent("zh-Hans");
+    window.history.pushState(null, "", "/login"); navigation.pathname = "/login";
+    view.rerender(<LocaleProvider routeLocale="zh-Hans"><SeoLocaleProbe /></LocaleProvider>);
+    expect(screen.getByTestId("locale")).toHaveTextContent("zh-Hans");
   });
 });

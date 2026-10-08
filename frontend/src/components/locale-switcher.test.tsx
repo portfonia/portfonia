@@ -7,7 +7,7 @@ import { LocaleSwitcher } from "./locale-switcher";
 
 function renderSwitcher() {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <LocaleSwitcher />
     </LocaleProvider>,
   );

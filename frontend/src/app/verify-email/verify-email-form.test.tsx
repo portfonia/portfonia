@@ -20,7 +20,7 @@ import { VerifyEmailForm } from "./verify-email-form";
 
 function renderForm(status: VerifyEmailStatus, token = "tok-1") {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <VerifyEmailForm token={token} status={status} />
     </LocaleProvider>,
   );

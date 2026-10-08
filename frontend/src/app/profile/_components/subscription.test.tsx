@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const { refresh, getSubscriptionQuote, setSubscription, cancelSubscription, revalidateSession } = vi.hoisted(() => ({ refresh: vi.fn(), getSubscriptionQuote: vi.fn(), setSubscription: vi.fn(), cancelSubscription: vi.fn(), revalidateSession: vi.fn() }));
 vi.mock("@/hooks/use-session", () => ({ revalidateSession }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => window.location.pathname, useRouter: () => ({ refresh }) }));
 vi.mock("next-intl", () => ({ useLocale: () => "en", useTranslations: () => (key: string, values?: object) => key + (values ? JSON.stringify(values) : "") }));
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 vi.mock("@/lib/api", async () => ({ ...await vi.importActual<typeof import("@/lib/api")>("@/lib/api"), getSubscriptionQuote, setSubscription, cancelSubscription }));

@@ -13,7 +13,7 @@ vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return { ...actual, deleteHolding, reorderHoldings, updateHolding };
 });
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => window.location.pathname, useRouter: () => ({ push }) }));
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
@@ -55,7 +55,7 @@ function renderEditor(
   opts?: { onboardingIncomplete?: boolean },
 ) {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <HoldingsEditor
         initialHoldings={holdings}
         onboardingIncomplete={opts?.onboardingIncomplete}

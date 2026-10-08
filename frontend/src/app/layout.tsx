@@ -1,3 +1,6 @@
+import { getRouteLocale } from "@/lib/seo-server";
+import { SITE_URL } from "@/lib/seo";
+import { catalogs } from "@/locales";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Newsreader } from "next/font/google";
 import "./globals.css";
@@ -23,22 +26,24 @@ const newsreader = Newsreader({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: "Portfonia",
-  description: "Portfolio intelligence — for information only, not investment advice.",
+  description: catalogs.en.seo.pages.home.description,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const routeLocale = await getRouteLocale();
   return (
     <html
-      lang="en"
+      lang={routeLocale ?? "en"}
       className={`dark ${geistSans.variable} ${geistMono.variable} ${newsreader.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <LocaleProvider>
+        <LocaleProvider routeLocale={routeLocale}>
           <AppShell>
             <SiteHeader />
             {children}

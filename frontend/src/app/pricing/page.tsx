@@ -1,14 +1,14 @@
+import { getRouteLocale } from "@/lib/seo-server";
+import { buildPageMetadata } from "@/lib/seo";
 import type { Metadata } from "next";
 
 import { LegalDocument } from "../_components/legal-document";
 import { BuyCreditsLink } from "./buy-credits-link";
 
-// Static English title: locale is client-only (no URL-based locale routing,
-// per locales/README.md), so a Server Component's metadata can't read it.
-export const metadata: Metadata = {
-  title: "Portfonia — Pricing",
-};
-
 export default function PricingPage() {
   return <><LegalDocument doc="pricing" /><BuyCreditsLink /></>;
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  return buildPageMetadata("pricing", (await getRouteLocale()) ?? "en");
 }

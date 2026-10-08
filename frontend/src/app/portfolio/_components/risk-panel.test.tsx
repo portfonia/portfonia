@@ -58,7 +58,7 @@ it.each([
 
 it.each(["-1.4000", "3.4000", null])("renders five rounded arcs and semantic triangle markers for %s", async (value) => {
   getPortfolioRisk.mockResolvedValue({ ...data, beta: { status: value === null ? "insufficient_sample" : "ok", value, sample_count: 60 } });
-  const { container } = render(<LocaleProvider><RiskPanel baseCurrency="USD" /></LocaleProvider>);
+  const { container } = render(<LocaleProvider routeLocale={null}><RiskPanel baseCurrency="USD" /></LocaleProvider>);
   const cell = await screen.findByRole("button", { name: /Beta:/ });
   expect(cell.querySelectorAll("svg path")).toHaveLength(5);
   expect(Array.from(cell.querySelectorAll("svg path"), (path) => path.getAttribute("stroke-linecap"))).toEqual(Array(5).fill("round"));
@@ -73,7 +73,7 @@ it.each(["-1.4000", "3.4000", null])("renders five rounded arcs and semantic tri
 
 it.each(["within", "caution", "exceeds"] as const)("places Risk marker over %s and Deviation over delta+2", async (label) => {
   getPortfolioRisk.mockResolvedValue({ ...data, risk: { status: "ok", label }, deviation: { status: "ok", delta: -1 } });
-  render(<LocaleProvider><RiskPanel baseCurrency="USD" /></LocaleProvider>);
+  render(<LocaleProvider routeLocale={null}><RiskPanel baseCurrency="USD" /></LocaleProvider>);
   const risk = await screen.findByRole("button", { name: /^Risk:/ });
   const deviation = screen.getByRole("button", { name: /^Deviation:/ });
   expect(risk.querySelectorAll('[data-testid="bar-segment"]')).toHaveLength(3);
@@ -84,7 +84,7 @@ it.each(["within", "caution", "exceeds"] as const)("places Risk marker over %s a
 
 it("omits bar markers with no conclusion and keeps explanation behavior", async () => {
   getPortfolioRisk.mockResolvedValue({ ...data, risk: { status: "no_questionnaire", label: null }, deviation: { status: "no_questionnaire", delta: null } });
-  render(<LocaleProvider><RiskPanel baseCurrency="USD" /></LocaleProvider>);
+  render(<LocaleProvider routeLocale={null}><RiskPanel baseCurrency="USD" /></LocaleProvider>);
   const risk = await screen.findByRole("button", { name: /^Risk:/ });
   expect(risk.querySelector('[data-testid="bar-marker"]')).toBeNull();
   expect(screen.getByRole("button", { name: /^Deviation:/ }).querySelector('[data-testid="bar-marker"]')).toBeNull();
@@ -95,7 +95,7 @@ it("omits bar markers with no conclusion and keeps explanation behavior", async 
 
 it("requests multiple benchmarks, uses shared colours and widths, and permits none", async () => {
   getPortfolioRisk.mockResolvedValueOnce(data).mockResolvedValueOnce({ ...data, benchmark_vols: [benchmark, csi] }).mockResolvedValueOnce({ ...data, benchmark_vols: [csi] }).mockResolvedValueOnce({ ...data, benchmark_vols: [] });
-  const { container } = render(<LocaleProvider><RiskPanel baseCurrency="USD" /></LocaleProvider>);
+  const { container } = render(<LocaleProvider routeLocale={null}><RiskPanel baseCurrency="USD" /></LocaleProvider>);
   await waitFor(() => expect(container.querySelectorAll("path.recharts-line-curve")).toHaveLength(2));
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: /Volatility comparison benchmark/i }));
@@ -115,7 +115,7 @@ it("requests multiple benchmarks, uses shared colours and widths, and permits no
 it("disables the selector and hides stale results during refetch", async () => {
   let finish!: (value: PortfolioRiskResponse) => void;
   getPortfolioRisk.mockResolvedValueOnce(data).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
-  render(<LocaleProvider><RiskPanel baseCurrency="USD" /></LocaleProvider>);
+  render(<LocaleProvider routeLocale={null}><RiskPanel baseCurrency="USD" /></LocaleProvider>);
   await screen.findByText("18.6%");
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: /Volatility comparison benchmark/i }));
@@ -129,7 +129,7 @@ it("disables the selector and hides stale results during refetch", async () => {
 it("uses compact Performance axes with no more than six x ticks", async () => {
   const points = Array.from({ length: 12 }, (_, i) => ({ date: `2026-08-${String(i + 10).padStart(2, "0")}`, vol: "0.1860" }));
   getPortfolioRisk.mockResolvedValue({ ...data, portfolio_vol: { ...data.portfolio_vol, points }, benchmark_vols: [] });
-  const { container } = render(<LocaleProvider><RiskPanel baseCurrency="USD" /></LocaleProvider>);
+  const { container } = render(<LocaleProvider routeLocale={null}><RiskPanel baseCurrency="USD" /></LocaleProvider>);
   await waitFor(() => expect(container.querySelector(".recharts-xAxis")).not.toBeNull());
   expect(container.querySelectorAll(".recharts-xAxis .recharts-cartesian-axis-tick").length).toBeLessThanOrEqual(6);
   for (const axis of container.querySelectorAll(".recharts-cartesian-axis")) {
@@ -148,7 +148,7 @@ it("lists every drawn series with as-of dates", () => {
     { name: "S&P 500", color: "var(--chart-2)", points: [{ t: toTimestamp("2026-08-25"), vol: 0.142 }] },
     { name: "CSI 300", color: "var(--chart-csi300)", points: [{ t: toTimestamp("2026-08-23"), vol: 0.23 }] },
   ];
-  render(<LocaleProvider><RiskChartTooltip active label={toTimestamp("2026-08-25")} series={series} /></LocaleProvider>);
+  render(<LocaleProvider routeLocale={null}><RiskChartTooltip active label={toTimestamp("2026-08-25")} series={series} /></LocaleProvider>);
   const tooltip = screen.getByRole("tooltip");
   expect(tooltip).toHaveTextContent("Portfolio");
   expect(tooltip).toHaveTextContent("S&P 500");
@@ -160,10 +160,10 @@ it("lists every drawn series with as-of dates", () => {
 it("draws every available benchmark without portfolio data, or one empty message", async () => {
   const empty = { ...data.portfolio_vol, status: "insufficient_sample" as const, current: null, tier: null, points: [] };
   getPortfolioRisk.mockResolvedValueOnce({ ...data, portfolio_vol: empty, benchmark_vols: [benchmark, csi] }).mockResolvedValueOnce({ ...data, portfolio_vol: empty, benchmark_vols: [{ ...benchmark, status: "insufficient_sample", current: null, points: [] }] });
-  const { container, rerender } = render(<LocaleProvider><RiskPanel baseCurrency="USD" /></LocaleProvider>);
+  const { container, rerender } = render(<LocaleProvider routeLocale={null}><RiskPanel baseCurrency="USD" /></LocaleProvider>);
   await waitFor(() => expect(container.querySelectorAll("path.recharts-line-curve")).toHaveLength(2));
   expect(screen.getByRole("button", { name: /Beta:/ })).toBeInTheDocument();
-  rerender(<LocaleProvider><RiskPanel baseCurrency="CNY" /></LocaleProvider>);
+  rerender(<LocaleProvider routeLocale={null}><RiskPanel baseCurrency="CNY" /></LocaleProvider>);
   await waitFor(() => expect(container.querySelector('[role="img"]')).toBeNull());
   expect(screen.getByText("Volatility · annualized historical volatility").closest("section")).toHaveTextContent("Insufficient sample");
 });

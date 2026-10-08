@@ -41,6 +41,7 @@ describe("locale catalogs stay structurally in sync (issue #209)", () => {
 
   it("every locale carries exactly the expected top-level namespaces", () => {
     const expected = [
+      "about",
       "agent",
       "auth",
       "common",
@@ -50,10 +51,12 @@ describe("locale catalogs stay structurally in sync (issue #209)", () => {
       "home",
       "legal",
       "menu",
+      "notFound",
       "portfolio",
       "profile",
       "questionnaire",
       "reports",
+      "seo",
       "unsubscribe",
       "welcome",
     ].sort();

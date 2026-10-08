@@ -1571,5 +1571,94 @@
       "zh": "Simplified Chinese",
       "zh-Hant": "Traditional Chinese"
     }
+  },
+  "seo": {
+    "pages": {
+      "home": {
+        "title": "Portfonia — Daily briefings on your multi-broker holdings",
+        "description": "Consolidate holdings across brokers and US, Hong Kong, China A-share and other markets, and get a daily briefing on the news and macro developments tied to each position."
+      },
+      "about": {
+        "title": "About Portfonia",
+        "description": "Portfonia is a software tool that watches news, macro and company developments and maps them onto the holdings you enter, across brokers and markets. Information only, not investment advice."
+      },
+      "pricing": {
+        "title": "Pricing — Portfonia",
+        "description": "Weekly, Mon/Wed/Fri, or weekday daily briefings, paid with prepaid credits from US$10. Unused purchased credits are refundable within 120 days."
+      },
+      "waitlist": {
+        "title": "Join the waitlist — Portfonia",
+        "description": "Request an invitation to Portfonia, a briefing service that maps market news and macro developments onto the holdings you track across brokers."
+      },
+      "privacy": {
+        "title": "Privacy Policy — Portfonia",
+        "description": "How Portfonia collects, encrypts, uses and deletes your account and holdings data."
+      },
+      "terms": {
+        "title": "Terms of Service — Portfonia",
+        "description": "The terms for using Portfonia, an information service for your holdings. It does not provide investment advice."
+      },
+      "refund": {
+        "title": "Refund Policy — Portfonia",
+        "description": "How refunds work for Portfonia's prepaid service credits."
+      }
+    },
+    "ogImageAlt": "Portfonia sample daily briefing",
+    "og": {
+      "headline": "What's worth noticing in your holdings.",
+      "subline": "Daily briefings across brokers and markets — US, Hong Kong, China A-shares and more.",
+      "sampleTitle": "Sample briefing",
+      "sampleRows": [
+        "Illustrative company: quarterly results published.",
+        "Macro calendar: inflation release this week.",
+        "Portfolio context: exposure across markets."
+      ]
+    }
+  },
+  "about": {
+    "title": "About Portfonia",
+    "intro": "News, macro events and company developments, mapped to the positions you enter.",
+    "sections": [
+      {
+        "heading": "What Portfonia is",
+        "body": [
+          "Portfonia is a software tool that watches news, macro events and company developments and maps them systematically onto the holdings you enter."
+        ]
+      },
+      {
+        "heading": "Who it is for",
+        "body": [
+          "For investors with positions across several brokers and markets: the US, Hong Kong, China A-shares, the UK, Europe, Japan and Korea."
+        ]
+      },
+      {
+        "heading": "What a briefing covers",
+        "body": [
+          "Upload positions from CSV, Excel or Markdown and edit individual rows. View portfolio allocation, performance against benchmarks, historical volatility and risk.",
+          "Briefings cover price anomalies, technical position, macro and company news tied to your holdings, and a forward calendar of macro and earnings events. Each causal claim carries a confidence label."
+        ]
+      },
+      {
+        "heading": "What it is not",
+        "body": [
+          "Portfonia is an information service. It does not give investment advice or trading instructions, does not execute trades, and does not compute taxes."
+        ]
+      },
+      {
+        "heading": "Languages",
+        "body": [
+          "Briefings and the site are available in English, Simplified Chinese and Traditional Chinese."
+        ]
+      }
+    ],
+    "cta": {
+      "waitlist": "Join the waitlist",
+      "pricing": "View pricing"
+    }
+  },
+  "notFound": {
+    "title": "Page not found",
+    "body": "The page you are looking for does not exist.",
+    "homeLink": "Return home"
   }
 }

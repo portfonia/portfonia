@@ -236,7 +236,7 @@ function response(overrides: Partial<PortfolioPerformanceResponse> = {}): Portfo
 
 function renderBody(initialSummary = TRACKED_SUMMARY) {
   render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <PerformancePageBody initialSummary={initialSummary} initialLoadError={false} />
     </LocaleProvider>,
   );

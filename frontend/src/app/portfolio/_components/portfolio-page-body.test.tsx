@@ -88,7 +88,7 @@ function installLocaleStorage(initial?: string) {
 
 function renderBody(initialSummary: PortfolioSummary | null, initialLoadError = false) {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <PortfolioPageBody initialSummary={initialSummary} initialLoadError={initialLoadError} />
     </LocaleProvider>,
   );

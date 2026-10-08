@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { useLegalMessages } from "./locale-provider";
+import { useLegalMessages, useLocalizedHref } from "./locale-provider";
 
 type LegalDocKey = "pricing" | "terms" | "privacy" | "refund";
 
@@ -23,6 +23,7 @@ function fillMerchant(text: string, resellerNotice: string): string {
 
 export function LegalDocument({ doc }: { doc: LegalDocKey }) {
   const t = useLegalMessages();
+  const href = useLocalizedHref();
   const content = t[doc];
 
   return (
@@ -48,7 +49,7 @@ export function LegalDocument({ doc }: { doc: LegalDocKey }) {
 
       <nav className="mt-12 flex flex-wrap gap-4 border-t border-white/10 pt-6 text-sm text-foreground/60">
         {documentOrder.filter((key) => key !== doc).map((key) => (
-          <Link key={key} href={`/${key}`} className="underline">
+          <Link key={key} href={href(`/${key}`)} className="underline">
             {t.nav[key]}
           </Link>
         ))}

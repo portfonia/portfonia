@@ -11,7 +11,7 @@ it("acceptance_18 renders HTML and downloads exact Markdown and prints", async (
   const print = vi.spyOn(window, "print").mockImplementation(() => {});
   const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { expect(this.download).toBe("portfonia-briefing-2026-10-03.md"); expect(this.href).toBe("blob:fixture"); });
   const report = { id: "r1", report_date: "2026-10-03", report_type: "incremental", session_node: "manual", status: "success", report_md: md, report_body_html: html, prompt_version: null, disclaimer_version: null, generated_at: null, email_sent_at: null, created_at: "2026-10-03T00:00:00Z" };
-  const user = userEvent.setup(); render(<LocaleProvider><ReportDetail report={report} /></LocaleProvider>);
+  const user = userEvent.setup(); render(<LocaleProvider routeLocale={null}><ReportDetail report={report} /></LocaleProvider>);
   expect(screen.getByRole("heading", { name: "Stored briefing" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Source" }).outerHTML).toBe('<a href="https://example.com">Source</a>');
   await user.click(screen.getByRole("button", { name: "Download Markdown" }));

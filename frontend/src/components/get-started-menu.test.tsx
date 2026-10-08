@@ -17,7 +17,7 @@ const { getUser, onAuthStateChange, logout, fetchMock, setSubscription, getSubsc
 // usePathname() purely as a "something navigated, re-verify" effect
 // trigger — real Next.js usePathname() throws outside an App Router context,
 // so it still needs mocking here even though no test varies it by route.
-vi.mock("next/navigation", () => ({ usePathname: () => "/holdings", useRouter: () => ({ refresh }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/holdings", useRouter: () => ({ refresh, push: vi.fn() }) }));
 vi.mock("next/link", () => ({
   default: ({
     href,
@@ -79,7 +79,7 @@ function LocaleToggle() {
 // route now honors the selected locale exactly like home used to.
 function renderMenu() {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <GetStartedMenu />
     </LocaleProvider>,
   );
@@ -276,7 +276,7 @@ describe("GetStartedMenu", () => {
       logout.mockRejectedValue(new Error("auth.portfonia.com unreachable"));
       const user = userEvent.setup();
       render(
-        <LocaleProvider>
+        <LocaleProvider routeLocale={null}>
           <LocaleToggle />
           <GetStartedMenu />
         </LocaleProvider>,
@@ -520,7 +520,7 @@ it.each([true, false])("polish_660_acceptance_1a confirmed change reprobes Advan
   setSubscription.mockImplementation(async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({ advanced: !advanced }) });
   });
-  render(<LocaleProvider><GetStartedMenu /><SubscriptionChange plan={plan} /></LocaleProvider>);
+  render(<LocaleProvider routeLocale={null}><GetStartedMenu /><SubscriptionChange plan={plan} /></LocaleProvider>);
   const trigger = await screen.findByRole("button", { name: /get started/i });
   expect(trigger.classList.contains("bg-advanced")).toBe(advanced);
   const user = userEvent.setup();

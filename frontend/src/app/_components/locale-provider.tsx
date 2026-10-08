@@ -1,6 +1,8 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { isSeoPath, localizedPath, splitLocalePrefix } from "@/lib/seo";
 import { NextIntlClientProvider, useTranslations } from "next-intl";
 
 import { catalogs, DEFAULT_LOCALE, isLocale, type Locale, type Messages } from "@/locales";
@@ -17,16 +19,19 @@ const LocaleContext = createContext<{
   setLocale: (locale: Locale) => void;
 } | null>(null);
 
-export function LocaleProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(DEFAULT_LOCALE);
+export function LocaleProvider({ children, routeLocale }: { children: React.ReactNode; routeLocale: Locale | null }) {
+  const [locale, setLocaleState] = useState<Locale>(routeLocale ?? DEFAULT_LOCALE);
+  const router = useRouter();
+  const pathname = usePathname();
+  const previousPathname = useRef(pathname);
 
   useEffect(() => {
-    // One-time hydration-safe restore: render the default locale on both
-    // server and first client paint (no mismatch), then swap to the stored
-    // preference right after mount. A lazy useState initializer would read
-    // localStorage during the client's first render too, which is exactly
-    // what causes a hydration text mismatch against the server-rendered HTML.
+    // URL locales match SSR; unprefixed routes restore storage after hydration.
     try {
+      if (routeLocale) {
+        window.localStorage.setItem(STORAGE_KEY, routeLocale);
+        return;
+      }
       const stored = window.localStorage.getItem(STORAGE_KEY);
       if (stored === LEGACY_ZH_VALUE) {
         // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -43,20 +48,26 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
       // Storage inaccessible (private browsing, blocked, quota) — fall
       // back to the default already set; nothing to restore.
     }
-  }, []);
+  }, [routeLocale]);
 
   useEffect(() => {
-    // blacktomb42 review (PR #226): issue #209 requires html/lang to match
-    // the selected locale on every route. AppShell's `lang` on its wrapper
-    // div was never enough — screen readers and in-browser translate key
-    // off the real `<html>` element, which layout.tsx must render
-    // statically as "en" server-side (locale is client-only — see this
-    // directory's README's "No URL-based locale routing" section). This
-    // effect is the one place that keeps the real element in sync, since
-    // LocaleProvider is the only place `locale` state changes (both the
-    // storage restore above and setLocale below).
+    // Keep the real document language aligned with both URL and stored preferences.
     document.documentElement.lang = locale;
   }, [locale]);
+
+  useEffect(() => {
+    function syncUrlLocale() {
+      const { locale: prefix, path } = splitLocalePrefix(window.location.pathname);
+      if (isSeoPath(path)) setLocaleState(prefix ?? DEFAULT_LOCALE);
+    }
+    // The first mount keeps the existing unprefixed-page storage restore.
+    if (previousPathname.current !== pathname) {
+      previousPathname.current = pathname;
+      syncUrlLocale();
+    }
+    window.addEventListener("popstate", syncUrlLocale);
+    return () => window.removeEventListener("popstate", syncUrlLocale);
+  }, [pathname]);
 
   function setLocale(next: Locale) {
     setLocaleState(next);
@@ -66,6 +77,8 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
       // Persistence best-effort only — the toggle still works for this
       // session even if it can't be saved.
     }
+    const { path } = splitLocalePrefix(window.location.pathname);
+    if (isSeoPath(path)) router.push(localizedPath(path, next) + window.location.search + window.location.hash);
   }
 
   return (
@@ -82,6 +95,11 @@ export function useLocale() {
   const ctx = useContext(LocaleContext);
   if (!ctx) throw new Error("useLocale must be used within a LocaleProvider");
   return ctx;
+}
+
+export function useLocalizedHref() {
+  const { locale } = useLocale();
+  return (path: string) => isSeoPath(path) ? localizedPath(path, locale) : path;
 }
 
 // Convenience wrapper for home-sections.tsx (issue #209): the home catalog

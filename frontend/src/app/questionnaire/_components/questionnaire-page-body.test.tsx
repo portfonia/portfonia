@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => window.location.pathname, useRouter: () => ({ push: vi.fn() }) }));
 // lib/api.ts (imported transitively via QuestionnaireForm) now imports
 // logout() from auth-actions.ts, which pulls in the server-only-guarded
 // Supabase server client — that throws when bundled into a Client
@@ -14,7 +14,7 @@ import { QuestionnairePageBody } from "./questionnaire-page-body";
 
 function renderBody(mode?: "onboarding" | "edit") {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <QuestionnairePageBody initialContext={null} hadLoadError={false} mode={mode} />
     </LocaleProvider>,
   );

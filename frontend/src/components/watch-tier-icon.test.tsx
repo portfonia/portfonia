@@ -6,7 +6,7 @@ import { WatchTierIcon } from "./watch-tier-icon";
 
 function renderIcon(tier: "watch" | "focus" | "critical" | null | undefined) {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <WatchTierIcon tier={tier} />
     </LocaleProvider>,
   );

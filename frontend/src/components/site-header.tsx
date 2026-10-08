@@ -4,11 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 
+import { useLocalizedHref } from "@/app/_components/locale-provider";
 import { GetStartedMenu } from "@/components/get-started-menu";
 import { LocaleSwitcher } from "@/components/locale-switcher";
 
 export function SiteHeader() {
   const pathname = usePathname();
+  const href = useLocalizedHref();
   const isHome = pathname === "/";
   const tCommon = useTranslations("common");
 
@@ -20,7 +22,7 @@ export function SiteHeader() {
   return (
     <header className="sticky top-4 z-20 flex justify-center px-4">
       <nav className="flex w-full max-w-4xl items-center justify-between gap-4 rounded-full border border-white/10 bg-card/70 px-5 py-3 backdrop-blur-md">
-        <Link href={isHome ? "#top" : "/"} className="font-serif text-lg tracking-tight">
+        <Link href={isHome ? "#top" : href("/")} className="font-serif text-lg tracking-tight">
           {tCommon("brandName")}
         </Link>
         <div className="flex items-center gap-4">

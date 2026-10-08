@@ -120,7 +120,7 @@ for the full before/after and decision rationale.
   markup, so a future entry gets the same layout for free.
 - **`/profile` inherits the shared header for free** (root-layout
   convention above) and is protected by the existing `proxy.ts` gate — it
-  is not in `PUBLIC_PATH_PREFIXES`, so an unauthenticated request redirects
+  is in `PROTECTED_PATH_PREFIXES`, so an unauthenticated request redirects
   to `/login` with no route-specific code.
 - **New `profile` message namespace**, translated into all three locales
   (`en`/`zh-Hans`/`zh-Hant`) from the start — issue #209's global catalog
@@ -268,7 +268,7 @@ Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
   Current holdings card (which is also where Export lives, so hiding the
   card hides Export too) and the Download-template button.
 - **`/welcome` is a new route**, not public (absent from `proxy.ts`'s
-  `PUBLIC_PATH_PREFIXES`, same as `/profile`/`/holdings` — no route-specific
+  `PROTECTED_PATH_PREFIXES`, same as `/profile`/`/holdings` — no route-specific
   auth code needed). Server Component `page.tsx` calls `getMeServer()`;
   the Client Component `WelcomeBody` does a `sessionStorage.
   portfonia.welcomed` dedupe check in a `useEffect` (same one-time
@@ -367,7 +367,8 @@ switcher itself is home-only", and the `npm run test` reference) describe the
   `useEffect` there sets `document.documentElement.lang` directly. An
   earlier version of this PR only set `lang` on `AppShell`'s wrapper `<div>`
   — real, never on `<html>` itself, which `layout.tsx` still renders
-  statically as `lang="en"` server-side (locale is client-only, see below) —
+  as `lang="en"` server-side at that time (issue #702 adds URL locales
+  for public SEO pages, documented below) —
   caught by review (blacktomb42, PR #226) since screen readers and
   in-browser translate key off the real element. `AppShell` still also sets
   `lang` on its wrapper div (redundant with the fix, kept because
@@ -384,7 +385,8 @@ switcher itself is home-only", and the `npm run test` reference) describe the
   (`frontend/src/locales/index.ts`) until a native speaker signs off — see
   the locales README's "zh-Hant review status" (also fixed after the same
   review round: the catalog existed but was still switcher-selectable).
-- **No URL-based locale routing.** Concept & Design's frontend engineering
+- **No URL-based locale routing (partially superseded by #702 for public
+  SEO pages only; see below).** Concept & Design's frontend engineering
   constraint 3 calls for `next-intl` with `/en`/`/zh-Hans`/`/zh-Hant` URL
   prefixes and SSR of the selected locale. Issue #209 explicitly required
   settling that question at implementation time rather than silently
@@ -473,3 +475,54 @@ on a wrapping, right-aligned row 2 at every width. `MultiSelectMenu` and
 `MenuDropdown` so a long trigger wraps instead of being clipped by its card;
 the shared `MenuDropdown` default is unchanged. The Performance monthly card
 header and the Holdings "current holdings" action row wrap.
+
+## Public SEO pages and locale URLs
+
+Issue #702 adds English (unprefixed), `/zh-Hans`, and `/zh-Hant` versions of
+`/`, `/about`, `/pricing`, `/waitlist`, `/privacy`, `/terms`, and `/refund`.
+`lib/seo.ts` defines this exact page set, canonical `https://portfonia.com`,
+URL helpers, protected prefixes, language alternates, and metadata builders.
+It is safe for client imports. Only `lib/seo-server.ts` reads `next/headers`;
+the root layout and SEO pages use it to resolve the proxy locale header.
+
+Proxy rewrites Chinese SEO URLs to the unprefixed route and forwards
+`x-portfonia-locale`. Chinese unknown paths also forward that header without
+rewriting or redirecting. Both branches preserve refreshed session cookies
+and the cache-prevention headers supplied by Supabase. Only `/holdings`,
+`/portfolio`, `/profile`, `/questionnaire`, `/reports`, `/welcome`, and their
+subpaths redirect anonymous visitors to `/login`; unknown URLs reach the
+localized Next 404. The existing `/api/` bearer injection is unchanged.
+
+The async root layout renders the URL locale in `<html lang>` and initializes
+`LocaleProvider` with it. Reading headers makes page rendering dynamic.
+Unprefixed app/auth pages retain #209's English-first storage restore.
+Public-page links preserve locale; the switcher changes SEO URLs with query
+and hash intact. After mount, pathname changes and `popstate` synchronize
+SEO-page state from `window.location.pathname`; non-SEO state is unchanged.
+Initial unprefixed-page storage restore is deliberately preserved.
+
+Each SEO page emits catalog title/description, absolute canonical and eight
+language alternates (`en`, `zh-CN`, `zh-SG`, `zh`, `zh-TW`, `zh-HK`, `zh-MO`,
+`x-default`), complete Open Graph metadata and a large-image Twitter card.
+`robots.ts` allows public URLs, disallows protected/auth flows and names the
+sitemap. `sitemap.ts` lists 21 localized URLs with the same alternates and no
+invented modification dates. The home page contains Organization and
+SoftwareApplication JSON-LD, with `<` escaped as literal `\u003c`, without
+prices, ratings or reviews.
+
+`/og/en`, `/og/zh-Hans` and `/og/zh-Hant` are static 1200x630 PNG route outputs.
+They contain catalog-backed illustrative content, never user data. At build
+time the font loader requests a Google Fonts glyph subset with Next's bundled
+OG legacy User-Agent, accepts only OpenType/TrueType CSS sources, and fails on
+unsupported formats or failed requests. The home preview shows that locale's
+image with localized alt text above the unchanged HTML sample report.
+`/about` draws its five sections solely from facts already in the English
+catalog; all new text is translated in the three catalogs.
+
+Caddy redirects `www.portfonia.com` permanently to the apex, preserving path
+and query. A host-only session on `www` requires a fresh apex sign-in.
+Deployment includes frontend rebuild and Caddy reload under separate owner
+authorization. Unit tests cover routing, cookie/header preservation, locale
+state, metadata, sitemap, content and font failures; build verifies the client/
+server boundary and emits the PNGs. No local app server is used. HTTP status
+and canonical-host behavior are verified by the owner after deployment.

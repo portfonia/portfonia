@@ -6,7 +6,7 @@ import { ExpiredSessionBanner } from "./expired-session-banner";
 
 function renderBanner(reason?: string) {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <ExpiredSessionBanner reason={reason} />
     </LocaleProvider>,
   );
@@ -23,14 +23,14 @@ describe("ExpiredSessionBanner", () => {
 
   it("renders nothing for any other or missing reason", () => {
     const { container, rerender } = render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <ExpiredSessionBanner />
       </LocaleProvider>,
     );
     expect(container).toBeEmptyDOMElement();
 
     rerender(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <ExpiredSessionBanner reason="something_else" />
       </LocaleProvider>,
     );

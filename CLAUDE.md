@@ -111,6 +111,8 @@ Every Beat entry must declare an explicit boolean in `API_QUIET_BEAT_ENTRIES`; h
 
 ### Mechanism deep-dives
 
+- [Public SEO pages and locale URLs](docs/mechanisms/frontend-chrome.md#public-seo-pages-and-locale-urls) — issue #702: public locale URLs, metadata, sitemap, OG previews, localized 404 and canonical host.
+
 Each entry below is the full implementation record (root cause, design
 tradeoffs, review provenance) for one system, filed under `docs/mechanisms/`.
 This table is the pointer index — read the linked file before touching that

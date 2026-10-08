@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { replace } = vi.hoisted(() => ({ replace: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => window.location.pathname, useRouter: () => ({ replace }) }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import type { Me } from "@/lib/api";
@@ -41,7 +41,7 @@ function installLocaleStorage(initial?: string) {
 
 function renderBody(me: Me | null, hadLoadError = false) {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <WelcomeBody me={me} hadLoadError={hadLoadError} />
     </LocaleProvider>,
   );

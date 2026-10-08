@@ -36,7 +36,7 @@ function holding(overrides: Partial<HoldingOut>): HoldingOut {
 describe("HoldingsTable", () => {
   it("shows the watch-tier icon next to the ticker when set (issue #430)", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <HoldingsTable holdings={[holding({ watch_tier: "focus" })]} />
       </LocaleProvider>,
     );
@@ -46,7 +46,7 @@ describe("HoldingsTable", () => {
 
   it("shows no watch-tier icon when unset", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <HoldingsTable holdings={[holding({})]} />
       </LocaleProvider>,
     );

@@ -12,7 +12,7 @@ import { RangeTabs } from "./range-tabs";
 
 function renderTabs(onChange = vi.fn()) {
   render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <RangeTabs value="1Y" onChange={onChange} />
     </LocaleProvider>,
   );
@@ -55,7 +55,7 @@ describe("RangeTabs", () => {
     });
 
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <RangeTabs value="ALL" onChange={vi.fn()} />
       </LocaleProvider>,
     );

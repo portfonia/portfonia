@@ -39,7 +39,7 @@ describe("PortfolioHoldingsTable", () => {
     // Grok review round 1 (PR #322): a "—" here couldn't be matched back to
     // the "Ungrouped"/"Other" pie slice it rolls up into.
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <PortfolioHoldingsTable holdings={[holding({})]} baseCurrency="USD" />
       </LocaleProvider>,
     );
@@ -52,7 +52,7 @@ describe("PortfolioHoldingsTable", () => {
 
   it("renders the real group/broker name when set, not the fallback", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <PortfolioHoldingsTable
           holdings={[
             holding({ portfolio: "Retirement", broker: "Fidelity", market: "US" }),
@@ -70,7 +70,7 @@ describe("PortfolioHoldingsTable", () => {
 
   it("renders '—' for P&L when unavailable (cash/wmf)", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <PortfolioHoldingsTable holdings={[holding({})]} baseCurrency="USD" />
       </LocaleProvider>,
     );
@@ -81,7 +81,7 @@ describe("PortfolioHoldingsTable", () => {
 
   it("shows the watch-tier icon next to the ticker when set (issue #430)", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <PortfolioHoldingsTable
           holdings={[holding({ ticker: "AAPL", watch_tier: "critical" })]}
           baseCurrency="USD"
@@ -94,7 +94,7 @@ describe("PortfolioHoldingsTable", () => {
 
   it("shows no watch-tier icon when unset", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <PortfolioHoldingsTable holdings={[holding({ ticker: "AAPL" })]} baseCurrency="USD" />
       </LocaleProvider>,
     );

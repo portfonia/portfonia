@@ -11,7 +11,7 @@ import { WaitlistForm } from "./waitlist-form";
 
 function renderForm() {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <WaitlistForm />
     </LocaleProvider>,
   );

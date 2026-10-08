@@ -1,5 +1,9 @@
-portfonia.com, www.portfonia.com {
+portfonia.com {
 	reverse_proxy frontend:3000
+}
+
+www.portfonia.com {
+	redir https://portfonia.com{uri} permanent
 }
 
 api.portfonia.com {

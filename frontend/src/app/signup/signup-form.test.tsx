@@ -16,7 +16,7 @@ import { SignupForm } from "./signup-form";
 
 function renderForm(inviteToken: string, lockedEmail: string | null = null) {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <SignupForm inviteToken={inviteToken} lockedEmail={lockedEmail} />
     </LocaleProvider>,
   );

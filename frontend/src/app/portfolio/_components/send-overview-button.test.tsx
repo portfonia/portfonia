@@ -29,7 +29,7 @@ describe("SendOverviewButton", () => {
   it("asks for confirmation naming the currency, and cancel sends nothing (#679)", async () => {
     const user = userEvent.setup();
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <SendOverviewButton baseCurrency="HKD" />
       </LocaleProvider>,
     );
@@ -48,7 +48,7 @@ describe("SendOverviewButton", () => {
     sendPortfolioOverview.mockResolvedValue({ sent: true, retry_after_seconds: null });
     const user = userEvent.setup();
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <SendOverviewButton baseCurrency="USD" />
       </LocaleProvider>,
     );
@@ -64,7 +64,7 @@ describe("SendOverviewButton", () => {
     sendPortfolioOverview.mockResolvedValue({ sent: false, retry_after_seconds: 610 });
     const user = userEvent.setup();
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <SendOverviewButton baseCurrency="USD" />
       </LocaleProvider>,
     );
@@ -85,7 +85,7 @@ describe("SendOverviewButton", () => {
     sendPortfolioOverview.mockResolvedValue({ sent: false, retry_after_seconds: null });
     const user = userEvent.setup();
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <SendOverviewButton baseCurrency="USD" />
       </LocaleProvider>,
     );
@@ -101,7 +101,7 @@ describe("SendOverviewButton", () => {
     sendPortfolioOverview.mockRejectedValue(new Error("network down"));
     const user = userEvent.setup();
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <SendOverviewButton baseCurrency="USD" />
       </LocaleProvider>,
     );
@@ -114,7 +114,7 @@ describe("SendOverviewButton", () => {
 
   it("is disabled while a currency switch is in flight (review 5100733033)", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <SendOverviewButton baseCurrency="USD" disabled />
       </LocaleProvider>,
     );

@@ -17,7 +17,7 @@ import { LoginForm } from "./login-form";
 
 function renderForm() {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <LoginForm />
     </LocaleProvider>,
   );

@@ -10,7 +10,7 @@ const { usePathname, getUser } = vi.hoisted(() => ({
   getUser: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ usePathname }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), usePathname }));
 
 // GetStartedMenu calls the browser Supabase client on mount — stub it so
 // these route-chrome tests don't depend on real env vars or network.
@@ -35,7 +35,7 @@ vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 
 function renderHeader() {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <SiteHeader />
     </LocaleProvider>,
   );

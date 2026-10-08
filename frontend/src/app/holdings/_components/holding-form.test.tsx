@@ -12,7 +12,7 @@ vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return { ...actual, createHolding, updateHolding };
 });
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => window.location.pathname, useRouter: () => ({ push }) }));
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
@@ -43,7 +43,7 @@ const EXISTING: HoldingOut = {
 
 function renderForm(initial?: HoldingOut) {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <HoldingForm initial={initial} />
     </LocaleProvider>,
   );

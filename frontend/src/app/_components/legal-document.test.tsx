@@ -8,7 +8,7 @@ import { LocaleProvider } from "./locale-provider";
 describe("LegalDocument", () => {
   it.each(["pricing", "refund"] as const)("renders %s and links to the other documents", (doc) => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <LegalDocument doc={doc} />
       </LocaleProvider>,
     );
@@ -23,7 +23,7 @@ describe("LegalDocument", () => {
 
   it("renders the reseller notice and merchant name without leftover placeholders", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <LegalDocument doc="refund" />
       </LocaleProvider>,
     );

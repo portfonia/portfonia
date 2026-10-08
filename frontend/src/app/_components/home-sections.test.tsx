@@ -90,7 +90,7 @@ function isCurrency(cell: string, code: keyof typeof CURRENCY_NAMES): boolean {
 describe("HomeSections sample briefing", () => {
   it("renders every report section in the anonymized real-report sample", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <HomeSections />
       </LocaleProvider>,
     );
@@ -105,7 +105,7 @@ describe("HomeSections sample briefing", () => {
 
   it("renders the limited public service status and hero eyebrow", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <HomeSections />
       </LocaleProvider>,
     );
@@ -116,7 +116,7 @@ describe("HomeSections sample briefing", () => {
 
   it("renders bold markers in snapshot table cells as emphasis, never literal asterisks", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <HomeSections />
       </LocaleProvider>,
     );
@@ -246,7 +246,7 @@ describe("HomeSections sample briefing", () => {
 
   it("renders tagline and audience between how and boundary, without a new /about route (issue #364)", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <HomeSections />
       </LocaleProvider>,
     );
@@ -342,7 +342,7 @@ describe("HomeSections product previews (issue #549)", () => {
     withLocaleStorage("zh-Hans");
     const hero = catalogs["zh-Hans"].home.hero;
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <HomeSections />
       </LocaleProvider>,
     );
@@ -357,7 +357,7 @@ describe("HomeSections product previews (issue #549)", () => {
 
   it("keeps existing section headings in order and inserts previews after the sample report", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <HomeSections />
       </LocaleProvider>,
     );
@@ -398,7 +398,7 @@ describe("HomeSections product previews (issue #549)", () => {
 
   it("renders exactly three portfolio donuts with percentage labels and no currency chart", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <HomeSections />
       </LocaleProvider>,
     );
@@ -423,7 +423,7 @@ describe("HomeSections product previews (issue #549)", () => {
 
   it("passes a year-to-date three-series chart, one monthly benchmark, and the static metric", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <HomeSections />
       </LocaleProvider>,
     );
@@ -511,7 +511,7 @@ describe("HomeSections product previews (issue #549)", () => {
 
   it("adds exactly one Get Started link after performance, aimed at /holdings", () => {
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <HomeSections />
       </LocaleProvider>,
     );
@@ -536,7 +536,7 @@ describe("HomeSections product previews (issue #549)", () => {
   it("does not call portfolio or performance APIs while rendering", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     render(
-      <LocaleProvider>
+      <LocaleProvider routeLocale={null}>
         <HomeSections />
       </LocaleProvider>,
     );
@@ -571,7 +571,7 @@ describe("HomeSections product previews (issue #549)", () => {
   });
 
   it("places the shared risk preview and its get-started block before portfolio overview", () => {
-    const { container } = render(<LocaleProvider><HomeSections /></LocaleProvider>);
+    const { container } = render(<LocaleProvider routeLocale={null}><HomeSections /></LocaleProvider>);
     const risk = screen.getByTestId("home-risk-preview");
     const riskHeading = screen.getByRole("heading", { level: 2, name: "Portfolio risk" });
     const riskCta = screen.getByRole("heading", { level: 2, name: "Going the distance means balancing opportunity and risk" });
@@ -589,7 +589,7 @@ describe("HomeSections product previews (issue #549)", () => {
   });
 
   it("renders the static shared visuals without account disclosures or a selector", async () => {
-    const { container } = render(<LocaleProvider><HomeSections /></LocaleProvider>);
+    const { container } = render(<LocaleProvider routeLocale={null}><HomeSections /></LocaleProvider>);
     const risk = screen.getByTestId("home-risk-preview");
     const beta = within(risk).getByRole("button", { name: /Beta:/ });
     expect(beta).toHaveTextContent("1.12");
@@ -633,4 +633,21 @@ describe("HomeSections product previews (issue #549)", () => {
       for (const key of ["riskHeading", "riskBody", "riskCtaHeading", "riskCtaBody"] as const) expect(copy[key]).toBeTruthy();
     }
   });
+});
+
+
+it.each(LOCALES)("issue #702 shows the %s product image before the sample report", (locale) => {
+  const { container } = render(<LocaleProvider routeLocale={locale}><HomeSections /></LocaleProvider>);
+  const preview = container.querySelector("#preview");
+  const image = preview?.querySelector("img");
+  expect(image).toHaveAttribute("src", `/og/${locale}`);
+  expect(image).toHaveAttribute("alt", catalogs[locale].seo.ogImageAlt);
+  expect(image).toHaveAttribute("width", "1200");
+  expect(image).toHaveAttribute("height", "630");
+  const report = preview?.querySelector(".border-dashed");
+  expect(image && report && image.compareDocumentPosition(report) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const prefix = locale === "en" ? "" : `/${locale}`;
+  for (const path of ["pricing", "terms", "privacy", "refund"]) {
+    expect(container.querySelector(`a[href="${prefix}/${path}"]`), path).not.toBeNull();
+  }
 });

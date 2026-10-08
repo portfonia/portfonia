@@ -31,7 +31,7 @@ beforeEach(() => {
     ? result : Response.json(summary));
   vi.stubGlobal("fetch", fetchMock);
 });
-function renderProfile() { render(<LocaleProvider><ProfilePageBody me={me} hadLoadError={false} /></LocaleProvider>); }
+function renderProfile() { render(<LocaleProvider routeLocale={null}><ProfilePageBody me={me} hadLoadError={false} /></LocaleProvider>); }
 async function open() {
   const trigger = screen.getByRole("button", { name: "Delete account" });
   expect(trigger).toBeEnabled();

@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { PROTECTED_PATH_PREFIXES, ROUTE_LOCALE_HEADER, isSeoPath, splitLocalePrefix } from "@/lib/seo";
+
 import { supabasePublicEnv } from "@/lib/supabase/env";
 
 // Next.js 16 renamed the `middleware.ts` file convention to `proxy.ts` (the
@@ -11,7 +13,7 @@ import { supabasePublicEnv } from "@/lib/supabase/env";
 // Two independent jobs, both required by Ring 1-B design doc §7.3:
 //
 // 1. Optimistic route protection: redirect an unauthenticated request to a
-//    non-public page to /login. This is a UX convenience only — the FastAPI
+//    protected page to /login. This is a UX convenience only — the FastAPI
 //    backend's `current_principal` is the real, non-bypassable boundary
 //    (Next's own guidance: proxy must never be the only line of defense).
 // 2. Bearer-token injection for the one path that has no server code of its
@@ -27,32 +29,8 @@ import { supabasePublicEnv } from "@/lib/supabase/env";
 //    propagation here — see api/holdings/upload/route.ts and
 //    lib/server-api.ts.
 
-const PUBLIC_PATH_PREFIXES = [
-  "/agent",
-  "/llms.txt",
-  "/login",
-  "/signup",
-  "/forgot-password",
-  "/waitlist",
-  "/reset-password",
-  "/verify-email",
-  "/unsubscribe",
-  "/terms",
-  "/privacy",
-  "/pricing",
-  "/refund",
-  // The matcher below only excludes image extensions, not .js, so the
-  // vendored Altcha widget (frontend/public/altcha.js) still runs through
-  // this function — without this entry a logged-out visitor's GET for it
-  // 307s to /login before public/ ever serves the file, and the widget on
-  // /forgot-password silently never registers (blacktomb42 review, PR #237).
-  "/altcha.js",
-  "/api/",
-];
-
-function isPublicPath(pathname: string): boolean {
-  if (pathname === "/") return true;
-  return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+function isProtectedPath(pathname: string): boolean {
+  return PROTECTED_PATH_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
 // blacktomb42 review, PR #506: next.config.ts sets no `trailingSlash`
@@ -111,7 +89,21 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user && !isPublicPath(pathname)) {
+  const { locale: routeLocale, path } = splitLocalePrefix(pathname);
+  if (routeLocale) {
+    const headers = new Headers(request.headers);
+    headers.set(ROUTE_LOCALE_HEADER, routeLocale);
+    const url = request.nextUrl.clone();
+    url.pathname = path;
+    const localizedResponse = isSeoPath(path)
+      ? NextResponse.rewrite(url, { request: { headers } })
+      : NextResponse.next({ request: { headers } });
+    response.cookies.getAll().forEach((cookie) => localizedResponse.cookies.set(cookie));
+    Object.entries(refreshHeaders).forEach(([key, value]) => localizedResponse.headers.set(key, value));
+    return localizedResponse;
+  }
+
+  if (!user && isProtectedPath(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.search = "";

@@ -39,26 +39,31 @@ One locale-keyed catalog for every in-product string, read via
 - `emailVerification` — `/verify-email` page (issue #260).
 - `unsubscribe` — `/unsubscribe` page (issue #257).
 
-## No URL-based locale routing (explicit product decision, 2026-08-27)
+## No URL-based locale routing (partially superseded by issue #702)
 
-Concept & Design's frontend engineering constraint 3 calls for `next-intl`
-with `/en` / `/zh-Hans` / `/zh-Hant` URL prefixes and full SSR of the
-selected locale, specifically to avoid a client-only-i18n SEO/first-paint
-flash. Issue #209 explicitly required settling this at implementation time
-rather than silently keeping the 2026-08-07 (#94) shortcut.
+Issue #209's 2026-08-27 decision remains in effect for signed-in app and
+unprefixed auth pages: locale defaults to English and is restored from
+`localStorage` after hydration. The language switcher keeps their URLs unchanged.
 
-**Decision: keep the existing `localStorage` + client-state mechanism, no
-URL change.** This is a deliberate, informed choice to accept that tradeoff,
-not a default. Consequence: locale can only be known client-side, so every
-route that renders translated text does so from a Client Component (or a
-small client wrapper around the translated fragment of an otherwise-Server
-Component page, e.g. `/login`, `/signup`, `/holdings`), and first paint
-briefly shows the default locale (`en`) before the stored preference is
-restored post-hydration — the same flash the `home` page already accepted
-under the #94 shortcut, now extended to every route. If this tradeoff is
-revisited, expect a real migration project (route groups under
-`app/[locale]/`, moving locale resolution into `proxy.ts`), not a quick flag
-flip.
+Issue #702 adds locale URLs only for the seven public SEO pages: `/`,
+`/about`, `/pricing`, `/waitlist`, `/privacy`, `/terms`, and `/refund`.
+English is unprefixed; Simplified and Traditional Chinese use `/zh-Hans`
+and `/zh-Hant`. Proxy rewrites these URLs to the existing page routes and
+forwards `x-portfonia-locale`; the root layout and page metadata read it
+through `lib/seo-server.ts`. The provider initializes from that route locale,
+so the initial HTML and `<html lang>` match the Chinese URL. The shared
+`lib/seo.ts` URL helpers contain no server-only API imports.
+
+A prefixed unknown URL passes through without rewriting or redirecting, but
+keeps its locale header for the localized 404. Public links retain the current
+locale. Switching language on a public SEO page changes its URL, preserving
+query and hash. After the initial mount, pathname changes and browser Back/
+Forward synchronize SEO-page state from the real browser URL; app/auth
+navigation leaves locale state unchanged. Initial unprefixed-page storage
+restore remains unchanged, and there is no automatic locale redirect.
+
+The new `seo`, `about`, and `notFound` namespaces provide metadata, sample
+image text, the product description, and the 404 in all three catalogs.
 
 ## Placeholders (ICU via next-intl)
 

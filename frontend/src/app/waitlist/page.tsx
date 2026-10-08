@@ -1,3 +1,6 @@
+import { getRouteLocale } from "@/lib/seo-server";
+import { buildPageMetadata } from "@/lib/seo";
+import type { Metadata } from "next";
 import { WaitlistForm } from "./waitlist-form";
 import { WaitlistHeading } from "./waitlist-heading";
 
@@ -8,4 +11,8 @@ export default function WaitlistPage() {
       <WaitlistForm />
     </main>
   );
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  return buildPageMetadata("waitlist", (await getRouteLocale()) ?? "en");
 }

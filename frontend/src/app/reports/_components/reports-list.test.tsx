@@ -13,7 +13,7 @@ import { LocaleProvider } from "@/app/_components/locale-provider";
 import { ReportsList } from "./reports-list";
 const items = Array.from({ length: 20 }, (_, i) => ({ id: `r${i}`, kind: "report" as const, report_date: "2026-10-03", report_type: "incremental", session_node: i === 0 ? "after_close" : i === 1 ? "weekend_snapshot" : "manual", status: i === 18 ? "needs_review" : i === 19 ? "in_progress" : "success", display_state: i === 18 ? "under_review" as const : i === 19 ? "generating" as const : "available" as const, generated_at: null, created_at: "2026-10-03T00:00:00Z" }));
 const page = { items, page: 1, page_size: 20, total: 25, kinds: ["report" as const] };
-function mount(value = page, initialLoadError = false) { return render(<LocaleProvider><ReportsList initialPage={value} initialLoadError={initialLoadError} /></LocaleProvider>); }
+function mount(value = page, initialLoadError = false) { return render(<LocaleProvider routeLocale={null}><ReportsList initialPage={value} initialLoadError={initialLoadError} /></LocaleProvider>); }
 beforeEach(() => { window.history.replaceState(null, "", "/reports"); vi.clearAllMocks(); listReports.mockResolvedValue(page); });
 it("acceptance_14 renders rows, paging and bodyless badges", () => {
   mount();

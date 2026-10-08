@@ -59,7 +59,7 @@ function seriesFor(singletonPortfolio = false): ChartSeriesSpec[] {
 
 function renderChart(rows: ChartSeriesRow[], singletonPortfolio = false) {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <PerformanceChart
         rows={rows}
         series={seriesFor(singletonPortfolio)}
@@ -72,7 +72,7 @@ function renderChart(rows: ChartSeriesRow[], singletonPortfolio = false) {
 
 function renderTooltip(row: ChartSeriesRow, series: ChartSeriesSpec[]) {
   return render(
-    <LocaleProvider>
+    <LocaleProvider routeLocale={null}>
       <ChartTooltip
         active
         payload={[{ payload: row, graphicalItemId: "portfolio" }]}
