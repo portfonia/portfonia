@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 
+import { splitLocalePrefix } from "@/lib/seo";
 import { useLocalizedHref } from "@/app/_components/locale-provider";
 import { GetStartedMenu } from "@/components/get-started-menu";
 import { LocaleSwitcher } from "@/components/locale-switcher";
@@ -11,7 +12,7 @@ import { LocaleSwitcher } from "@/components/locale-switcher";
 export function SiteHeader() {
   const pathname = usePathname();
   const href = useLocalizedHref();
-  const isHome = pathname === "/";
+  const isHome = splitLocalePrefix(pathname).path === "/";
   const tCommon = useTranslations("common");
 
   // One bar shape on every route (issue #207 R1): brand + language + menu.
