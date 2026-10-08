@@ -989,14 +989,20 @@ The stricter verdict wins:
   is dropped when either stage labels it `promo`, `unrelated` or duplicate; it
   is `keep` only when both stages say `keep`, otherwise `mention`.
 - `classify_related`: stage 2 reviews items stage 1 did not `drop`; an item is
-  kept only when both keep it, with stage 2's entity.
+  kept only when both keep it, with stage 2's entity. An item that a stage which
+  answered left unlabelled is not kept (the #681 rule); only a whole failed stage
+  is skipped.
 - `classify_macro`: stage 2 reviews items stage 1 did not mark `off_topic`. The
   type is the stricter of the two (`off_topic` > `commentary` > `development`),
   importance the lower, and the event slug stage 2's. A screen-only label keeps
   its slug prefixed `s1-` when stage 2 answered for the call (slugs compare only
   within one call), unprefixed when stage 2 failed.
 
-`openrouter_json` makes at most two attempts per call. A stage that still fails
+`openrouter_json` makes at most two attempts per call; classifier stages pass
+`required="labels"`, so a response without a `labels` list fails the attempt and
+is retried. The weekly name check (`intel_name_check.py`) also calls
+`openrouter_json` without `required`: it gains the retry and the parser below but
+keeps its own response shapes. A stage that still fails
 contributes nothing and the other stage decides (fail-open); the returned error
 ends with `(fail-open)`. When both fail, behaviour is as before: collection
 stores headlines with null labels, deepening drops search results
