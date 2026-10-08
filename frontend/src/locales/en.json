@@ -1119,7 +1119,7 @@
       "performanceHeading": "Portfolio performance",
       "performanceBody": "A static year-to-date illustration. The portfolio line sits beside S&P 500 and CSI 300, followed by allocation history and monthly performance against one benchmark.",
       "metricLabel": "Portfolio performance",
-      "metricValue": "+8.42%",
+      "metricValue": "+16.58%",
       "yearToDate": "Year to date",
       "chartMarket": "Market",
       "chartAssetClass": "Asset class",
@@ -1603,15 +1603,14 @@
         "description": "How refunds work for Portfonia's prepaid service credits."
       }
     },
-    "ogImageAlt": "Portfonia sample daily briefing",
+    "ogImageAlt": "Portfonia: holdings ingestion and market and macro tracking, summarized into the sections of a sample briefing",
     "og": {
       "headline": "What's worth noticing in your holdings.",
-      "subline": "Daily briefings across brokers and markets — US, Hong Kong, China A-shares and more.",
       "sampleTitle": "Sample briefing",
-      "sampleRows": [
-        "Illustrative company: quarterly results published.",
-        "Macro calendar: inflation release this week.",
-        "Portfolio context: exposure across markets."
+      "markets": [
+        "US",
+        "HK",
+        "A-shares"
       ]
     }
   },

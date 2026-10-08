@@ -531,11 +531,15 @@ SoftwareApplication JSON-LD, with `<` escaped as literal `\u003c`, without
 prices, ratings or reviews.
 
 `/og/en`, `/og/zh-Hans` and `/og/zh-Hant` are static 1200x630 PNG route outputs.
-They contain catalog-backed illustrative content, never user data. At build
-time the font loader requests a Google Fonts glyph subset with Next's bundled
-OG legacy User-Agent, accepts only OpenType/TrueType CSS sources, and fails on
+Issue #706 shows holdings ingestion and market/macro tracking inputs, a gold
+brace, and sample briefing sections with confidence labels from existing
+catalog fields, never user data. At build time the font loader makes three
+Google Fonts glyph-subset requests per locale (sans 400/600, serif 400) with
+Next's bundled OG legacy User-Agent, accepts only OpenType/TrueType CSS sources, and fails on
 unsupported formats or failed requests. The home preview shows that locale's
 image with localized alt text above the unchanged HTML sample report.
+The home performance sample uses real 2026 S&P 500 and CSI 300 paths with an
+illustrative portfolio line; the data is fixed in the source.
 `/about` draws its five sections solely from facts already in the English
 catalog; all new text is translated in the three catalogs.
 

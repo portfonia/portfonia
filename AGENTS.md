@@ -13,7 +13,7 @@ required, ask the product owner before designing or implementing it.
 
 ## Documentation index
 
-- [Public SEO pages and locale URLs](docs/mechanisms/frontend-chrome.md#public-seo-pages-and-locale-urls) — issue #702: public locale URLs, metadata, sitemap, OG previews, localized 404 and canonical host.
+- [Public SEO pages and locale URLs](docs/mechanisms/frontend-chrome.md#public-seo-pages-and-locale-urls) — issue #702: public locale URLs, metadata, sitemap, OG previews, localized 404 and canonical host; issue #706: OG input/briefing layout and corrected home performance sample.
 
 - [Documentation governance](docs/playbooks/documentation-governance.md): document ownership, Obsidian authorization, executable design contracts, evidence labels, and note-access conventions.
 - [Shared engineering rules](CLAUDE.md): language, security, testing, and deployment conventions.

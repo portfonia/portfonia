@@ -10,6 +10,8 @@ import {
   HOME_ASSET_CLASS_SHARES,
   HOME_GROUP_SHARES,
   HOME_MARKET_SHARES,
+  HOME_PERFORMANCE_ROWS,
+  HOME_MONTHLY_ROWS,
 } from "./home-product-previews";
 import { HOME_RISK_SAMPLE } from "./home-risk-sample";
 
@@ -456,15 +458,17 @@ describe("HomeSections product previews (issue #549)", () => {
     ]);
     const dates = points.map((point) => point.date);
     expect(dates[0]).toBe("2026-01-01");
-    expect(dates[dates.length - 1]?.startsWith("2026-")).toBe(true);
+    expect(points).toHaveLength(45);
+    expect(dates.at(-1)).toBe("2026-09-30");
+    expect(dates.every((date, index) => index === 0 || date > dates[index - 1])).toBe(true);
     expect([...dates].sort()).toEqual(dates);
-    expect(points[points.length - 1]?.portfolio).toBeCloseTo(0.0842, 6);
+    expect(points[points.length - 1]?.portfolio).toBeCloseTo(0.1658, 6);
     expect(legendPairs(performance)).toEqual([
       { label: catalogs.en.portfolio.performance.chartPortfolioLabel, color: "var(--chart-1)" },
       { label: catalogs.en.portfolio.performance.benchmarkNames.sp500, color: "var(--chart-2)" },
       { label: catalogs.en.portfolio.performance.benchmarkNames.csi300, color: "var(--chart-csi300)" },
     ]);
-    expect(screen.getByText(catalogs.en.home.productPreviews.metricValue)).toBeInTheDocument();
+    expect(screen.getByText("+16.58%")).toBeInTheDocument();
     expect(screen.getByText(catalogs.en.home.productPreviews.yearToDate)).toBeInTheDocument();
     expect(screen.queryByText(/since inception/i)).not.toBeInTheDocument();
     const performanceBlock = screen.getByRole("heading", { level: 2, name: catalogs.en.home.productPreviews.performanceHeading }).parentElement?.parentElement;
@@ -556,7 +560,7 @@ describe("HomeSections product previews (issue #549)", () => {
     expect(copy.performanceHeading.length).toBeGreaterThan(0);
     expect(copy.performanceBody.length).toBeGreaterThan(0);
     expect(copy.metricLabel.length).toBeGreaterThan(0);
-    expect(copy.metricValue).toBe("+8.42%");
+    expect(copy.metricValue).toBe("+16.58%");
     expect(copy.yearToDate.length).toBeGreaterThan(0);
     expect(copy.chartMarket.length).toBeGreaterThan(0);
     expect(copy.chartAssetClass.length).toBeGreaterThan(0);
@@ -656,4 +660,15 @@ it.each(LOCALES)("issue #702 shows the %s product image before the sample report
 it("renders crawlable language choices inside the home footer", () => {
   const { container } = render(<LocaleProvider routeLocale="zh-Hans"><HomeSections /></LocaleProvider>);
   expect(container.querySelector('footer a[href="/zh-Hant"]')).not.toBeNull();
+});
+
+
+it("#706 compounds nine complete monthly returns to the cumulative portfolio and S&P 500", () => {
+  expect(HOME_MONTHLY_ROWS).toHaveLength(9);
+  const last = HOME_PERFORMANCE_ROWS.at(-1);
+  for (const [monthlyKey, cumulativeKey] of [["portfolio", "portfolio"], ["benchmark", "sp500"]] as const) {
+    const cumulative = HOME_MONTHLY_ROWS.reduce((value, row) => value * (1 + (row[monthlyKey] ?? 0)), 1) - 1;
+    expect(Math.abs(cumulative - Number(last?.[cumulativeKey]))).toBeLessThan(0.0005);
+  }
+  expect(HOME_MONTHLY_ROWS.every(row => row.partialReason === null && !row.isApproximate && row.benchmarkUnavailableReason === null)).toBe(true);
 });

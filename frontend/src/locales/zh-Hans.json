@@ -1119,7 +1119,7 @@
       "performanceHeading": "组合表现",
       "performanceBody": "今年至今的静态示例。组合曲线对照 S&P 500 与沪深300，其后是资产类别占比历史，以及只含一个基准的月度表现。",
       "metricLabel": "组合表现",
-      "metricValue": "+8.42%",
+      "metricValue": "+16.58%",
       "yearToDate": "今年至今",
       "chartMarket": "按市场",
       "chartAssetClass": "按资产类别",
@@ -1603,15 +1603,14 @@
         "description": "Portfonia 预付服务点数的退款方式。"
       }
     },
-    "ogImageAlt": "Portfonia 每日简报示例",
+    "ogImageAlt": "Portfonia：持仓录入与市场宏观追踪，归总为一份简报示例的各个章节",
     "og": {
       "headline": "什么值得关注，就藏在你的持仓里。",
-      "subline": "跨券商、跨市场每日简报——美股、港股、中国A股及更多市场。",
       "sampleTitle": "简报示例",
-      "sampleRows": [
-        "示例公司：季度业绩已发布。",
-        "宏观日历：本周公布通胀数据。",
-        "投资组合背景：跨市场敞口。"
+      "markets": [
+        "美股",
+        "港股",
+        "A股"
       ]
     }
   },
