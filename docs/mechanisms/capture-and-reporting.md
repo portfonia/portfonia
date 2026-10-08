@@ -1157,6 +1157,20 @@ headings starting `Posted In`, `Connect With Us`, `About Benzinga` or
 estimates for the coming quarter." is preserved. These are configuration-only
 changes for new collection and deepening; stored rows are not reprocessed,
 and a deployment takes effect at the next slot configuration load.
+Issue #708 adds case-insensitive, line-anchored residue rules for Barchart
+trial banners starting `Your Free <N>-Day <Plan> trial ends`, standalone
+`Share` and `*`, lines starting `Follow us on Google News`, and image credits
+ending ` via Shutterstock`. Removing the banner lets first/last-paragraph
+selection trim the navigation menu before the article title. Whole-line
+`Close Button`, `facebook`, `twitter`, `flipboard`, `send`, `reddit`, `linkedin`,
+`messenger`, `telegram`, `vk`, `bluesky`, `threads` and `whatsapp` are removed
+between paragraphs too. City AM's standalone `Submit a story` and
+`Tell us your story` (optional final period) are removed; non-paragraph
+`Featured` headings skip sidebar cards until the next paragraph. Paragraphs
+merely containing these words remain unchanged. City AM image alt-text
+paragraphs are outside this change; there is no host-specific or title rule.
+These configuration-only rules apply to new collection and deepening at the
+next deployed slot load, without reprocessing stored rows.
 No paragraph yields an empty rejection. Domain-only lines, optionally behind
 a short source prefix, are dropped; domain-with-path tokens are removed within
 prose. Sentence-contained domains without paths, such as company names, stay.
