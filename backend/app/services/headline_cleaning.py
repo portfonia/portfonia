@@ -244,7 +244,11 @@ def classify_headlines(
         elif first and second:
             labels[i] = "keep" if first == second == "keep" else "mention"
         elif first or second:
-            labels[i] = str(first or second)
+            # `keep` needs both stages: one that answered but omitted the item
+            # downgrades it; only a whole failed stage is skipped (fail-open).
+            other_answered = (review_ok and i in survivors) if first else data is not None
+            only = str(first or second)
+            labels[i] = "mention" if other_answered and only == "keep" else only
     error = _stage_error(screen_error, review_error, data is not None or review_ok)
     return labels, cost, error
 

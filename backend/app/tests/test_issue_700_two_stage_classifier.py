@@ -17,6 +17,7 @@ from app.core.config import get_settings
 from app.models.intel import InstrumentProfile, IntelCollectionRun
 from app.models.news import News
 from app.services import headline_cleaning as hc
+from app.services import instrument_news_capture as cap
 from app.services import intel_deepen as deepen
 from app.services import news_capture as nc
 from app.services.instrument_news_sources import CollectedItem
@@ -27,6 +28,9 @@ from app.services.intel_leads import Lead
 from app.services.intel_selection import WorkUnit
 from app.services.news_fetcher import FetchNewsResult
 from app.services.paid_search import PaidResult
+from app.tests.test_instrument_news_capture import ENTRY as CAPTURE_ENTRY
+from app.tests.test_instrument_news_capture import leads as capture_leads
+from app.tests.test_instrument_news_capture import profile as capture_profile
 from app.tests.test_intel_deepen_rules import NOW as DEEPEN_NOW
 from app.tests.test_intel_deepen_run import resolve_fixture
 from app.tests.test_intel_paid import slot as paid_slot
@@ -560,3 +564,126 @@ def test_review_failure_then_success_retries_once() -> None:
     )
     assert labels == {0: "keep"} and error is None
     assert len(router.sent(REVIEW)) == 2 and stats["retries"] == 1
+
+
+def test_headline_keep_needs_both_answering_stages() -> None:
+    keep = labels_json([{"id": 0, "label": "keep"}])
+    # A stage that answered but omitted the item cannot make it `keep`.
+    for answers in (
+        {SCREEN: [ok(labels_json([]))], REVIEW: [ok(keep)]},
+        {SCREEN: [ok(keep)], REVIEW: [ok(labels_json([]))]},
+    ):
+        labels, _, error = run(
+            Router(answers), lambda: hc.classify_headlines([lead(0)], "NVDA", ["Nvidia"])
+        )
+        assert labels == {0: "mention"} and error is None
+    # A whole failed stage is skipped: the other stage decides (fail-open).
+    labels, _, _ = run(
+        Router({SCREEN: [ok(keep)], REVIEW: [fail()]}),
+        lambda: hc.classify_headlines([lead(0)], "NVDA", ["Nvidia"]),
+    )
+    assert labels == {0: "keep"}
+
+
+def test_macro_survivor_omitted_by_review_keeps_prefixed_screen_label() -> None:
+    router = Router(
+        {
+            SCREEN: [
+                ok(
+                    labels_json(
+                        [macro(0, "development", 3, "fed"), macro(1, "development", 2, "cpi")]
+                    )
+                )
+            ],
+            REVIEW: [ok(labels_json([macro(0, "development", 2, "fed-minutes")]))],
+        }
+    )
+    labels, _, error = run(router, lambda: hc.classify_macro([lead(0), lead(1)]))
+    assert labels == {
+        0: {"type": "development", "importance": 2, "event": "fed-minutes"},
+        1: {"type": "development", "importance": 2, "event": "s1-cpi"},
+    }
+    assert error is None
+
+
+def test_required_key_not_a_list_is_retried() -> None:
+    router = Router({REVIEW: [ok('{"labels": "none"}'), ok(labels_json([]))]})
+    data, cost = run(router, lambda: hc.openrouter_json("s", "c", required="labels"))
+    assert data == {"labels": []} and cost == pytest.approx(0.002) and len(router.calls) == 2
+
+
+def test_final_exception_carries_billed_cost() -> None:
+    router = Router({REVIEW: [ok("{}", cost=0.003)]})
+    with pytest.raises(KeyError) as caught:
+        run(router, lambda: hc.openrouter_json("s", "c", required="labels"))
+    assert vars(caught.value)["cost_usd"] == pytest.approx(0.006)
+
+
+def test_collection_stores_null_labels_when_both_stages_fail(db_session: Session) -> None:
+    capture_profile(db_session)
+    with (
+        patch.object(cap, "sources_for", return_value=[("yahoo", lambda: capture_leads(1))]),
+        patch.object(cap, "classify_headlines", side_effect=hc.classify_headlines),
+        patch.object(httpx, "post", return_value=fail()) as post,
+    ):
+        result = cap.collect_instrument_news(
+            db_session, CAPTURE_ENTRY, NOW, hc.load_cleaning_config()
+        )
+    assert post.call_count == 4
+    assert result.classifier["failed_batches"] == 1
+    assert result.classifier["screen_failed"] == 1 and result.classifier["review_failed"] == 1
+    assert result.classifier["retries"] == 2
+    assert db_session.scalars(select(News)).one().intel_label is None
+
+
+def test_digest_shows_deepening_and_macro_stage_costs(db_session: Session) -> None:
+    slot_row = digest_slot(db_session, status="ok")
+    db_session.add(
+        IntelCollectionRun(
+            kind="rss",
+            slot_run_id=slot_row.id,
+            node="slot-post_close",
+            started_at=NOW,
+            finished_at=NOW,
+            status="ok",
+            stats={
+                "feeds": {"FT": {"items": 1, "errors": 0}},
+                "macro_classification": {
+                    "candidates": 2,
+                    "labeled": 2,
+                    "calls": 1,
+                    "failed_calls": 0,
+                    "cost_usd": 0.0012,
+                    "development": 2,
+                    "commentary": 0,
+                    "off_topic": 0,
+                    "screen_cost_usd": 0.0008,
+                    "review_cost_usd": 0.0004,
+                    "retries": 0,
+                    "screen_failed": 0,
+                    "review_failed": 0,
+                },
+            },
+            errors=[],
+        )
+    )
+    slot_row.details = {
+        "deepening": {
+            "macro_rank_failed": 0,
+            "macro_rank_partial": 0,
+            "classifier_stages": {
+                "screen_cost_usd": 0.123,
+                "review_cost_usd": 0.456,
+                "retries": 7,
+                "screen_failed": 0,
+                "review_failed": 2,
+            },
+        }
+    }
+    db_session.flush()
+    body = build_batch_report(db_session, slot_row)[1]
+    assert "screen $0.000800, review $0.000400, 0 retries" in body
+    assert (
+        "AI review in deepening (paid search and macro ranking): screen $0.123000, "
+        "review $0.456000, 7 retries, 0 screen and 2 review stages failed open." in body
+    )

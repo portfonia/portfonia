@@ -227,7 +227,8 @@ def build_batch_report(
             f"{macro_classifier['labeled']:g} labeled in {macro_classifier['calls']:g} calls, "
             f"{macro_classifier['failed_calls']:g} failed calls, cost ${macro_classifier['cost_usd']:.6f}; "
             f"{macro_classifier['development']:g} development, {macro_classifier['commentary']:g} commentary, "
-            f"{macro_classifier['off_topic']:g} off-topic; {stage_text(macro_classifier)}."
+            f"{macro_classifier['off_topic']:g} off-topic; screen ${macro_classifier['screen_cost_usd']:.6f}, "
+            f"review ${macro_classifier['review_cost_usd']:.6f}, {stage_text(macro_classifier)}."
         )
     deep = obj(slot.details.get("deepening"))
     for metric in obj(deep.get("metrics")).values():
@@ -308,6 +309,15 @@ def build_batch_report(
     if "macro_rank_failed" in deep:
         lines.append(
             f"Macro ranking fallback units (macro_rank_failed: {number(deep.get('macro_rank_failed')):g}); unlabeled candidates (macro_rank_partial: {number(deep.get('macro_rank_partial')):g})."
+        )
+    stages: Counter[str] = Counter(
+        {k: number(v) for k, v in obj(deep.get("classifier_stages")).items()}
+    )
+    if stages:
+        lines.append(
+            "AI review in deepening (paid search and macro ranking): "
+            f"screen ${stages['screen_cost_usd']:.6f}, review ${stages['review_cost_usd']:.6f}, "
+            f"{stage_text(stages)}."
         )
     metrics = {p: obj(v) for p, v in obj(deep.get("metrics")).items()}
     kept = sum(number(m.get("accepted")) for m in metrics.values())

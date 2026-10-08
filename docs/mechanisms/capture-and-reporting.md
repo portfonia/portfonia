@@ -987,7 +987,9 @@ The stricter verdict wins:
 
 - `classify_headlines` (instrument collection and paid-search results): an item
   is dropped when either stage labels it `promo`, `unrelated` or duplicate; it
-  is `keep` only when both stages say `keep`, otherwise `mention`.
+  is `keep` only when both stages say `keep`, otherwise `mention`. When a stage
+  that answered omitted the item, the other stage's `keep` becomes `mention`;
+  only a whole failed stage leaves the other stage's label as is.
 - `classify_related`: stage 2 reviews items stage 1 did not `drop`; an item is
   kept only when both keep it, with stage 2's entity. An item that a stage which
   answered left unlabelled is not kept (the #681 rule); only a whole failed stage
@@ -1015,8 +1017,10 @@ exception and counted. Callers pass a `stats` dict that receives
 (per-call dicts merged under the worker lock). Macro labelling in the slot pool
 and in deepening applies labels whenever any were returned and records the
 error. Any `classifier:` error raises the batch email to WARNING; a fail-open
-error renders as "AI review stage failed, other stage applied", and the AI
-review lines show total and per-stage cost, retries and failed stages. A run
+error renders as "AI review stage failed, other stage applied". Per email
+section, the collection AI review line, the macro pool review line and a PART 2
+line "AI review in deepening (paid search and macro ranking)" (from
+`classifier_stages`) show screen and review cost, retries and failed stages. A run
 with a classifier error is `partial`, which reports still read.
 
 All model JSON is parsed by `app/services/llm_json.py`, a port of the Homepage
