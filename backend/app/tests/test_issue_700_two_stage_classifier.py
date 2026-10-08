@@ -448,3 +448,115 @@ def test_digest_warns_on_fail_open_and_shows_stage_counts(db_session: Session) -
         "AI review: checked 3 headlines in 1 batches, cost $0.004 (screen $0.003, review $0.001), "
         "1 retries, 0 screen and 1 review stages failed open" in body
     )
+
+
+def test_digest_stays_info_without_classifier_errors(db_session: Session) -> None:
+    slot_row = digest_slot(db_session, status="ok")
+    db_session.add(
+        IntelCollectionRun(
+            kind="instrument",
+            slot_run_id=slot_row.id,
+            started_at=NOW,
+            finished_at=NOW + timedelta(seconds=5),
+            status="ok",
+            stats={"markets": {"US": {"total": 1, "processed": 1}}},
+            errors=[],
+        )
+    )
+    db_session.flush()
+    assert build_batch_report(db_session, slot_row)[2] == "INFO"
+
+
+@pytest.mark.parametrize("call", ["headlines", "related", "macro"])
+def test_missing_labels_retries_then_fails_open(call: str) -> None:
+    good = {
+        "headlines": [{"id": 0, "label": "keep"}],
+        "related": [{"id": 0, "label": "keep", "entity": "Micron"}],
+        "macro": [macro(0, "development", 2, "fed")],
+    }[call]
+    router = Router({SCREEN: [ok("{}")], REVIEW: [ok(labels_json(good))]})
+    stats: dict[str, float] = {}
+    fn: Callable[[], Any] = {
+        "headlines": lambda: hc.classify_headlines([lead(0)], "NVDA", ["Nvidia"], stats=stats),
+        "related": lambda: hc.classify_related(
+            [lead(0)], "NVDA", ["Nvidia"], related_hits()[:1], stats=stats
+        ),
+        "macro": lambda: hc.classify_macro([lead(0)], stats=stats),
+    }[call]
+    labels, _, error = run(router, fn)
+    assert len(router.sent(SCREEN)) == 2 and stats["retries"] == 1
+    assert error == "classifier: screen KeyError (fail-open)"
+    assert 0 in labels
+
+
+def test_related_successful_stage_omission_is_not_kept() -> None:
+    keep = labels_json([{"id": 0, "label": "keep", "entity": "Micron"}])
+    for answers in (
+        {SCREEN: [ok(labels_json([]))], REVIEW: [ok(keep)]},
+        {SCREEN: [ok(keep)], REVIEW: [ok(labels_json([]))]},
+    ):
+        labels, _, error = run(
+            Router(answers),
+            lambda: hc.classify_related([lead(0)], "NVDA", ["Nvidia"], related_hits()[:1]),
+        )
+        assert labels == {} and error is None
+
+
+def test_related_entity_comes_from_review() -> None:
+    router = Router(
+        {
+            SCREEN: [ok(labels_json([{"id": 0, "label": "keep", "entity": "Micron"}]))],
+            REVIEW: [ok(labels_json([{"id": 0, "label": "keep", "entity": ""}]))],
+        }
+    )
+    labels, _, _ = run(
+        router, lambda: hc.classify_related([lead(0)], "NVDA", ["Nvidia"], related_hits()[:1])
+    )
+    assert labels == {0: {"label": "keep", "entity": ""}}
+
+
+def test_review_integer_duplicate_refers_to_reindexed_survivor() -> None:
+    router = Router(
+        {
+            SCREEN: [
+                ok(
+                    labels_json(
+                        [
+                            {"id": 0, "label": "promo", "duplicate_of": None},
+                            {"id": 1, "label": "keep", "duplicate_of": None},
+                            {"id": 2, "label": "keep", "duplicate_of": None},
+                        ]
+                    )
+                )
+            ],
+            # Survivors 1 and 2 arrive as 0 and 1; review marks the second a duplicate of 0.
+            REVIEW: [
+                ok(
+                    labels_json(
+                        [
+                            {"id": 0, "label": "keep", "duplicate_of": None},
+                            {"id": 1, "label": "keep", "duplicate_of": 0},
+                        ]
+                    )
+                )
+            ],
+        }
+    )
+    labels, _, _ = run(
+        router,
+        lambda: hc.classify_headlines(
+            [lead(i) for i in range(3)], "NVDA", ["Nvidia"], recent_titles=["x"]
+        ),
+    )
+    assert labels == {0: "promo", 1: "keep", 2: "duplicate"}
+
+
+def test_review_failure_then_success_retries_once() -> None:
+    keep = labels_json([{"id": 0, "label": "keep"}])
+    router = Router({SCREEN: [ok(keep)], REVIEW: [fail(), ok(keep)]})
+    stats: dict[str, float] = {}
+    labels, _, error = run(
+        router, lambda: hc.classify_headlines([lead(0)], "NVDA", ["Nvidia"], stats=stats)
+    )
+    assert labels == {0: "keep"} and error is None
+    assert len(router.sent(REVIEW)) == 2 and stats["retries"] == 1

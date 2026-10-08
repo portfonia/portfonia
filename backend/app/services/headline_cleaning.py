@@ -134,7 +134,7 @@ def _stage(
     settings = get_settings()
     model = settings.INTEL_SCREEN_MODEL if stage == "screen" else settings.INTEL_CLASSIFIER_MODEL
     try:
-        data, cost = openrouter_json(system, content, model=model, stats=stats)
+        data, cost = openrouter_json(system, content, model=model, stats=stats, required="labels")
     except CLASSIFIER_ERRORS as exc:
         cost = float(getattr(exc, "cost_usd", 0.0))
         _add(stats, f"{stage}_cost_usd", cost)
@@ -296,9 +296,10 @@ def classify_related(
         first, second = screen.get(i), review.get(i)
         if first and first["label"] == "drop":
             labels[i] = first
+        elif (data is not None and first is None) or (review_ok and second is None):
+            continue  # a stage that answered left it unlabelled: not kept (#681)
         elif second:
-            entity = second["entity"] or (first or {}).get("entity", "")
-            labels[i] = {"label": second["label"], "entity": entity}
+            labels[i] = second
         elif first:
             labels[i] = first
     return labels, cost, _stage_error(screen_error, review_error, data is not None or review_ok)
@@ -309,7 +310,9 @@ def classifier_error(exc: Exception) -> str:
     return f"classifier: {type(exc).__name__}" + (f" HTTP {status}" if status is not None else "")
 
 
-def _openrouter_once(system: str, content: str, model: str) -> tuple[dict[str, object], float]:
+def _openrouter_once(
+    system: str, content: str, model: str, required: str | None
+) -> tuple[dict[str, object], float]:
     settings = get_settings()
     with quiet_transport():
         resp = httpx.post(
@@ -342,7 +345,10 @@ def _openrouter_once(system: str, content: str, model: str) -> tuple[dict[str, o
         raw = message["content"]
         if not isinstance(raw, str):
             raise ValueError("invalid classifier content")
-        return mapping(parse_llm_json(raw, logger)), cost
+        parsed = mapping(parse_llm_json(raw, logger))
+        if required is not None:
+            rows(parsed[required])  # missing or malformed -> this attempt failed (#700)
+        return parsed, cost
     except CLASSIFIER_ERRORS as exc:
         vars(exc)["cost_usd"] = cost  # billed even though the content is unusable
         raise
@@ -353,16 +359,19 @@ def openrouter_json(
     content: str,
     model: str | None = None,
     stats: dict[str, float] | None = None,
+    required: str | None = None,
 ) -> tuple[dict[str, object], float]:
     """One classifier-model JSON request with `data_collection: deny`, retried once (#700).
 
-    Raises the second failure, carrying the cost of both attempts as `cost_usd`.
+    `required` names a list key the response must carry (the classifiers use
+    `labels`; the weekly name check has its own shapes). Raises the second
+    failure, carrying the cost of both attempts as `cost_usd`.
     """
     chosen = model or get_settings().INTEL_CLASSIFIER_MODEL
     spent = 0.0
     for attempt in range(2):
         try:
-            data, cost = _openrouter_once(system, content, chosen)
+            data, cost = _openrouter_once(system, content, chosen, required)
             return data, spent + cost
         except CLASSIFIER_ERRORS as exc:
             spent += float(getattr(exc, "cost_usd", 0.0))

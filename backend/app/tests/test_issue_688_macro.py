@@ -61,7 +61,11 @@ def labels() -> list[dict[str, object]]:
 
 
 def by_title(
-    system: str, content: str, model: str | None = None, stats: object = None
+    system: str,
+    content: str,
+    model: str | None = None,
+    stats: object = None,
+    required: object = None,
 ) -> tuple[dict[str, object], float]:
     """#700: answer each stage by title, so re-indexed review calls stay aligned."""
     fixture = {c.title: row for c, row in zip(candidates(), labels(), strict=True)}
@@ -145,6 +149,13 @@ def test_classifier_url_free_compliance() -> None:
         ({}, "classifier: ReadTimeout", 1, 0),
         ({}, None, 1, 0),
         ({0: {"type": "development", "importance": 3, "event": "trade"}}, None, 0, 4),
+        # #700: one stage failed open; its labels are used and the error is surfaced.
+        (
+            {0: {"type": "development", "importance": 3, "event": "trade"}},
+            "classifier: review ReadTimeout (fail-open)",
+            0,
+            4,
+        ),
     ],
 )
 def test_fallback_partial_digest(
