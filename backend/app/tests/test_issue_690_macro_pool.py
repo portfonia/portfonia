@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.intel import InstrumentProfile, IntelCollectionRun, NewsInstrument
 from app.models.news import News
 from app.services import headline_cleaning as hc
@@ -108,7 +109,7 @@ def test_01_02_slot_labels_once_and_keeps_holding_link(db_session: Session) -> N
         ) as classify,
     ):
         result = nc.capture_news(db_session, slot_run_id=run.id)
-        assert classify.call_count == 1
+        assert classify.call_count == 2  # #700: screen, then review of non-off-topic items
         rows = list(db_session.scalars(select(News)))
         labeled = [r for r in rows if hc.macro_label(r.record)]
         assert len(labeled) == 3
@@ -133,10 +134,15 @@ def test_01_02_slot_labels_once_and_keeps_holding_link(db_session: Session) -> N
         "labeled": 3,
         "calls": 1,
         "failed_calls": 0,
-        "cost_usd": 0.001,
+        "cost_usd": 0.002,
         "development": 1,
         "commentary": 1,
         "off_topic": 1,
+        "screen_cost_usd": 0.001,
+        "review_cost_usd": 0.001,
+        "retries": 0.0,
+        "screen_failed": 0.0,
+        "review_failed": 0.0,
     }
     body = build_batch_report(db_session, run)[1]
     assert "Macro pool review:" in body.split("PART 2")[0]
@@ -170,7 +176,8 @@ def test_04_failure_is_unlabeled_fallback(
     stats = collection.stats["macro_classification"]
     assert isinstance(stats, dict)
     assert stats["failed_calls"] == 1
-    assert collection.status == "ok"
+    # #700: a classifier error is now recorded on the run (ops WARNING), so it is partial.
+    assert collection.status == ("partial" if output[2] else "ok")
     assert all(hc.macro_label(r.record) is None for r in db_session.scalars(select(News)))
     with patch.object(deepen, "get_settings", return_value=settings()):
         # Reuse the existing slot row (worker helper would insert the same key).
@@ -382,9 +389,10 @@ def test_d1_first_theme_groups_chunks_partial_and_url_free_event(db_session: Ses
     headlines.append(item("Oil supply disruption", "https://oil.example/a"))
     sizes: list[int] = []
 
-    def classify(system: str, content: str) -> tuple[dict[str, object], float]:
+    def classify(system: str, content: str, **kwargs: object) -> tuple[dict[str, object], float]:
         size = len(content.splitlines())
-        sizes.append(size)
+        if kwargs.get("model") == get_settings().INTEL_SCREEN_MODEL:
+            sizes.append(size)  # #700: chunk sizes are fixed by the screen stage
         return {
             "labels": [
                 {

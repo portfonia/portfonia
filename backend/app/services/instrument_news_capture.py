@@ -19,6 +19,7 @@ from app.core.database import SessionLocal
 from app.models.intel import InstrumentProfile, IntelCollectionRun, IntelSlotRun, NewsInstrument
 from app.models.news import News
 from app.services.headline_cleaning import (
+    STAGE_STATS,
     CleaningConfig,
     block_reason,
     classify_headlines,
@@ -61,7 +62,13 @@ class InstrumentResult:
     cleaning: dict[str, int] = field(default_factory=dict)
     samples: dict[str, list[str]] = field(default_factory=dict)
     classifier: dict[str, float] = field(
-        default_factory=lambda: {"batches": 0, "failed_batches": 0, "items": 0, "cost_usd": 0}
+        default_factory=lambda: {
+            "batches": 0,
+            "failed_batches": 0,
+            "items": 0,
+            "cost_usd": 0,
+            **dict.fromkeys(STAGE_STATS, 0),
+        }
     )
 
 
@@ -239,6 +246,7 @@ def collect_instrument_news(
             aliases,
             # An empty EXISTING block makes the model return no labels at all (#653).
             recent_titles=(list(reversed(kept_titles)) + stored_recent)[:100] or None,
+            stats=result.classifier,
         )
         result.classifier["batches"] += 1
         result.classifier["items"] += len(chunk)
@@ -326,7 +334,11 @@ def select_related(
     for start in range(0, len(candidates), size):
         chunk = candidates[start : start + size]
         labels, cost, failed = classify_related(
-            [item for item, _ in chunk], entry.ticker, aliases, [hits for _, hits in chunk]
+            [item for item, _ in chunk],
+            entry.ticker,
+            aliases,
+            [hits for _, hits in chunk],
+            stats=result.classifier,
         )
         result.classifier["batches"] += 1
         result.classifier["items"] += len(chunk)

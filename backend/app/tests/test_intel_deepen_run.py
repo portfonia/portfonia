@@ -43,7 +43,9 @@ def no_unmocked_search_classifier() -> Iterator[None]:
         yield
 
 
-def fixture_macro_labels(items: list[CollectedItem]) -> tuple[dict[int, MacroLabel], float, None]:
+def fixture_macro_labels(
+    items: list[CollectedItem], stats: dict[str, float] | None = None
+) -> tuple[dict[int, MacroLabel], float, None]:
     return (
         {
             i: {"type": "development", "importance": 2, "event": f"event-{i}"}

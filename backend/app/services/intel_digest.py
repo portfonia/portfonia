@@ -77,6 +77,10 @@ def problem_lines(errors: list[str]) -> list[str]:
         http = re.search(r"HTTP (\d{3})", error)
         if error.startswith("relations:"):
             reason = "invalid file, related-company headlines skipped"
+        elif error.startswith("classifier:") and error.endswith("(fail-open)"):
+            reason = "AI review stage failed, other stage applied" + (
+                f" (HTTP {http[1]})" if http else ""
+            )
         elif error.startswith("classifier:"):
             reason = "AI review failed" + (f" (HTTP {http[1]})" if http else "")
         elif "key not set" in error:
@@ -99,6 +103,14 @@ def problem_lines(errors: list[str]) -> list[str]:
         "Problems:",
         *[f"  {source}: {reason} ({count} times)" for (source, reason), count in counts.items()],
     ]
+
+
+def stage_text(stats: Counter[str]) -> str:
+    """Two-stage classifier retries and fail-opens (#700)."""
+    return (
+        f"{stats['retries']:g} retries, {stats['screen_failed']:g} screen and "
+        f"{stats['review_failed']:g} review stages failed open"
+    )
 
 
 def errors_from(value: object) -> list[str]:
@@ -180,6 +192,8 @@ def build_batch_report(
         for reason, raw in obj(run.stats.get("cleaning_samples")).items():
             if isinstance(raw, list):
                 samples.setdefault(reason, []).extend(str(v) for v in raw)
+    if any(error.startswith("classifier:") for error in free_errors):
+        severity = "WARNING"  # any fail-open is unexpected (#700)
     processed = sum(m["processed"] for m in markets.values())
     total = sum(m["total"] for m in markets.values())
     coverage = ", ".join(f"{MARKETS.get(k, k)} {v['processed']:g}" for k, v in markets.items())
@@ -213,7 +227,8 @@ def build_batch_report(
             f"{macro_classifier['labeled']:g} labeled in {macro_classifier['calls']:g} calls, "
             f"{macro_classifier['failed_calls']:g} failed calls, cost ${macro_classifier['cost_usd']:.6f}; "
             f"{macro_classifier['development']:g} development, {macro_classifier['commentary']:g} commentary, "
-            f"{macro_classifier['off_topic']:g} off-topic."
+            f"{macro_classifier['off_topic']:g} off-topic; screen ${macro_classifier['screen_cost_usd']:.6f}, "
+            f"review ${macro_classifier['review_cost_usd']:.6f}, {stage_text(macro_classifier)}."
         )
     deep = obj(slot.details.get("deepening"))
     for metric in obj(deep.get("metrics")).values():
@@ -236,7 +251,7 @@ def build_batch_report(
         "",
         f"Kept: {cleaning['kept'] - cleaning['filings_stored']:g} headlines and {cleaning['filings_stored']:g} company filings ({inserted:g} of them new to the database).",
         *related_lines(cleaning),
-        f"AI review: checked {classifier['items']:g} headlines in {classifier['batches']:g} calls, cost ${classifier['cost_usd']:.3f}, {classifier['failed_batches']:g} failed calls; {cleaning['stored_null_label']:g} kept without a label.",
+        f"AI review: checked {classifier['items']:g} headlines in {classifier['batches']:g} batches, cost ${classifier['cost_usd']:.3f} (screen ${classifier['screen_cost_usd']:.3f}, review ${classifier['review_cost_usd']:.3f}), {stage_text(classifier)}; {cleaning['stored_null_label']:g} kept without a label.",
         *problem_lines(free_errors),
         "",
         "PART 2 - PAID DEEPENING",
@@ -294,6 +309,15 @@ def build_batch_report(
     if "macro_rank_failed" in deep:
         lines.append(
             f"Macro ranking fallback units (macro_rank_failed: {number(deep.get('macro_rank_failed')):g}); unlabeled candidates (macro_rank_partial: {number(deep.get('macro_rank_partial')):g})."
+        )
+    stages: Counter[str] = Counter(
+        {k: number(v) for k, v in obj(deep.get("classifier_stages")).items()}
+    )
+    if stages:
+        lines.append(
+            "AI review in deepening (paid search and macro ranking): "
+            f"screen ${stages['screen_cost_usd']:.6f}, review ${stages['review_cost_usd']:.6f}, "
+            f"{stage_text(stages)}."
         )
     metrics = {p: obj(v) for p, v in obj(deep.get("metrics")).items()}
     kept = sum(number(m.get("accepted")) for m in metrics.values())

@@ -67,7 +67,7 @@ def test_630_15_invalid_duplicate_references() -> None:
             items(), "AVGO", ["Broadcom"], recent_titles=[STORED, "Second", "Third"]
         )
     assert labels == {0: "mention", 1: "keep", 2: "keep"}
-    assert cost == 0.001 and error is None
+    assert cost == 0.002 and error is None  # #700: one fixture, two stages
 
 
 LOW_VALUE = [

@@ -72,7 +72,7 @@ def test_630_11_stored_and_batch_duplicates(db_session: Session) -> None:
     assert new[0].record["title"] == TITLES[0]
     assert result.cleaning["duplicate_llm"] == 2
     assert set(result.samples["duplicate_llm"]) == {TITLES[1], TITLES[2]}
-    assert post.call_count == 1
+    assert post.call_count == 2  # #700: screen, then review of the one survivor
 
 
 def test_630_12_latest_100_history_titles(db_session: Session) -> None:
@@ -183,14 +183,17 @@ def test_630_14_cross_batch_context(db_session: Session) -> None:
         patch.object(
             httpx,
             "post",
+            # #700: screen and review per batch.
             side_effect=[
                 response([{"id": 0, "label": "keep"}, {"id": 1, "label": "mention"}]),
+                response([{"id": 0, "label": "keep"}, {"id": 1, "label": "mention"}]),
+                response([{"id": 0, "label": "keep"}]),
                 response([{"id": 0, "label": "keep"}]),
             ],
         ) as post,
     ):
         result = cap.collect_instrument_news(db_session, ENTRY, NOW, hc.load_cleaning_config())
-    assert post.call_count == 2 and len(result.leads) == 3
+    assert post.call_count == 4 and len(result.leads) == 3
     content = post.call_args.kwargs["json"]["messages"][1]["content"]
     assert content.startswith(f"EXISTING:\ne0\t{titles[1]}\ne1\t{titles[0]}\n")
 
