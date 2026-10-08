@@ -121,3 +121,18 @@ def test_699_04_stockstory_title_rule(title: str, alias: str, expected: str | No
         title, datetime(2026, 10, 7, 16, 15, tzinfo=ET), "https://fixture.example/story"
     )
     assert block_reason(item, [alias], [], load_cleaning_config()) == expected
+
+
+@pytest.mark.parametrize(
+    "residue",
+    [
+        "To add Benzinga News as your preferred source on Google, click here.",
+        "Read this article",
+    ],
+    ids=["preferred-source", "read-this-article"],
+)
+def test_699_05_interior_residue_removed(residue: str) -> None:
+    assert (
+        strip_residue("\n".join([PARAGRAPH_A, residue, PARAGRAPH_B]), load_intel_deepen_config())
+        == PARAGRAPH_A + "\n" + PARAGRAPH_B
+    )

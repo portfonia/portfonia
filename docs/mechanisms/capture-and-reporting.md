@@ -947,7 +947,7 @@ Issue #699 additionally rejects StockStory titles matching the case-insensitive
 `ASML Poised for Q3 Upside on Strong EUV Demand, RBC Says` and
 `AMD to Report Fiscal Third Quarter 2026 Financial Results` remain eligible
 when their aliases match. These rules apply to direct collection,
-related-company links and the macro RSS pool.
+related-company links, the macro RSS pool and paid-search headlines.
 The related-entity classifier also drops stock opinion/thesis pieces, return
 projections and headlines whose only fact is the related entity's share-price
 performance. Its keep definition and JSON schema are unchanged; macro
