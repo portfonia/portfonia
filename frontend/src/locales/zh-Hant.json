@@ -1119,7 +1119,7 @@
       "performanceHeading": "組合表現",
       "performanceBody": "今年至今的靜態示例。組合曲線對照 S&P 500 與滬深300，其後是資產類別佔比歷史，以及只含一個基準的月度表現。",
       "metricLabel": "組合表現",
-      "metricValue": "+8.42%",
+      "metricValue": "+16.58%",
       "yearToDate": "今年至今",
       "chartMarket": "按市場",
       "chartAssetClass": "按資產類別",
@@ -1603,15 +1603,14 @@
         "description": "Portfonia 預付服務點數的退款方式。"
       }
     },
-    "ogImageAlt": "Portfonia 每日簡報範例",
+    "ogImageAlt": "Portfonia：持倉匯入與市場總經追蹤，歸總為一份簡報範例的各個章節",
     "og": {
       "headline": "什麼值得關注，就藏在你的持倉裡。",
-      "subline": "跨券商、跨市場每日簡報——美股、港股、中國A股及更多市場。",
       "sampleTitle": "簡報範例",
-      "sampleRows": [
-        "範例公司：季度業績已發布。",
-        "總經行事曆：本週公布通膨資料。",
-        "投資組合背景：跨市場曝險。"
+      "markets": [
+        "美股",
+        "港股",
+        "A股"
       ]
     }
   },
