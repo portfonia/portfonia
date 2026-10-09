@@ -1737,6 +1737,42 @@
         "5Y": "5Y"
       },
       "annualizedShortNote": "Annualized from this span's data. Annualizing a period shorter than a year magnifies its swings."
+    },
+    "tailRisk": {
+      "title": "Tail risk (VaR / CVaR)",
+      "intro": "VaR is the loss line that most days or months in the replay stayed within at the chosen confidence level; it is not the largest possible loss. CVaR is the average loss on the days or months beyond that line. Both come from the five-year replay of the holdings you have today.",
+      "levelLabel": "Confidence",
+      "levels": {
+        "95": "95%",
+        "99": "99%"
+      },
+      "columns": {
+        "day": "1 day",
+        "month": "1 month"
+      },
+      "rows": {
+        "var": "VaR",
+        "cvar": "CVaR",
+        "benchmarkVar": "{benchmark} VaR",
+        "benchmarkCvar": "{benchmark} CVaR",
+        "reference": "Questionnaire reference line"
+      },
+      "noQuestionnaire": "Complete the investment questionnaire to show the reference line.",
+      "questionnaireLink": "Go to the questionnaire",
+      "insufficient99": "99% needs at least 500 daily returns; this replay has {count}.",
+      "legend": {
+        "var": "VaR (1 day)",
+        "cvar": "CVaR (1 day)",
+        "reference": "Reference line (1 day)"
+      },
+      "proxyUnderstates": "Holdings represented by an index ETF lose their own swings, so VaR and CVaR may understate tail losses.",
+      "model": "Calculation model",
+      "window": "Five-year replay {start} to {end}: {count} daily returns, and {windows} overlapping 21-trading-day windows (about {independent} non-overlapping).",
+      "methodText": "Historical simulation. With n returns at confidence c, the tail holds k = n × (1 − c) observations, rounded up. VaR is the k-th worst loss and CVaR is the average of the k worst. One-month figures use actual 21-trading-day returns from overlapping windows, not a one-day figure scaled up, so neighbouring windows share most of their days. Amounts apply the percentages to the current value of the holdings included in the replay, in {currency}.",
+      "normalLine": "If returns followed a normal distribution with the replay's own mean and volatility, {level}% VaR would be {dayVar} (1 day) and {monthVar} (1 month), and CVaR {dayCvar} and {monthCvar}. The gap from the figures above shows how far the replay's tails differ from a normal distribution.",
+      "referenceText": "The reference line takes the volatility level that the Overview Risk indicator treats as beyond your questionnaire answers (risk appetite, horizon and objective) and converts it into a loss at this confidence level, assuming a normal distribution with zero mean. It is a point of comparison, not a judgement, and it is not a normal-distribution version of your VaR: the VaR above uses the replay's actual distribution.",
+      "limitations": "The figures reflect only what happened inside the five-year replay; events outside it are not included. The replay uses the holdings you have today, so hindsight applies. This describes the past and is not a forecast.",
+      "loadError": "Tail risk could not be loaded. Try again later."
     }
   }
 }

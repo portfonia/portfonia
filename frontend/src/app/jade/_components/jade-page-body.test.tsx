@@ -6,6 +6,7 @@ vi.mock("@/hooks/use-session", () => ({ revalidateSession: vi.fn() }));
 vi.mock("next-intl", () => ({ useTranslations: () => (key: string, values?: object) => key + (values ? JSON.stringify(values) : "") }));
 vi.mock("@/lib/api", async () => ({ ...await vi.importActual<typeof import("@/lib/api")>("@/lib/api"), setJadeCadence, getSubscriptionQuote, setSubscription, cancelSubscription }));
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
+vi.mock("./tail-risk-section", () => ({ TailRiskSection: () => <div data-testid="tail-risk-section" /> }));
 vi.mock("./replay-section", () => ({ ReplaySection: () => <div data-testid="replay-section" /> }));
 import type { Me } from "@/lib/api";
 import { JadePageBody } from "./jade-page-body";

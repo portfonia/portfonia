@@ -1,6 +1,7 @@
 """Read-only replay of today's unchanged holdings (issue #714)."""
 
 from bisect import bisect_right
+from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 from itertools import pairwise
@@ -143,9 +144,23 @@ def window_start(session: Session, end: date, range_key: ReplayRange) -> date:
     return years_before(end, int(range_key[:-1]))
 
 
+@dataclass(frozen=True)
+class ReplayBuild:
+    out: JadeReplayOut
+    portfolio: list[tuple[date, float]]
+    benchmark: list[tuple[date, float]]
+    total: Decimal
+
+
 def compute_replay(
     session: Session, user_id: UUID, base_currency: str, benchmark: str, range_key: ReplayRange
 ) -> JadeReplayOut:
+    return build_replay(session, user_id, base_currency, benchmark, range_key).out
+
+
+def build_replay(
+    session: Session, user_id: UUID, base_currency: str, benchmark: str, range_key: ReplayRange
+) -> ReplayBuild:
     end = cast(
         date,
         session.scalar(
@@ -423,7 +438,7 @@ def compute_replay(
         if status == "ok"
         else []
     )
-    return JadeReplayOut(
+    out = JadeReplayOut(
         range=range_key,
         status=status,
         base_currency=base_currency,
@@ -441,3 +456,5 @@ def compute_replay(
         coverage=coverage,
         holdings=holding_rows,
     )
+
+    return ReplayBuild(out, portfolio, benchmark_values, total)

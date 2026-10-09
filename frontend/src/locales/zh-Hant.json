@@ -1737,6 +1737,42 @@
         "5Y": "5年"
       },
       "annualizedShortNote": "年化報酬依所選期間的資料計算。將不足一年的期間年化會放大其波動。"
+    },
+    "tailRisk": {
+      "title": "尾部風險（VaR / CVaR）",
+      "intro": "VaR 是在指定信賴水準下，回放中多數日或月的損失所落在的界線，不表示可能損失的上限。CVaR 則是跨越該線的日或月之平均損失。兩項數值皆以目前持倉的五年回放為基礎。",
+      "levelLabel": "信賴水準",
+      "levels": {
+        "95": "95%",
+        "99": "99%"
+      },
+      "columns": {
+        "day": "1天",
+        "month": "1個月"
+      },
+      "rows": {
+        "var": "VaR",
+        "cvar": "CVaR",
+        "benchmarkVar": "{benchmark} VaR",
+        "benchmarkCvar": "{benchmark} CVaR",
+        "reference": "問卷參考線"
+      },
+      "noQuestionnaire": "填妥投資問卷後即可顯示參考線。",
+      "questionnaireLink": "開啟問卷",
+      "insufficient99": "99% 需要至少 500 筆每日報酬樣本；本次回放共有 {count} 筆。",
+      "legend": {
+        "var": "VaR（1天）",
+        "cvar": "CVaR（1天）",
+        "reference": "參考線（1天）"
+      },
+      "proxyUnderstates": "使用指數 ETF 代表持倉時，無法呈現該資產本身的波動，VaR 與 CVaR 因此可能低估尾部損失。",
+      "model": "計算模型",
+      "window": "五年回放期間 {start} 至 {end}：{count} 筆每日報酬，以及 {windows} 個重疊的 21 交易日視窗（約相當於 {independent} 個不重疊視窗）。",
+      "methodText": "採用歷史模擬法。在信賴水準 c 下，n 筆報酬的尾部取 k = n × (1 − c) 筆觀測值，無條件進位。VaR 為第 k 大的損失，CVaR 為損失最大的 k 筆之平均。月度數值取自重疊視窗中的實際 21 交易日報酬，並非將單日數值放大，所以相鄰視窗有大部分交易日相同。金額以百分比乘上納入回放之持倉目前價值，幣別為 {currency}。",
+      "normalLine": "假設報酬呈正態分布，並採用本次回放的平均值與波動率，{level}% VaR 會是 {dayVar}（1天）及 {monthVar}（1個月），CVaR 則為 {dayCvar} 及 {monthCvar}。這些數值與上方結果的差距，呈現回放尾部和正態分布之間的差異。",
+      "referenceText": "參考線使用組合概覽風險指標根據問卷答案（風險偏好、投資期間及目標）設定的較高波動率門檻，假設報酬為零均值正態分布，再換算為目前信賴水準的損失。此線僅供比較，不作判斷，也不是你的 VaR 的正態分布版本；上方 VaR 取自回放的實際分布。",
+      "limitations": "數值只涵蓋五年回放期間曾發生的情況，不納入期間以外的事件。使用目前持倉回放過去，會帶有事後觀點。結果呈現歷史，並非預測。",
+      "loadError": "目前無法載入尾部風險，請稍後再試。"
     }
   }
 }

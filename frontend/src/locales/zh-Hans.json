@@ -1737,6 +1737,42 @@
         "5Y": "5年"
       },
       "annualizedShortNote": "年化收益根据所选时段的数据计算。将不足一年的时段年化会放大其波动。"
+    },
+    "tailRisk": {
+      "title": "尾部风险（VaR / CVaR）",
+      "intro": "VaR 表示在所选置信水平下，回放中大多数日或月的损失所处的界线，并不代表最大可能损失。CVaR 是跨过这条线的日或月的平均损失。两者都根据今天的持仓进行五年回放计算。",
+      "levelLabel": "置信水平",
+      "levels": {
+        "95": "95%",
+        "99": "99%"
+      },
+      "columns": {
+        "day": "1天",
+        "month": "1个月"
+      },
+      "rows": {
+        "var": "VaR",
+        "cvar": "CVaR",
+        "benchmarkVar": "{benchmark} VaR",
+        "benchmarkCvar": "{benchmark} CVaR",
+        "reference": "问卷参考线"
+      },
+      "noQuestionnaire": "完成投资问卷后可显示参考线。",
+      "questionnaireLink": "前往问卷",
+      "insufficient99": "99% 至少需要 500 个日收益率样本；此次回放有 {count} 个。",
+      "legend": {
+        "var": "VaR（1天）",
+        "cvar": "CVaR（1天）",
+        "reference": "参考线（1天）"
+      },
+      "proxyUnderstates": "以指数 ETF 代理的持仓无法保留自身的波动，因此 VaR 和 CVaR 可能低估尾部损失。",
+      "model": "计算模型",
+      "window": "五年回放 {start} 至 {end}：{count} 个日收益率样本，以及 {windows} 个相互重叠的 21 交易日窗口（约 {independent} 个不重叠窗口）。",
+      "methodText": "历史模拟。在置信水平 c 下，n 个收益率样本的尾部包含 k = n × (1 − c) 个观测值，向上取整。VaR 是第 k 大损失，CVaR 是最大的 k 个损失的平均值。月度数值使用重叠窗口中实际的 21 交易日收益率，不由单日数值放大计算，因此相邻窗口共享大部分交易日。金额为这些百分比乘以计入回放的持仓当前价值，以 {currency} 表示。",
+      "normalLine": "若收益率服从正态分布，且均值和波动率采用此次回放的数据，{level}% VaR 为 {dayVar}（1天）和 {monthVar}（1个月），CVaR 分别为 {dayCvar} 和 {monthCvar}。与上方数值的差距反映回放的尾部与正态分布的差异。",
+      "referenceText": "参考线采用组合概览风险指标依据问卷答案（风险偏好、投资期限和目标）确定的较高波动率阈值，再假设零均值正态分布，将它换算为此置信水平下的损失。这是比较用的参考点，不是判断，也不是你的 VaR 的正态分布版本：上方 VaR 使用回放的实际分布。",
+      "limitations": "这些数值仅反映五年回放期间发生的情况，未包含区间以外的事件。回放采用今天的持仓，因此带有事后视角。结果描述过去，不是预测。",
+      "loadError": "暂时无法加载尾部风险，请稍后再试。"
     }
   }
 }

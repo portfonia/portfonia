@@ -77,3 +77,10 @@ def months_before(day: date, months: int) -> date:
     year, month = divmod(day.year * 12 + day.month - 1 - months, 12)
     month += 1
     return date(year, month, min(day.day, monthrange(year, month)[1]))
+
+
+TAIL_LEVELS = (95, 99)
+MIN_RETURNS_99 = 500
+MONTH_DAYS = 21
+TRADING_DAYS = 252
+HIST_BIN = Decimal("0.005")

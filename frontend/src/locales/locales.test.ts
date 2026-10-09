@@ -198,3 +198,11 @@ it.each(LOCALE_VALUES)("#706 %s OG copy has three markets and removes legacy sam
   expect(og).not.toHaveProperty("subline");
   expect(og).not.toHaveProperty("sampleRows");
 });
+
+it("A21 tail risk titles and catalog key parity match #718", () => {
+  const titles = { en: "Tail risk (VaR / CVaR)", "zh-Hans": "\u5c3e\u90e8\u98ce\u9669\uff08VaR / CVaR\uff09", "zh-Hant": "\u5c3e\u90e8\u98a8\u96aa\uff08VaR / CVaR\uff09" };
+  for (const locale of LOCALE_VALUES) {
+    expect(catalogs[locale]).toHaveProperty("jade.tailRisk.title", titles[locale]);
+    expect(leafPaths(catalogs[locale]).sort()).toEqual(leafPaths(catalogs.en).sort());
+  }
+});
