@@ -16,7 +16,6 @@
 import { useState } from "react";
 import {
   Bot,
-  Gem,
   Briefcase,
   FileText,
   ChartLine,
@@ -35,6 +34,7 @@ import {
   markOptimisticLogout,
   revalidateSession,
 } from "@/hooks/use-session";
+import { JadeDisc } from "@/components/icons/jade-disc";
 import { useIdleLogout } from "@/hooks/use-idle-logout";
 import { isNextRedirectError } from "@/lib/next-redirect-error";
 import { logout } from "@/lib/auth-actions";
@@ -65,7 +65,7 @@ const AUTHED_ENTRIES = [
   // stays discoverable from any authed page — same "one row per shipped
   // route" convention as the rest of this registry.
   { id: "portfolioPerformance", href: "/portfolio/performance", Icon: ChartLine },
-  { id: "jade", href: "/jade", Icon: Gem },
+  { id: "jade", href: "/jade", Icon: JadeDisc },
   { id: "reports", href: "/reports", Icon: FileText },
   { id: "questionnaire", href: "/questionnaire", Icon: ClipboardList },
   { id: "agent", href: "/agent", Icon: Bot },
