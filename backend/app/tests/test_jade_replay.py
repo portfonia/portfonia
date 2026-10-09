@@ -244,6 +244,19 @@ def test_a1_d7_7_classification(
 
 
 @pytest.mark.parametrize(
+    "asset_type,asset_class",
+    [("cash", "STOCK"), ("other", "CASH_EQUIV")],
+    ids=["cash_asset_type", "cash_equiv_class"],
+)
+def test_a1_zero_cash_is_unvalued(db_session: Session, asset_type: str, asset_class: str) -> None:
+    calendar(db_session, [E])
+    zero = holding(db_session, value="0", asset_type=asset_type, asset_class=asset_class)
+    holding(db_session, value="100", asset_type="cash")
+    row = next(h for h in compute(db_session).holdings if h.holding_id == zero.id)
+    assert (row.method, row.excluded_reason) == ("excluded", "unvalued")
+
+
+@pytest.mark.parametrize(
     "market,symbol",
     [
         ("US", "SPY"),

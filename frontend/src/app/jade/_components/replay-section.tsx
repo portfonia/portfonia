@@ -83,7 +83,11 @@ export function ReplaySection() {
             <XAxis type="number" dataKey="time" domain={["dataMin", "dataMax"]} tickFormatter={(v: number) => formatShortDate(new Date(v).toISOString().slice(0, 10), locale)} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} minTickGap={24} />
             <YAxis tickFormatter={formatTickPct} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} width={48} />
             <Tooltip labelFormatter={(v) => formatShortDate(new Date(Number(v)).toISOString().slice(0, 10), locale)} formatter={(v) => typeof v === "number" ? formatTickPct(v) : "—"} contentStyle={{ background: "var(--card)", borderColor: "var(--border)" }} />
-            {data.holdings.filter((h) => h.method === "head_proxy" && h.own_first_date).map((h) => <ReferenceLine key={h.holding_id} x={timestamp(h.own_first_date!)} stroke="var(--muted-foreground)" strokeDasharray="3 3" />)}
+            {data.holdings.map((h) => {
+              const ownFirstDate = h.own_first_date;
+              if (h.method !== "head_proxy" || !ownFirstDate) return null;
+              return <ReferenceLine key={h.holding_id} x={timestamp(ownFirstDate)} stroke="var(--muted-foreground)" strokeDasharray="3 3" />;
+            })}
             <Line dataKey="portfolio" name={t("portfolioLabel")} stroke={PORTFOLIO_COLOR} strokeWidth={2.5} dot={false} isAnimationActive={false} />
             <Line dataKey="benchmark" name={benchmarkLabel} stroke={BENCHMARK_COLORS[data.benchmark]} strokeWidth={1.5} dot={false} isAnimationActive={false} />
           </LineChart></ResponsiveContainer>

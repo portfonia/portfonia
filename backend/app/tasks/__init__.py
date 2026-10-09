@@ -339,12 +339,12 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.operational_events_tasks.cleanup_operational_events",
         "schedule": crontab(hour=5, minute=0, nowfun=_NowIn(UTC)),
     },
-    # Eligible pending waitlist entries (issue #672). Every day, including
-    # weekends. 0 on WAITLIST_AUTO_INVITE_DAILY_LIMIT pauses the run.
     "refresh-jade-price-history-daily": {
         "task": "app.tasks.jade_tasks.refresh_jade_price_history_task",
         "schedule": crontab(hour=22, minute=15),
     },
+    # Eligible pending waitlist entries (issue #672). Every day, including
+    # weekends. 0 on WAITLIST_AUTO_INVITE_DAILY_LIMIT pauses the run.
     "waitlist-auto-invite-daily": {
         "task": "app.tasks.waitlist_tasks.auto_invite_waitlist",
         "schedule": crontab(hour=10, minute=0),
