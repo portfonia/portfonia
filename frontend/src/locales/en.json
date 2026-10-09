@@ -1675,6 +1675,57 @@
     "price": "9.99 credits per month",
     "subscribe": "Subscribe to Jade",
     "cadenceError": "Could not change your briefing schedule. Try again.",
-    "cadenceNote": "Changing the schedule does not change your fee."
+    "cadenceNote": "Changing the schedule does not change your fee.",
+    "replay": {
+      "title": "Holdings replay",
+      "intro": "Replays the holdings you have today over the past five years, as if you had held them unchanged. Returns include dividends, treated as reinvested. This is a hypothetical replay, not your own past results.",
+      "loadError": "Could not load the replay. Try again later.",
+      "loading": "Loading replay…",
+      "pending": "Price history for your holdings is being prepared. It is updated once a day after the US market close.",
+      "noHoldings": "Add holdings to see a replay.",
+      "insufficient": "Not enough history to replay yet.",
+      "benchmarkLabel": "Benchmark",
+      "portfolioLabel": "Portfolio",
+      "benchmarkUnavailable": "Benchmark data is not available yet.",
+      "dataAndMethod": "Data and method",
+      "window": "Window: {start}–{end}. Samples: {count}.",
+      "skippedDays": "Skipped days: {count}.",
+      "coverage": {
+        "own": "{pct}% own history",
+        "proxy": "{pct}% index ETF proxy",
+        "head_proxy": "{pct}% own history with an ETF fill before listing",
+        "cash": "{pct}% cash",
+        "cash_assumed": "{pct}% treated as cash"
+      },
+      "dataQuality": "At least 66% of this portfolio's value is approximated at the start of the window. Read the results with that in mind.",
+      "pendingShare": "{pct}% of your holdings' value is still being prepared and is not included.",
+      "methods": {
+        "own": "Own price history",
+        "fund_nav": "Fund NAV history, dividends reinvested",
+        "proxy": "Represented by {proxy_name} ({proxy_symbol})",
+        "head_proxy": "Own history from {own_first_date}; before that {proxy_name} ({proxy_symbol}) × beta {beta}",
+        "cash": "Cash: constant in its own currency, moves only with FX",
+        "cash_assumed": "Treated as cash"
+      },
+      "excluded": {
+        "pending": "Not included: being prepared",
+        "unvalued": "Not included: no current valuation",
+        "data_unavailable": "Not included: index data unavailable"
+      },
+      "ownHistoryUnavailable": "(no price history of its own)",
+      "betaFallback": "(beta set to 1: under 60 days of own history)",
+      "volatility": "Volatility: own {own_vol}, filled period {proxy_segment_vol}. The fill does not reproduce this holding's own swings.",
+      "sources": "Prices: Yahoo Finance daily adjusted closes. Fund NAV: Eastmoney. FX: the same daily rates as Portfolio Overview. Sample days: NYSE trading days; other markets keep their previous close on their holidays.",
+      "method": "Each holding's value today is rolled back along its own total-return history, converted to {currency} at each day's FX rate. The holdings are summed without rebalancing. Annualized volatility is the standard deviation of daily returns × √252.",
+      "limitations": "Hindsight: the holdings you have today are often ones that did well in the past, so the replay can look better than what a portfolio chosen five years ago would have done. Proxies follow an index ETF, not the holding itself. The replay describes the past and is not a forecast.",
+      "metrics": {
+        "cumulative_return": "Cumulative return",
+        "annualized_return": "Annualized return",
+        "annualized_vol": "Annualized volatility",
+        "max_drawdown": "Maximum drawdown",
+        "worst_day": "Worst day",
+        "worst_month": "Worst month"
+      }
+    }
   }
 }

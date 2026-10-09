@@ -9,6 +9,7 @@ from app.models.fx_rate import FxRate
 from app.models.holding import Holding
 from app.models.intel import InstrumentProfile, IntelCollectionRun, IntelSlotRun, NewsInstrument
 from app.models.invite import Invite
+from app.models.jade_price import JadePricePoint, JadePriceSeries
 from app.models.macro_coverage import MacroCoverage
 from app.models.news import News
 from app.models.news_surfaced import NewsSurfaced
@@ -42,6 +43,8 @@ __all__ = [
     "IntelCollectionRun",
     "IntelSlotRun",
     "Invite",
+    "JadePricePoint",
+    "JadePriceSeries",
     "MacroCoverage",
     "News",
     "NewsInstrument",

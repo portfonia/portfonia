@@ -56,8 +56,9 @@ Ops limits retain their existing behavior. The existing counter backend's
 Redis and memory implementations also support expiring marker writes and
 prefix existence checks.
 
-`API_QUIET_BEAT_ENTRIES` explicitly declares all 48 Beat entries as booleans.
-Only the two intel slots and weekday/weekly report batches are true. Its
+`API_QUIET_BEAT_ENTRIES` explicitly declares all 50 Beat entries as booleans.
+The two intel slots, weekday/weekly report batches and Jade history fill are
+true. Its
 test rejects undeclared entries and non-booleans. Schedule edits require the
 owner-confirmed declaration in the issue Design; no runtime default is used.
 

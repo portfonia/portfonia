@@ -1,5 +1,6 @@
 "use client";
 
+import { ReplaySection } from "./replay-section";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -65,5 +66,6 @@ export function JadePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError
         {cadenceError && <p role="alert" className="text-destructive">{t("cadenceError")}</p>}
       </CardContent>
     </Card>}
+    {isJade && <ReplaySection />}
   </div>;
 }
