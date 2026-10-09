@@ -43,3 +43,18 @@ it.each(["light", "dark"])("375px %s Jade trigger retains texture and flat fallb
   document.documentElement.classList.remove("dark");
   vi.unstubAllGlobals();
 });
+it("authenticated Jade entry uses a jade disc drawn as one thick ring", async () => {
+  useSession.mockReturnValue({ status: "authed", email: "jade@example.com", advanced: true, jade: true });
+  render(<NextIntlClientProvider locale="en" messages={catalogs.en}><GetStartedMenu /></NextIntlClientProvider>);
+  await userEvent.click(screen.getByRole("button"));
+  const entry = await screen.findByRole("menuitem", { name: "Jade" });
+  const svg = entry.querySelector("svg");
+  expect(svg).toBeInTheDocument();
+  expect(svg).not.toHaveClass("lucide-gem");
+  const circles = entry.querySelectorAll("svg circle");
+  expect(circles).toHaveLength(1);
+  expect(Array.from(circles, circle => [
+    circle.getAttribute("cx"), circle.getAttribute("cy"), circle.getAttribute("r"),
+    circle.getAttribute("stroke-width"),
+  ])).toEqual([["12", "12", "7.5", "5"]]);
+});
