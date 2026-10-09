@@ -593,3 +593,18 @@ Jade. All three catalogs retain matching key sets and hand-authored Chinese.
 rows and both-theme Jade trigger class; they do not constitute physical-device
 or browser layout measurements. The Jade page uses `max-w-2xl px-4 sm:px-6`.
 The production frontend build is a required gate. No local app server is run.
+
+## Calculating overlay (issue #716)
+
+`frontend/src/components/calculating-overlay.tsx` exports `CalculatingOverlay`
+with `active`, caller-translated `label`, `children`, and optional `className`.
+It contains no domain imports or catalog lookups. Its relative, min-width-zero
+wrapper marks active work with `aria-busy`; the child wrapper is inert while
+active. An absolute full-region pointer layer shows a spinner and polite status
+label over a translucent dark-theme surface. Inactive children remain interactive.
+
+Jade replay uses it around the complete settings/results/method region, which
+renders immediately even without a response. The intro and error alert sit
+outside. Span buttons wrap at 375px; the overlay follows the region's height.
+The label is `common.calculating` in all three catalogs. The component is intended
+for reuse by Performance later; Performance is unchanged in this issue.

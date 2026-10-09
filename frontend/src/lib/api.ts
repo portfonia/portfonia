@@ -946,7 +946,9 @@ export async function setJadeCadence(cadence: BriefingPlan): Promise<Subscriptio
   return res.json() as Promise<Subscription>;
 }
 
-// Jade holdings replay (issue #714); ratios are serialized decimal strings.
+// Jade holdings replay; ratios are serialized decimal strings.
+export const REPLAY_RANGES = ["1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y"] as const;
+export type ReplayRange = (typeof REPLAY_RANGES)[number];
 export interface ReplayMetrics {
   cumulative_return: string;
   annualized_return: string;
@@ -956,8 +958,8 @@ export interface ReplayMetrics {
   max_drawdown_trough: string;
   worst_day: string;
   worst_day_date: string;
-  worst_month: string;
-  worst_month_label: string;
+  worst_month: string | null;
+  worst_month_label: string | null;
 }
 export interface ReplayHolding {
   holding_id: string;
@@ -975,6 +977,7 @@ export interface ReplayHolding {
   proxy_segment_vol: string | null;
 }
 export interface JadeReplay {
+  range: ReplayRange;
   status: "ok" | "pending" | "no_holdings" | "insufficient";
   base_currency: string;
   benchmark: BenchmarkCode;
@@ -1000,9 +1003,10 @@ export interface JadeReplay {
   };
   holdings: ReplayHolding[];
 }
-export async function getJadeReplay(baseCurrency?: BaseCurrency, benchmark: BenchmarkCode = "sp500"): Promise<JadeReplay> {
+export async function getJadeReplay(baseCurrency?: BaseCurrency, benchmark: BenchmarkCode = "sp500", range?: ReplayRange): Promise<JadeReplay> {
   const params = new URLSearchParams({ benchmark });
   if (baseCurrency) params.set("base_currency", baseCurrency);
+  if (range) params.set("range", range);
   const res = await fetch(`/api/jade/replay?${params.toString()}`, { cache: "no-store" });
   if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<JadeReplay>;

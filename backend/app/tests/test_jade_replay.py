@@ -92,7 +92,7 @@ def setup(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def compute(session: Session, currency: str = "USD", benchmark: str = "sp500") -> JadeReplayOut:
-    return replay.compute_replay(session, TEST_USER_ID, currency, benchmark)
+    return replay.compute_replay(session, TEST_USER_ID, currency, benchmark, "5Y")
 
 
 def test_d7_1_anchoring_fx(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,7 +127,7 @@ def test_d7_1_anchoring_fx(db_session: Session, monkeypatch: pytest.MonkeyPatch)
 
 def test_d7_2_cash_stock_metrics() -> None:
     days = [date(2026, 10, 6), date(2026, 10, 7), E]
-    m = replay.metrics(list(zip(days, [2000.0, 2100.0, 1990.0], strict=True)))
+    m = replay.metrics(list(zip(days, [2000.0, 2100.0, 1990.0], strict=True)), False)
     assert m.cumulative_return == "-0.005000"
     assert m.max_drawdown == m.worst_day == "-0.052381"
     assert m.max_drawdown_peak == days[1] and m.max_drawdown_trough == m.worst_day_date == E
@@ -177,7 +177,7 @@ def test_a4_metrics_month_boundary() -> None:
         93.0,
         92.0,
     ]
-    m = replay.metrics(list(zip(days, values, strict=True)))
+    m = replay.metrics(list(zip(days, values, strict=True)), False)
     assert m.model_dump() == dict(
         cumulative_return="-0.080000",
         annualized_return="-0.886433",

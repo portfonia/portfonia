@@ -1,8 +1,14 @@
 """Issue #714 proxy table and replay constants."""
 
+from calendar import monthrange
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from typing import Literal
+
+ReplayRange = Literal["1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y"]
+REPLAY_RANGES: tuple[ReplayRange, ...] = ("1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y")
+DEFAULT_REPLAY_RANGE: ReplayRange = "1Y"
 
 REPLAY_YEARS = 5
 FETCH_MARGIN_DAYS = 15
@@ -64,3 +70,10 @@ def years_before(day: date, years: int) -> date:
         return day.replace(year=day.year - years)
     except ValueError:
         return day.replace(year=day.year - years, day=28)
+
+
+def months_before(day: date, months: int) -> date:
+    """Same day earlier by calendar months, clamped to the month end."""
+    year, month = divmod(day.year * 12 + day.month - 1 - months, 12)
+    month += 1
+    return date(year, month, min(day.day, monthrange(year, month)[1]))

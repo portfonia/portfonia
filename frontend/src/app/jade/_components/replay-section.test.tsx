@@ -8,7 +8,7 @@ vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 import { ReplaySection } from "./replay-section";
 const metric = { cumulative_return: "0.123456", annualized_return: "0.030000", annualized_vol: "0.180000", max_drawdown: "-0.100000", max_drawdown_peak: "2026-01-01", max_drawdown_trough: "2026-02-01", worst_day: "-0.030000", worst_day_date: "2026-02-01", worst_month: "-0.050000", worst_month_label: "2026-02" };
 const data: JadeReplay = {
-  status: "ok", base_currency: "USD", benchmark: "sp500", benchmark_symbol: "SPY", benchmark_name: "SPDR S&P 500 ETF Trust", benchmark_status: "ok", window_start: "2021-10-08", window_end: "2026-10-08", first_valid_date: "2021-10-08", sample_count: 1000, skipped_days: 2,
+  range: "1Y", status: "ok", base_currency: "USD", benchmark: "sp500", benchmark_symbol: "SPY", benchmark_name: "SPDR S&P 500 ETF Trust", benchmark_status: "ok", window_start: "2021-10-08", window_end: "2026-10-08", first_valid_date: "2021-10-08", sample_count: 1000, skipped_days: 2,
   points: [{ date: "2021-10-08", portfolio: "0.000000", benchmark: "0.000000" }, { date: "2026-10-08", portfolio: "0.123456", benchmark: "0.100000" }],
   metrics: { portfolio: metric, benchmark: metric },
   coverage: { own_share: "0.300000", proxy_share: "0.300000", head_proxy_share: "0.300000", cash_share: "0.050000", cash_assumed_share: "0.050000", approx_share_at_start: "0.650000", data_quality: false, pending_share: null },
@@ -27,7 +27,7 @@ it("A12 currency refetch disables controls and reverts on failure", async () => 
   view(); await screen.findByText(/^Recent listing/);
   fireEvent.click(screen.getByRole("button", { name: /USD.*currency/i }));
   fireEvent.click(screen.getByRole("menuitem", { name: "CNY" }));
-  expect(getJadeReplay).toHaveBeenLastCalledWith("CNY", "sp500");
+  expect(getJadeReplay).toHaveBeenLastCalledWith("CNY", "sp500", "1Y");
   expect(screen.getByRole("button", { name: /CNY.*currency/i })).toBeDisabled();
   expect(screen.getByRole("button", { name: /Benchmark.*S&P/i })).toBeDisabled();
   reject(new Error("offline"));
@@ -39,7 +39,7 @@ it("A12 benchmark refetch keeps currency and uses the response", async () => {
   view(); await screen.findByText(/^Recent listing/);
   fireEvent.click(screen.getByRole("button", { name: /Benchmark.*S&P/i }));
   fireEvent.click(screen.getByRole("menuitem", { name: "CSI 300" }));
-  await waitFor(() => expect(getJadeReplay).toHaveBeenLastCalledWith("USD", "csi300"));
+  await waitFor(() => expect(getJadeReplay).toHaveBeenLastCalledWith("USD", "csi300", "1Y"));
   expect(await screen.findByText(/CSI 300 \(510300.SS\)/)).toBeInTheDocument();
 });
 it("A13 disclosure shows data quality, pending share, both volatilities and fallback notes", async () => {
@@ -65,4 +65,81 @@ it("375px class check wraps settings, contains chart and metrics, and stacks hol
   expect(screen.getByTestId("replay-holdings")).toHaveClass("flex-col", "break-words");
   expect(container.querySelector("details")).not.toHaveAttribute("open");
   vi.unstubAllGlobals();
+});
+
+it("A8 D6.7 D6.8 full initial layout and static method text under overlay", async () => {
+  let resolve: (value: JadeReplay) => void = () => {};
+  getJadeReplay.mockImplementationOnce(() => new Promise<JadeReplay>(r => { resolve = r; }));
+  const { container } = view();
+  expect(getJadeReplay).toHaveBeenCalledWith(undefined, undefined, "1Y");
+  expect(screen.getByTestId("replay-settings")).toBeInTheDocument();
+  expect(screen.getByTestId("replay-chart")).toBeEmptyDOMElement();
+  const grid = screen.getByTestId("replay-metrics");
+  expect(grid.querySelectorAll(".contents")).toHaveLength(6);
+  expect(grid.textContent?.match(/—/g)).toHaveLength(12);
+  expect(container.querySelector("details summary")).toHaveTextContent("Data and method");
+  expect(screen.getByText(/^Prices: Yahoo Finance/)).toBeInTheDocument();
+  expect(screen.getByText(/converted to USD at each day's FX rate/)).toBeInTheDocument();
+  expect(screen.getByText(/^Hindsight:/)).toBeInTheDocument();
+  const overlay = screen.getByTestId("calculating-overlay");
+  expect(overlay).toHaveTextContent("Calculating…");
+  expect(overlay.parentElement).toHaveAttribute("aria-busy", "true");
+  fireEvent.click(screen.getByRole("button", { name: "3M" }));
+  expect(getJadeReplay).toHaveBeenCalledTimes(1);
+  resolve({ ...data, range: "1Y" });
+  await waitFor(() => expect(screen.queryByTestId("calculating-overlay")).not.toBeInTheDocument());
+  expect(screen.getByTestId("replay-chart")).not.toBeEmptyDOMElement();
+});
+
+it("A9 spans in contract order, single flight and all controls revert to last response", async () => {
+  let reject: (error: Error) => void = () => {};
+  getJadeReplay.mockResolvedValueOnce({ ...data, base_currency: "CNY", benchmark: "csi300", range: "1Y" }).mockImplementationOnce(() => new Promise((_, r) => { reject = r; }));
+  view(); await screen.findByText(/^Recent listing/);
+  const group = screen.getByRole("radiogroup", { name: "Span" });
+  expect(Array.from(group.querySelectorAll("button"), b => b.textContent)).toEqual(["1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y"]);
+  expect(screen.getByRole("button", { name: "1Y" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(screen.getByRole("button", { name: "3M" }));
+  expect(getJadeReplay).toHaveBeenLastCalledWith("CNY", "csi300", "3M");
+  expect(screen.getByRole("button", { name: "3M" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "5Y" }));
+  expect(getJadeReplay).toHaveBeenCalledTimes(2);
+  reject(new Error("offline"));
+  await screen.findByRole("alert");
+  expect(screen.getByRole("button", { name: "1Y" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: /CNY.*currency/i })).toBeEnabled();
+  expect(screen.getByRole("button", { name: /Benchmark.*CSI/i })).toBeEnabled();
+});
+
+it.each(["1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y"] as const)("A10 D6.4 short note for %s", async range => {
+  getJadeReplay.mockResolvedValue({ ...data, range }); view();
+  await screen.findByText(/^Recent listing/);
+  const note = screen.queryByText("Annualized from this span's data. Annualizing a period shorter than a year magnifies its swings.");
+  expect(note !== null).toBe(["1M", "3M", "6M", "YTD"].includes(range));
+});
+
+it("A11 D6.5 null worst month has dashes and no date line", async () => {
+  const hidden = { ...metric, worst_month: null, worst_month_label: null };
+  getJadeReplay.mockResolvedValue({ ...data, range: "1M", metrics: { portfolio: hidden, benchmark: hidden } });
+  view(); await screen.findByText(/^Recent listing/);
+  const row = screen.getByText("Worst month").parentElement;
+  expect(row?.textContent).toBe("Worst month——");
+  expect(row?.querySelectorAll("p")).toHaveLength(0);
+});
+
+it("375px span tabs wrap and overlay covers precisely its layout region", async () => {
+  getJadeReplay.mockImplementation(() => new Promise(() => {}));
+  const { container } = view();
+  expect(container.firstChild).toHaveStyle({ width: "375px" });
+  const group = screen.getByRole("radiogroup", { name: "Span" });
+  expect(group).toHaveClass("flex", "flex-wrap", "items-center", "gap-1");
+  const overlay = screen.getByTestId("calculating-overlay");
+  const wrapper = overlay.parentElement;
+  expect(wrapper).toHaveClass("relative", "min-w-0");
+  expect(overlay).toHaveClass("absolute", "inset-0");
+  const region = wrapper?.querySelector("[inert]");
+  expect(region).toContainElement(group);
+  expect(region).toContainElement(screen.getByTestId("replay-chart"));
+  expect(region).toContainElement(screen.getByTestId("replay-metrics"));
+  expect(region).toContainElement(container.querySelector("details"));
+  expect(region).not.toContainElement(screen.getByText(/^Replays the holdings/));
 });
