@@ -46,10 +46,10 @@ export function JadePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError
       <CardContent className="flex flex-wrap items-center gap-3 px-4 text-sm">
         {isJade ? <>
           <p>{profile(me.subscription.cancel_pending ? "subscriptionEnds" : "subscriptionRenews", { plan: profile("subscriptionTitle.jade"), expires_on: me.subscription.expires_on ?? "" })}</p>
-          <Button className="h-auto max-w-full whitespace-normal" variant="outline" disabled={subscription.pending} onClick={() => void subscription.choose(me.subscription.cancel_pending ? "jade" : "cancel")}>{profile(me.subscription.cancel_pending ? "subscriptionResume" : "subscriptionCancel")}</Button>
+          <Button variant="outline" disabled={subscription.pending} onClick={() => void subscription.choose(me.subscription.cancel_pending ? "jade" : "cancel")}>{profile(me.subscription.cancel_pending ? "subscriptionResume" : "subscriptionCancel")}</Button>
         </> : <>
           {me.subscription.status === "expired" && <Badge className="h-auto whitespace-normal">{profile("subscriptionExpired", { expires_on: me.subscription.expires_on ?? "" })}</Badge>}
-          <Button className="h-auto max-w-full whitespace-normal" disabled={unverified || subscription.pending} onClick={() => void subscription.choose("jade")}>{t("subscribe")}</Button>
+          <Button disabled={unverified || subscription.pending} onClick={() => void subscription.choose("jade")}>{t("subscribe")}</Button>
           {unverified && <p className="text-muted-foreground">{profile("subscriptionVerifyEmail")}</p>}
         </>}
         {subscription.error && !subscription.dialog && <p role="alert" className="w-full text-destructive">{subscription.error}</p>}
