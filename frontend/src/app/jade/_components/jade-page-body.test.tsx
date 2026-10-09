@@ -81,4 +81,5 @@ it("375px component check keeps schedule full width and subscription controls wr
 it.each(["jade", "daily", "weekly"] as const)("A11 replay is Jade-only for %s", (plan) => {
   render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, type: plan } }} hadLoadError={false} />);
   expect(screen.queryByTestId("replay-section") !== null).toBe(plan === "jade");
+  expect(screen.queryByTestId("tail-risk-section") !== null).toBe(plan === "jade");
 });
