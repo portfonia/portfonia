@@ -11,7 +11,7 @@ import { WelcomeBody } from "./welcome-body";
 
 const _ME: Me = {
   email: "a@b.com",
-  subscription: { status: "inactive", type: null, expires_on: null, cancel_pending: false, next_adjustment_at: null },
+  subscription: { status: "inactive", type: null, cadence: "none", expires_on: null, cancel_pending: false, next_adjustment_at: null },
   credit_balance: "0.00",
   delivery_email: null,
   email_verified_at: null,
@@ -63,7 +63,7 @@ describe("WelcomeBody", () => {
     expect(
       screen.getByText("Holdings-related sections stay empty until you save holdings."),
     ).toBeInTheDocument();
-    expect(screen.getByText("Portfonia sends scheduled briefings to subscribers. There are three plans: Weekly (0.99 credits per month), Mon/Wed/Fri (1.99 credits per month) and the Advanced Daily plan (2.49 credits per month, weekdays, with AI Agent data access).")).toBeInTheDocument();
+    expect(screen.getByText("Portfonia sends scheduled briefings to subscribers. There are four plans: Weekly (0.99 credits per month), Mon/Wed/Fri (1.99 credits per month), the Advanced Daily plan (2.49 credits per month, weekdays, with AI Agent data access), and Jade (9.99 credits per month, portfolio risk tools, everything in Advanced, and a briefing schedule you choose). Subscribe to Jade on the Jade page.")).toBeInTheDocument();
     expect(screen.getByText("Until you subscribe, scheduled briefings are not sent and some features may be unavailable. You need a verified email address before you can subscribe.")).toBeInTheDocument();
     expect(screen.queryByText(/Your cadence is weekly/)).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();

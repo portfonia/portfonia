@@ -430,7 +430,7 @@ def test_session_status_endpoint_valid_session_is_200(
     monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
     resp = raw_client.get("/auth/session-status", headers={"Authorization": "Bearer good.token"})
     assert resp.status_code == 200
-    assert resp.json() == {"advanced": False}
+    assert resp.json() == {"advanced": False, "jade": False}
 
 
 def test_session_status_endpoint_no_token_is_401(raw_client: TestClient) -> None:

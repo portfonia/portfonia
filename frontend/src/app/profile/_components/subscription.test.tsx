@@ -9,13 +9,13 @@ vi.mock("@/lib/api", async () => ({ ...await vi.importActual<typeof import("@/li
 vi.mock("./credit-purchase", () => ({ CreditPurchase: () => null }));
 import type { Me, Subscription } from "@/lib/api";
 import { ProfilePageBody } from "./profile-page-body";
-const subscription: Subscription = { status: "inactive", type: null, expires_on: null, cancel_pending: false, next_adjustment_at: null };
+const subscription: Subscription = { status: "inactive", type: null, cadence: "none", expires_on: null, cancel_pending: false, next_adjustment_at: null };
 const me: Me = { email: "a@example.com", credit_balance: "4.01", delivery_email: null, email_verified_at: "2026-09-30T12:00:00Z", delivery_email_verified_at: null, tos_accepted_at: null, has_questionnaire: true, has_holdings: false, missing: [], pending_email_verifications: [], report_language: "en", report_currency: "USD", subscription };
 function show(s: Partial<Subscription> = {}, verified = true) {
   render(<ProfilePageBody me={{ ...me, email_verified_at: verified ? me.email_verified_at : null, subscription: { ...subscription, ...s } }} hadLoadError={false} />);
   return screen.getByRole("combobox", { name: "reportScheduleHeading" });
 }
-const active = { status: "active", type: "weekly", expires_on: "2026-11-15" } as const;
+const active = { status: "active", type: "weekly", cadence: "weekly", expires_on: "2026-11-15" } as const;
 beforeEach(() => { vi.clearAllMocks(); });
 describe("subscription selector and account", () => {
   it.each(["inactive", "expired", "cancelled"] as const)("selector uses non-selectable placeholder for %s", (status) => {
@@ -48,7 +48,7 @@ describe("subscription selector and account", () => {
 });
 
 import { ApiError, type SubscriptionQuote } from "@/lib/api";
-const quote: SubscriptionQuote = { action: "subscribe", type: "mwf", fee: "1.99", returned: "0.50", balance: "4.01", balance_after: "2.52", sufficient: true, period_start: "2026-10-31", expires_on: "2026-11-30", first_report_at: "2026-11-02T17:00:00-05:00", needs_holdings: false, blocked: null };
+const quote: SubscriptionQuote = { cadence: "mwf", action: "subscribe", type: "mwf", fee: "1.99", returned: "0.50", balance: "4.01", balance_after: "2.52", sufficient: true, period_start: "2026-10-31", expires_on: "2026-11-30", first_report_at: "2026-11-02T17:00:00-05:00", needs_holdings: false, blocked: null };
 async function choose(q: Partial<SubscriptionQuote> = {}) {
   getSubscriptionQuote.mockResolvedValue({ ...quote, ...q });
   const select = show(); fireEvent.change(select, { target: { value: "mwf" } });

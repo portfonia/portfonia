@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/browser";
 export type SessionState =
   | { status: "checking"; pendingReason: "login" | null }
   | { status: "guest" }
-  | { status: "authed"; email: string; advanced: boolean };
+  | { status: "authed"; email: string; advanced: boolean; jade: boolean };
 
 // auth.portfonia.com (the Caddy reverse-proxy to the real Supabase host,
 // routing around direct-connectivity issues) normally answers in well under
@@ -136,14 +136,14 @@ async function verifiedGetUser(
 // backend/app/routers/auth.py) — cheap enough to call on every verify().
 // frontend/src/proxy.ts already injects the Bearer header for any
 // `/api/*` browser fetch, so no token-plumbing is needed here.
-async function probeBackendSession(): Promise<{ ok: boolean; advanced: boolean }> {
+async function probeBackendSession(): Promise<{ ok: boolean; advanced: boolean; jade: boolean }> {
   try {
     const res = await fetch("/api/auth/session-status", { cache: "no-store" });
-    if (!res.ok) return { ok: false, advanced: false };
-    const body: { advanced: boolean } = await res.json();
-    return { ok: true, advanced: body.advanced };
+    if (!res.ok) return { ok: false, advanced: false, jade: false };
+    const body: { advanced: boolean; jade?: boolean } = await res.json();
+    return { ok: true, advanced: body.advanced === true, jade: body.jade === true };
   } catch {
-    return { ok: false, advanced: false }; // fail closed, matching this module's existing doctrine
+    return { ok: false, advanced: false, jade: false }; // fail closed, matching this module's existing doctrine
   }
 }
 
@@ -232,7 +232,7 @@ export function useSession(): SessionState {
           if (cancelled || myGeneration !== generation) return;
           setState(
             stillValid.ok
-              ? { status: "authed", email: data.user.email ?? "", advanced: stillValid.advanced }
+              ? { status: "authed", email: data.user.email ?? "", advanced: stillValid.advanced, jade: stillValid.jade }
               : { status: "guest" },
           );
         })

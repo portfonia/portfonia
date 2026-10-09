@@ -13,7 +13,7 @@ required, ask the product owner before designing or implementing it.
 
 ## Documentation index
 
-- [Public SEO pages and locale URLs](docs/mechanisms/frontend-chrome.md#public-seo-pages-and-locale-urls) — issue #702: public locale URLs, metadata, sitemap, OG previews, localized 404 and canonical host; issue #706: OG input/briefing layout and corrected home performance sample.
+- [Public SEO pages and locale URLs](docs/mechanisms/frontend-chrome.md#public-seo-pages-and-locale-urls) — issue #702: public locale URLs, metadata, sitemap, OG previews, localized 404 and canonical host; issue #706: OG input/briefing layout and corrected home performance sample. #710 adds the protected Jade page, menu texture and Profile coordination.
 
 - [Documentation governance](docs/playbooks/documentation-governance.md): document ownership, Obsidian authorization, executable design contracts, evidence labels, and note-access conventions.
 - [Shared engineering rules](CLAUDE.md): language, security, testing, and deployment conventions.
@@ -23,7 +23,7 @@ required, ask the product owner before designing or implementing it.
 - [Self-service account deletion](docs/mechanisms/identity-and-auth.md#self-service-account-deletion-issue-644): issue #644, Profile confirmations, recorded cash relinquishment, JWT-only deletion, shared waitlist/invite cleanup, and retained signup fingerprint.
 - [Waitlist automatic invitations](docs/mechanisms/identity-and-auth.md#waitlist-automatic-invitations-issue-672): issue #672, daily 10:00 ET letters, run-start global quota, one-transaction rollback and later retry, locked pending refresh, explicit non-account `ADMIN_ID`, and the ops digest.
 - [User referrals](docs/mechanisms/identity-and-auth.md#user-referrals-issue-675) — issue #675: Profile registration, two-tier signup attribution, first-subscription gift and purchase cash rewards, refund clawbacks including negative cash, and deletion guards; accounting rules in [Credit ledger](docs/mechanisms/credit-ledger.md#referral-rewards-and-refund-clawbacks-issue-675).
-- [Subscription core](docs/mechanisms/subscription.md): subscription state, monthly credit charges/returns, user operations, quotes, unsubscribe integration, scheduled lifecycle, notices, Profile controls and public-copy integration, and launch activation (issues #595/#596/#597/#600/#610); Daily Advanced and merged weekday dispatch (#650); Advanced menu refresh, notice placement and Chinese every-other-day plan name (#660).
+- [Subscription core](docs/mechanisms/subscription.md): subscription state, monthly credit charges/returns, user operations, quotes, unsubscribe integration, scheduled lifecycle, notices, Profile controls and public-copy integration, and launch activation (issues #595/#596/#597/#600/#610); Daily Advanced and merged weekday dispatch (#650); Advanced menu refresh, notice placement and Chinese every-other-day plan name (#660). #710 adds Jade at 9.99 credits/month, independent briefing cadence, Advanced access and Jade-only subscription management.
 - [Git and review identities](docs/playbooks/git-and-review-incidents.md): token-only `gh api` (REST) writes, reviewer-token boundaries, and workflow history — includes why OAuth was retracted 2026-09-18.
 
 ## GitHub and Obsidian access

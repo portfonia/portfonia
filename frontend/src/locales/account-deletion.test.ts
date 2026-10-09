@@ -20,7 +20,7 @@ it("15 every locale includes deletion strings with matching placeholders and cle
 it("17 privacy policy discloses fingerprint, tokens, waitlist and Profile deletion in every locale", () => {
   const expressions = [/one-way fingerprint/, /单向指纹/, /單向指紋/];
   const waitlists = [/waitlist entry/, /候补名单/, /候補名單/];
-  const profiles = [/Profile page/, /个人资料页面/, /個人資料頁面/];
+  const profiles = [/Profile page/, /\u4e2a\u4eba\u4e2d\u5fc3\u9875\u9762/, /\u500b\u4eba\u4e2d\u5fc3\u9801\u9762/];
   Object.values(catalogs).forEach((catalog, i) => {
     expect(catalog.legal.privacy.sections[5].body[1]).toMatch(expressions[i]);
     expect(catalog.legal.privacy.sections[5].body[1]).toContain("API token");

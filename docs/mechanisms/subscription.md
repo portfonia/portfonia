@@ -1,4 +1,4 @@
-# Subscription core and lifecycle (issues #595, #596, #600, #610, #650 and #660)
+# Subscription core and lifecycle (issues #595, #596, #600, #610, #650, #660 and #710)
 
 This backend implements user subscription operations and the scheduled
 lifecycle. Profile provides quote-backed plan, cancel and resume controls in #597,
@@ -15,7 +15,7 @@ only balance and ledger writer. The migration `s59500000001` adds:
 | User column | Type / default | Meaning |
 |---|---|---|
 | `subscription_status` | Non-null text, `inactive` | `active`, `expired`, `cancelled`, `inactive` |
-| `subscription_type` | Nullable text | `weekly`, `mwf` or `daily` |
+| `subscription_type` | Nullable text | `weekly`, `mwf`, `daily` or `jade` |
 | `subscription_expires_on` | Nullable date | Last valid ET day of the paid period |
 | `subscription_period_start` | Nullable date | First paid day and charge-key date |
 | `subscription_anchor_day` | Nullable smallint, 1..31 | Calendar-month anchor |
@@ -24,13 +24,16 @@ only balance and ledger writer. The migration `s59500000001` adds:
 
 New signups are inactive with cadence `none`. Migration preserves every
 existing cadence and gives existing rows inactive subscription defaults.
-The post-activation invariant is cadence equals type when present, otherwise
-`none`; type is null for inactive/cancelled states. Legacy rows acquire this invariant when the owner runs launch activation.
+The post-activation invariant is: active/expired briefing subscriptions have
+cadence equal to type; active/expired Jade subscriptions have cadence `weekly`,
+`mwf` or `daily`; inactive/cancelled subscriptions have null type and cadence
+`none`. Legacy rows acquire this invariant when the owner runs launch activation.
 Scheduled fan-out requires active subscription status.
 
 ## Billing and transactions
 
-`PLAN_FEES` is Weekly 0.99, Mon/Wed/Fri 1.99 and Daily 2.49 credits/month.
+`PLAN_FEES` is Weekly 0.99, Mon/Wed/Fri 1.99, Daily 2.49 and Jade 9.99
+credits/month.
 Fees are read at charge time. `next_expiry` selects the following calendar
 month with the anchor day clamped to its last day: 2027-01-31/31 gives
 2027-02-28, then 2027-02-28/31 gives 2027-03-31. Expiry is inclusive;
@@ -96,9 +99,9 @@ All subscription endpoints use `current_principal`:
 
 | Endpoint | Result |
 |---|---|
-| `GET /me` | Adds `subscription`: status, nullable type/expiry, cancel flag, nullable next adjustment datetime |
-| `GET /me/subscription/quote?type=weekly\|mwf\|daily` | Read-only quote; no user lock or writes |
-| `POST /me/subscription` with `{"type":"weekly"}` or `{"type":"mwf"}` or `{"type":"daily"}` | Subscribe, change or same-plan resume; returns subscription summary |
+| `GET /me` | Adds `subscription`: status, cadence, nullable type/expiry, cancel flag, nullable next adjustment datetime |
+| `GET /me/subscription/quote?type=weekly\|mwf\|daily\|jade` | Read-only quote; no user lock or writes |
+| `POST /me/subscription` with `{"type":"weekly"}` or `{"type":"mwf"}` or `{"type":"daily"}` or `{"type":"jade"}` | Subscribe, change or same-plan resume; returns subscription summary |
 | `POST /me/subscription/cancel` | Cancel pending; returns summary |
 | `POST /me/subscription/resume` | Resume; returns summary |
 
@@ -111,7 +114,7 @@ adjustment was made today. Expiry remains available for expired/cancelled displa
 Quotes share plan selection and return arithmetic with writes. They expose
 `action` (`subscribe`, `change`, `resume`, `none`), type, fee, returned, balance,
 balance after, sufficient, period start, expiry, first report time,
-`needs_holdings`, and nullable `blocked` (`daily_limit` or `email_unverified`).
+cadence, `needs_holdings`, and nullable `blocked` (`daily_limit` or `email_unverified`).
 Numbers remain present when blocked. `needs_holdings` warns for Mon/Wed/Fri
 and Daily with zero holdings, without refusing the subscription.
 
@@ -137,14 +140,15 @@ still sends Saturday at 19:00 ET and permits an empty book. Daily uses
 `session_node="daily_close"`; Mon/Wed/Fri uses `after_close`, and Weekly uses
 `weekend_snapshot`. Report history labels Daily separately.
 
-`ADVANCED_SUBSCRIPTION_TYPES = ("daily",)` and `is_advanced(user)` are the
+`ADVANCED_SUBSCRIPTION_TYPES = ("daily", "jade")` and `is_advanced(user)` are the
 single definition of Advanced access: active subscription status and membership
-in that tuple. A cancel-pending active Daily subscription remains Advanced
+in that tuple. A cancel-pending active Daily or Jade subscription remains Advanced
 until lifecycle expiry is processed. Switching to Weekly or Mon/Wed/Fri removes
 snapshot access immediately; expired, cancelled and inactive subscriptions have
 no Advanced access. `GET /auth/session-status` returns HTTP 200 with
-`{"advanced": bool}` from the already-loaded principal; invalid sessions still
-return 401. The authenticated Advanced user's Get started trigger is gold.
+`{"advanced": bool, "jade": bool}` from the already-loaded principal; invalid sessions still
+return 401. The authenticated Daily user's Get started trigger is gold; Jade takes
+precedence with its green texture.
 
 Issue #660: a successful Profile subscribe, change, cancel or resume calls
 `revalidateSession()` after `router.refresh()`, so the trigger re-probes
@@ -297,3 +301,52 @@ The email-hash reward key prevents another issued reward after purge and
 re-registration. Missing referrer accounts, including root Admin, receive
 nothing. There are no reward notifications or grand-referrer rewards.
 See [Credit ledger](credit-ledger.md#referral-rewards-and-refund-clawbacks-issue-675).
+
+
+## Jade tier (issue #710)
+
+Jade costs 9.99 credits per calendar-month period and includes Advanced access.
+`is_jade(user)` means active status and type `jade`, including cancel-pending
+and overdue subscriptions awaiting lifecycle processing. Backend access uses
+only `is_advanced` and `is_jade`; the session probe exposes both flags without
+another user query. Existing agent and snapshot gates therefore admit Jade.
+No risk tool ships in this issue.
+
+`BRIEFING_PLANS = ("weekly", "mwf", "daily")` names both briefing types and
+Jade's available cadences. Every fresh charge and quote uses
+`resulting_cadence`: briefing types map to themselves; Jade inherits a valid
+cadence from an active subscription, or retains it when its existing type is
+Jade (including Expired recovery). All other Jade subscriptions start Daily.
+The helper runs before subscription state changes. Renewal and late recovery
+preserve Jade's chosen cadence; checks and dispatch remain cadence-based.
+
+`PATCH /me/jade/cadence` accepts `{"cadence":"weekly"}`, `mwf` or `daily`;
+invalid values return 422. It locks and refreshes the row, requires `is_jade`
+(409 `not_jade` with rollback otherwise), flushes and commits the cadence, and
+returns the subscription summary. Repeating the current cadence succeeds.
+There is no ledger write, adjustment-date write, reminder or daily lock.
+
+`POST /me/subscription` admits `jade`. Active Jade switching to a briefing
+plan returns 409 `jade_managed`, after the existing daily-limit check. A same-day
+request therefore returns `daily_limit` first. Same-plan, non-pending active
+subscriptions still return `no_change`, even when overdue. Jade cancellation
+and resume reuse the existing endpoints and billing rules. To move to a
+briefing plan, cancel Jade, wait for lifecycle cancellation after its paid
+period, then subscribe in Profile; Expired Jade may also choose a briefing plan.
+Quotes and summaries include cadence; quote times and holdings warnings use
+that cadence, rather than type.
+
+Example: Weekly paid 0.99 gift credits for 2026-10-01 through 2026-11-01;
+change on 2026-10-16 with balance 20.00 returns 0.53 gift credits (17/32 days),
+then charges 9.99 under `subscription:{id}:2026-10-16:jade`. Jade keeps Weekly,
+starts 2026-10-16 through 2026-11-16 with anchor 16, and leaves 10.54. An inactive
+user starting with 10.00 gets Daily, balance 0.01 and a low-balance reminder.
+Changing cadence repeatedly that day succeeds without another charge.
+
+Migration `d71000000001`, after `d68100000001`, only widens the subscription-type
+CHECK. Downgrade restores the previous CHECK and fails while Jade rows exist;
+there is no conversion or data operation. Notice plan labels are Jade in English
+and hand-authored Chinese in each locale; low-balance and expiry notices still
+link to Profile for top-up. No dependency, Settings or Beat change is required.
+Real-Postgres tests cover D10 and A1-A7. Merge, review, deployment and production
+migration each require separate owner authorization.

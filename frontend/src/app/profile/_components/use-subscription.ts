@@ -56,7 +56,7 @@ export function useSubscription(subscription: Subscription | undefined) {
     } catch (err) {
       const code = err instanceof ApiError && err.status === 409 ? err.message : "";
       switch (code) {
-        case "daily_limit": case "email_unverified": case "insufficient_credits": case "no_change": case "no_subscription":
+        case "jade_managed": case "daily_limit": case "email_unverified": case "insufficient_credits": case "no_change": case "no_subscription":
           setErrorDesc({ key: `subscriptionErrors.${code}` }); break;
         default: setErrorDesc({ key: "subscriptionError" });
       }

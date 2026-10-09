@@ -472,7 +472,7 @@ def test_681_13_migration_round_trip(alembic_cfg: Config) -> None:
                 conn.execute(insert, {"nid": nid, "relation": relation, "related_to": related_to})
         with engine.begin() as conn:
             conn.execute(insert, {"nid": nid, "relation": "supplier", "related_to": "TSMC"})
-        command.downgrade(alembic_cfg, "-1")
+        command.downgrade(alembic_cfg, "d67500000001")
         with engine.connect() as conn:
             assert conn.execute(text("SELECT count(*) FROM news_instruments")).scalar_one() == 0
         command.upgrade(alembic_cfg, "head")

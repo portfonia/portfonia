@@ -34,6 +34,7 @@ export function SubscriptionDialog({ state }: { state: ReturnType<typeof useSubs
                 <p>{t("subscriptionBalanceAfter", { balance_after: quote.balance_after })}</p>
                 <p>{t("subscriptionPaidThrough", { expires_on: quote.expires_on ?? "" })}</p>
               </>}
+              {quote.type === "jade" && (quote.action === "subscribe" || quote.action === "change") && <p>{t("subscriptionJadeCadence", { cadence: t(`reportScheduleOptions.${quote.cadence === "mwf" ? "everyOtherDay" : quote.cadence}`) })}</p>}
               <p>{t("subscriptionFirstReport", { first_report_at: firstReport })}</p>
               {quote.needs_holdings && <p>{t("subscriptionNeedsHoldings")}</p>}
               <p>{t("subscriptionDailyRule")}</p>

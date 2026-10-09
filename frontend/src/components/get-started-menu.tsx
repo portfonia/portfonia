@@ -16,6 +16,7 @@
 import { useState } from "react";
 import {
   Bot,
+  Gem,
   Briefcase,
   FileText,
   ChartLine,
@@ -64,6 +65,7 @@ const AUTHED_ENTRIES = [
   // stays discoverable from any authed page — same "one row per shipped
   // route" convention as the rest of this registry.
   { id: "portfolioPerformance", href: "/portfolio/performance", Icon: ChartLine },
+  { id: "jade", href: "/jade", Icon: Gem },
   { id: "reports", href: "/reports", Icon: FileText },
   { id: "questionnaire", href: "/questionnaire", Icon: ClipboardList },
   { id: "agent", href: "/agent", Icon: Bot },
@@ -121,7 +123,7 @@ export function GetStartedMenu() {
     <div className="flex items-center gap-2">
       {errorNotice}
       <MenuDropdown
-        triggerClassName={session.status === "authed" && session.advanced ? "bg-advanced text-advanced-foreground hover:bg-advanced/90" : undefined}
+        triggerClassName={session.status === "authed" && session.jade ? "jade-surface" : session.status === "authed" && session.advanced ? "bg-advanced text-advanced-foreground hover:bg-advanced/90" : undefined}
         trigger={
           <>
             {t("trigger")}

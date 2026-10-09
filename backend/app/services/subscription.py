@@ -32,8 +32,10 @@ PLAN_FEES: dict[str, Decimal] = {
     "weekly": Decimal("0.99"),
     "mwf": Decimal("1.99"),
     "daily": Decimal("2.49"),
+    "jade": Decimal("9.99"),
 }
-ADVANCED_SUBSCRIPTION_TYPES: tuple[str, ...] = ("daily",)
+BRIEFING_PLANS: tuple[str, ...] = ("weekly", "mwf", "daily")
+ADVANCED_SUBSCRIPTION_TYPES: tuple[str, ...] = ("daily", "jade")
 
 
 def is_advanced(user: User) -> bool:
@@ -41,6 +43,34 @@ def is_advanced(user: User) -> bool:
         user.subscription_status == "active"
         and user.subscription_type in ADVANCED_SUBSCRIPTION_TYPES
     )
+
+
+def is_jade(user: User) -> bool:
+    return user.subscription_status == "active" and user.subscription_type == "jade"
+
+
+def resulting_cadence(user: User, plan: str) -> str:
+    if plan != "jade":
+        return plan
+    if user.report_cadence in BRIEFING_PLANS and (
+        user.subscription_status == "active" or user.subscription_type == "jade"
+    ):
+        return user.report_cadence
+    return "daily"
+
+
+def set_jade_cadence(session: Session, user_id: uuid.UUID, cadence: str) -> User:
+    user = session.execute(
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one()
+    if not is_jade(user):
+        raise SubscriptionError("not_jade")
+    user.report_cadence = cadence
+    session.flush()
+    return user
 
 
 def next_expiry(from_date: date, anchor_day: int) -> date:
@@ -107,6 +137,8 @@ def _plan_change(
 
 def set_plan(session: Session, user_id: uuid.UUID, today: date, plan: str) -> User:
     user = _lock_user(session, user_id, today)
+    if is_jade(user) and plan != "jade":
+        raise SubscriptionError("jade_managed")
     if not has_verified_email(user):
         raise SubscriptionError("email_unverified")
     action, cash, gift, old_key = _plan_change(session, user, today, plan)
@@ -175,6 +207,7 @@ def summary(user: User, today: date) -> SubscriptionOut:
         else None
     )
     return SubscriptionOut(
+        cadence=user.report_cadence,
         status=user.subscription_status,
         type=user.subscription_type,
         expires_on=user.subscription_expires_on,
@@ -195,8 +228,10 @@ def quote(session: Session, user_id: uuid.UUID, today: date, plan: str) -> Subsc
         if user.subscription_adjusted_on == today
         else ("email_unverified" if not has_verified_email(user) else None)
     )
+    cadence = resulting_cadence(user, plan)
     has_holdings = session.scalar(select(exists().where(Holding.user_id == user_id)))
     return SubscriptionQuoteOut(
+        cadence=cadence,
         action=action,
         type=plan,
         fee=f"{PLAN_FEES[plan]:.2f}",
@@ -208,8 +243,8 @@ def quote(session: Session, user_id: uuid.UUID, today: date, plan: str) -> Subsc
         expires_on=next_expiry(today, today.day)
         if action in ("subscribe", "change")
         else user.subscription_expires_on,
-        first_report_at=next_occurrence_for_cadence(plan, datetime.now(ET)),
-        needs_holdings=plan in HOLDINGS_GATED_CADENCES and not has_holdings,
+        first_report_at=next_occurrence_for_cadence(cadence, datetime.now(ET)),
+        needs_holdings=cadence in HOLDINGS_GATED_CADENCES and not has_holdings,
         blocked=blocked,
     )
 
@@ -225,8 +260,10 @@ def _fresh_subscribe(session: Session, user: User, today: date, plan: str) -> No
         reference=plan,
     )
     referral_subscription_bonus(session, user)
+    cadence = resulting_cadence(user, plan)
     user.subscription_status = "active"
-    user.subscription_type = user.report_cadence = plan
+    user.subscription_type = plan
+    user.report_cadence = cadence
     user.subscription_period_start = today
     user.subscription_anchor_day = today.day
     user.subscription_expires_on = next_expiry(today, today.day)

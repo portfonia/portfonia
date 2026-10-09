@@ -17,7 +17,8 @@
     "sessionExpired": "Your session ended after {minutes} minutes of inactivity.",
     "editHoldings": "Edit holdings",
     "reports": "Reports",
-    "agent": "AI Agent"
+    "agent": "AI Agent",
+    "jade": "Jade"
   },
   "auth": {
     "loginHeading": "Log in",
@@ -462,12 +463,14 @@
     "subscriptionTitle": {
       "weekly": "Weekly briefing",
       "mwf": "Mon/Wed/Fri briefing",
-      "daily": "Daily briefing"
+      "daily": "Daily briefing",
+      "jade": "Jade"
     },
     "subscriptionDescription": {
       "weekly": "A briefing on your portfolio every Saturday.",
       "mwf": "A briefing on your portfolio every Monday, Wednesday and Friday.",
-      "daily": "A briefing on your portfolio every weekday, Monday to Friday. Advanced plan: includes AI Agent data access."
+      "daily": "A briefing on your portfolio every weekday, Monday to Friday. Advanced plan: includes AI Agent data access.",
+      "jade": "Portfolio risk tools, everything in the Advanced plan, and a briefing schedule you choose."
     },
     "subscriptionFee": "Fee: {fee} credits per month.",
     "subscriptionBalance": "Current balance: {balance} credits.",
@@ -492,7 +495,8 @@
       "email_unverified": "Verify your email to subscribe.",
       "insufficient_credits": "Your balance is not enough. Top up credits in the Account section first.",
       "no_change": "Your subscription already has this setting.",
-      "no_subscription": "There is no active subscription for this operation."
+      "no_subscription": "There is no active subscription for this operation.",
+      "jade_managed": "Your Jade subscription is managed on the Jade page."
     },
     "deleteAccountDisclosure": "Your holdings, investment-style settings and reports will be cleared. Credit and transaction records are kept for accounting and tax purposes, no longer linked to your email address except for a one-way fingerprint of it, used only to prevent the sign-up credit from being granted twice.",
     "deleteAccountSubscription": "An active subscription ends immediately; the unused part of the current period is not returned.",
@@ -514,7 +518,10 @@
     "referralEmailRequired": "Please enter an email address.",
     "referralDailyLimit": "You've reached today's referral limit. Please try again tomorrow.",
     "deleteAccountNegativeBalance": "Your account has a negative credit balance. Please contact info@portfonia.com to delete your account.",
-    "referralError": "Could not submit your referral. Try again."
+    "referralError": "Could not submit your referral. Try again.",
+    "subscriptionJadeCadence": "Briefing schedule: {cadence}. You can change it on the Jade page at any time.",
+    "jadeManage": "Manage on the Jade page",
+    "jadeScheduleNote": "Your briefing schedule is set on the Jade page."
   },
   "portfolio": {
     "riskPanel": {
@@ -1100,7 +1107,7 @@
         },
         {
           "q": "What does it cost?",
-          "a": "Plans start at 0.99 credits per month for a weekly briefing, 1.99 for Monday / Wednesday / Friday briefings, and 2.49 for the Advanced Daily plan with AI Agent data access. Credits are sold in US$10 and US$20 packs — see Pricing."
+          "a": "Plans start at 0.99 credits per month for a weekly briefing, 1.99 for Monday / Wednesday / Friday briefings, and 2.49 for the Advanced Daily plan with AI Agent data access, and 9.99 for Jade, which adds portfolio risk tools to everything in the Advanced plan. Credits are sold in US$10 and US$20 packs — see Pricing."
         }
       ]
     },
@@ -1153,7 +1160,7 @@
     "deliveryVerified": "Reports will be sent to {deliveryEmail}.",
     "deliveryUnverified": "Reports will not be sent until {deliveryEmail} is verified.",
     "errorLoadFailed": "Could not load your account.",
-    "subscriptionPlans": "Portfonia sends scheduled briefings to subscribers. There are three plans: Weekly (0.99 credits per month), Mon/Wed/Fri (1.99 credits per month) and the Advanced Daily plan (2.49 credits per month, weekdays, with AI Agent data access).",
+    "subscriptionPlans": "Portfonia sends scheduled briefings to subscribers. There are four plans: Weekly (0.99 credits per month), Mon/Wed/Fri (1.99 credits per month), the Advanced Daily plan (2.49 credits per month, weekdays, with AI Agent data access), and Jade (9.99 credits per month, portfolio risk tools, everything in Advanced, and a briefing schedule you choose). Subscribe to Jade on the Jade page.",
     "subscriptionRequirements": "Until you subscribe, scheduled briefings are not sent and some features may be unavailable. You need a verified email address before you can subscribe.",
     "choosePlan": "Choose a plan"
   },
@@ -1187,7 +1194,7 @@
     "resellerNotice": "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.",
     "terms": {
       "title": "Terms of Service",
-      "lastUpdated": "Last updated: 2026-10-05",
+      "lastUpdated": "Last updated: 2026-10-08",
       "intro": "These Terms of Service govern your use of Portfonia. Please read them together with our Privacy Policy and Refund Policy.",
       "sections": [
         {
@@ -1216,6 +1223,7 @@
             "Paid plans are billed in prepaid service credits. Credits are sold in packs priced in US dollars (1 credit = US$1 at purchase); current plans and packs are listed on the Pricing page.",
             "Your plan fee is deducted from your credit balance at the start of each monthly billing period, complimentary credits first. If you change your plan, the unused part of the current month's fee is returned to your credit balance pro rata and the new plan starts that day. If you cancel, your plan stays active until the end of the period already paid and nothing is returned.",
             "You can adjust your subscription (subscribe, change plan, cancel, or resume) once per day, Eastern Time.",
+            "Changing the briefing schedule of a Jade subscription on the Jade page is not a subscription adjustment and is not limited. A Jade subscription is subscribed to, cancelled and resumed on the Jade page; to move to another plan, cancel Jade and subscribe to the new plan after the Jade period ends.",
             "If you unsubscribe an address from report email and no verified address remains on your account, your subscription is treated as cancelled: it stays active until the end of the period already paid, nothing is returned, and it does not resume when you verify an address again.",
             "Balance reminders and expiry notices are sent only to a verified address.",
             "Credits do not expire. They are usable only for Portfonia subscriptions, are non-transferable, and have no cash value except as provided in the Refund Policy.",
@@ -1284,7 +1292,7 @@
     },
     "privacy": {
       "title": "Privacy Policy",
-      "lastUpdated": "Last updated: 2026-10-04",
+      "lastUpdated": "Last updated: 2026-10-08",
       "intro": "Your privacy matters to us. This policy explains what we collect, why, and how it's protected.",
       "sections": [
         {
@@ -1377,7 +1385,7 @@
     },
     "pricing": {
       "title": "Pricing",
-      "lastUpdated": "Last updated: 2026-10-01",
+      "lastUpdated": "Last updated: 2026-10-08",
       "intro": "Portfonia is a software tool. You choose a briefing plan and pay for it with prepaid service credits.",
       "sections": [
         {
@@ -1386,7 +1394,8 @@
             "Weekly briefing — 0.99 credits per month. One personalized briefing email per week, tied to the holdings you have entered.",
             "Mon / Wed / Fri briefing — 1.99 credits per month. Three personalized briefing emails per week (Monday, Wednesday, Friday).",
             "Daily briefing (Advanced) — 2.49 credits per month. One personalized briefing email every weekday (Monday to Friday), including market holidays.",
-            "Weekly and Mon / Wed / Fri differ only in how often briefings are sent. Daily is the Advanced plan: besides weekday briefings, it lets your AI agent read your daily holding snapshots and holding-related intelligence. Report history is available to AI agents on every plan."
+            "Jade — 9.99 credits per month. Includes everything in the Advanced plan. You choose the Weekly, Mon / Wed / Fri, or Daily briefing schedule and can change it at any time on the Jade page. Portfolio risk tools are added to Jade as they are released.",
+            "Weekly and Mon / Wed / Fri differ only in how often briefings are sent. Daily is the Advanced plan. Daily and Jade both let your AI agent read your daily holding snapshots and holding-related intelligence. Report history is available to AI agents on every plan."
           ]
         },
         {
@@ -1556,8 +1565,8 @@
       "gettingStarted": "Create a token below, then give your agent the token and https://portfonia.com/llms.txt. Sign in to manage your tokens.",
       "endpointsTitle": "Endpoints",
       "reports": "Reports: all plans. Specify start and end dates (inclusive, Eastern Time). Returns at most the 5 newest available reports in the range, with Markdown, total_in_range and truncated.",
-      "snapshots": "Holding snapshots: Advanced plan. Specify start and end dates (inclusive, Eastern Time), covering at most 30 days.",
-      "intel": "Intelligence: Advanced plan. Specify one Eastern Time date within the last 7 days, including today. Returns your holding headlines and accepted article bodies, plus macro articles for the themes of your latest available report on or before that date. No source links."
+      "snapshots": "Holding snapshots: Advanced plan or Jade. Specify start and end dates (inclusive, Eastern Time), covering at most 30 days.",
+      "intel": "Intelligence: Advanced plan or Jade. Specify one Eastern Time date within the last 7 days, including today. Returns your holding headlines and accepted article bodies, plus macro articles for the themes of your latest available report on or before that date. No source links."
     }
   },
   "downloadConfirm": {
@@ -1659,5 +1668,13 @@
     "title": "Page not found",
     "body": "The page you are looking for does not exist.",
     "homeLink": "Return home"
+  },
+  "jade": {
+    "title": "Jade",
+    "intro": "Jade is a set of portfolio risk tools for long-term holders. It works from the holdings you have today, and every result states the data it used and how it was calculated. A Jade subscription includes everything in the Advanced plan, and you can choose any briefing schedule and change it at any time. Risk tools are added to this page one at a time.",
+    "price": "9.99 credits per month",
+    "subscribe": "Subscribe to Jade",
+    "cadenceError": "Could not change your briefing schedule. Try again.",
+    "cadenceNote": "Changing the schedule does not change your fee."
   }
 }
