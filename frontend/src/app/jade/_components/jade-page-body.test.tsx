@@ -14,6 +14,8 @@ beforeEach(() => { vi.clearAllMocks(); });
 it("A9 inactive offers subscription without schedule", () => {
   render(<JadePageBody me={me} hadLoadError={false} />);
   expect(screen.getByRole("button", { name: "subscribe" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "subscribe" })).not.toHaveClass("h-auto");
+  expect(screen.getByRole("button", { name: "subscribe" })).toHaveClass("h-8");
   expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
 });
 it("A9 unverified disables subscription and shows verification note", () => {
@@ -25,6 +27,8 @@ it("A9 active shows cancel and current schedule; cadence writes bypass dialog an
   setJadeCadence.mockResolvedValue({ ...active.subscription, cadence: "mwf" });
   render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, next_adjustment_at: "2099-10-17T00:00:00-04:00" } }} hadLoadError={false} />);
   expect(screen.getByRole("button", { name: "subscriptionCancel" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "subscriptionCancel" })).not.toHaveClass("h-auto");
+  expect(screen.getByRole("button", { name: "subscriptionCancel" })).toHaveClass("h-8");
   const select = screen.getByRole("combobox"); expect(select).toHaveValue("weekly");
   fireEvent.change(select, { target: { value: "mwf" } });
   await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
@@ -63,7 +67,10 @@ it("375px component check keeps schedule full width and subscription controls wr
   expect(window.innerWidth).toBe(375);
   expect(screen.getByRole("combobox")).toHaveClass("w-full", "min-w-0");
   const cancel = screen.getByRole("button", { name: "subscriptionCancel" });
-  expect(cancel).toHaveClass("max-w-full", "whitespace-normal");
+  expect(cancel).toHaveClass("h-8");
+  expect(cancel).not.toHaveClass("h-auto");
+  expect(cancel).not.toHaveClass("max-w-full");
+  expect(cancel).not.toHaveClass("whitespace-normal");
   expect(cancel.parentElement).toHaveClass("flex-wrap");
   expect(container.querySelector(".min-w-0")).toBeInTheDocument();
   vi.unstubAllGlobals();
