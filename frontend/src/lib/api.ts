@@ -1011,3 +1011,53 @@ export async function getJadeReplay(baseCurrency?: BaseCurrency, benchmark: Benc
   if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<JadeReplay>;
 }
+
+
+export interface TailCell {
+  var: string;
+  cvar: string;
+  var_amount: string | null;
+  cvar_amount: string | null;
+}
+export interface TailLevel {
+  level: 95 | 99;
+  available: boolean;
+  tail_days: number | null;
+  tail_windows: number | null;
+  daily: TailCell | null;
+  monthly: TailCell | null;
+  normal_daily: TailCell | null;
+  normal_monthly: TailCell | null;
+  benchmark_daily: TailCell | null;
+  benchmark_monthly: TailCell | null;
+  reference_daily: string | null;
+  reference_monthly: string | null;
+}
+export interface HistogramBin { lower: string; upper: string; count: number }
+export interface JadeTailRisk {
+  status: JadeReplay["status"];
+  base_currency: string;
+  benchmark: BenchmarkCode;
+  benchmark_symbol: string;
+  benchmark_name: string;
+  benchmark_status: JadeReplay["benchmark_status"];
+  window_start: string;
+  window_end: string;
+  first_valid_date: string | null;
+  sample_count: number;
+  month_windows: number;
+  month_independent: number;
+  portfolio_value: string | null;
+  levels: TailLevel[];
+  histogram: HistogramBin[];
+  tolerance_status: "ok" | "no_questionnaire";
+  coverage: JadeReplay["coverage"];
+  proxy_understates: boolean;
+}
+export async function getJadeTailRisk(baseCurrency?: BaseCurrency, benchmark: BenchmarkCode = "sp500"): Promise<JadeTailRisk> {
+  const params = new URLSearchParams({ benchmark });
+  if (baseCurrency) params.set("base_currency", baseCurrency);
+  const res = await fetch(`/api/jade/tail-risk?${params.toString()}`, { cache: "no-store" });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<JadeTailRisk>;
+}

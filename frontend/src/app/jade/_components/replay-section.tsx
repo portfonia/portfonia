@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CalculatingOverlay } from "@/components/calculating-overlay";
@@ -18,7 +18,9 @@ const metricKeys = ["cumulative_return", "annualized_return", "annualized_vol", 
 function pct(value: string | null) { return value === null ? "—" : formatTickPct(Number(value)); }
 function timestamp(day: string) { return new Date(`${day}T00:00:00Z`).getTime(); }
 
-export function ReplaySection() {
+export function ReplaySection({ onSettled }: { onSettled?: (currency: BaseCurrency, benchmark: BenchmarkCode) => void }) {
+  const settledRef = useRef(onSettled);
+  useEffect(() => { settledRef.current = onSettled; }, [onSettled]);
   const t = useTranslations("jade.replay");
   const tCommon = useTranslations("common");
   const portfolio = useTranslations("portfolio");
@@ -33,7 +35,7 @@ export function ReplaySection() {
   useEffect(() => {
     let alive = true;
     getJadeReplay(undefined, undefined, "1Y").then((result) => {
-      if (alive) { setData(result); setCurrency(result.base_currency as BaseCurrency); setBenchmark(result.benchmark); setRange(result.range); }
+      if (alive) { setData(result); setCurrency(result.base_currency as BaseCurrency); setBenchmark(result.benchmark); setRange(result.range); settledRef.current?.(result.base_currency as BaseCurrency, result.benchmark); }
     }).catch(() => { if (alive) setError(true); }).finally(() => { if (alive) setPending(false); });
     const media = window.matchMedia("(min-width: 640px)");
     const update = () => setDetailsOpen(media.matches);
@@ -45,7 +47,7 @@ export function ReplaySection() {
     setCurrency(nextCurrency); setBenchmark(nextBenchmark); setRange(nextRange); setPending(true); setError(false);
     try {
       const result = await getJadeReplay(nextCurrency, nextBenchmark, nextRange);
-      setData(result); setCurrency(result.base_currency as BaseCurrency); setBenchmark(result.benchmark); setRange(result.range);
+      setData(result); setCurrency(result.base_currency as BaseCurrency); setBenchmark(result.benchmark); setRange(result.range); onSettled?.(result.base_currency as BaseCurrency, result.benchmark);
     } catch {
       if (data) { setCurrency(data.base_currency as BaseCurrency); setBenchmark(data.benchmark); setRange(data.range); }
       setError(true);

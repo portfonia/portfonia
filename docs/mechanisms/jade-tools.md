@@ -137,3 +137,62 @@ method, approximation and hindsight limitations adjacent to the results.
 The existing Portfolio Overview, Risk, Performance, reports and their data
 pipelines remain unchanged. Review, merge, deployment, production migration and
 manual production fill each require separate owner authorization.
+
+## Tail risk (VaR / CVaR) (issue #718)
+
+`GET /jade/tail-risk` is a read-only Jade-only endpoint, using the same default
+report currency and `benchmark=sp500|dow30|nasdaq|csi300` as replay. It has no
+span selector, write, provider call or request-time fill. `build_replay` exposes
+its unrounded portfolio and benchmark values and included current value; the
+existing replay response stays unchanged. Tail risk always builds the 5Y span,
+regardless of the replay card's selected span.
+
+Historical simulation sorts simple daily returns ascending. At confidence
+`c = 95|99`, the tail contains `k = ceil(n * (100-c) / 100)` observations,
+computed with integer arithmetic. VaR is the negative of the k-th return;
+CVaR is the negative mean of the first k returns. Positive ratios represent
+losses; a tail gain remains a negative ratio. Actual monthly returns use every
+pair of valid values 21 positions apart. Windows overlap; the model also gives
+`floor(daily_count / 21)` as the approximate non-overlapping count. Neither
+historical horizon uses square-root-of-time scaling. Ratios have six decimals;
+portfolio amounts multiply those serialized ratios by the included current
+value rounded to cents, with half-even cent rounding. Benchmark cells contain
+percentages only.
+
+The 99% portfolio level needs at least 500 daily returns, independently of the
+benchmark's own 500-return gate. Replay statuses and coverage are copied.
+Non-ok responses have empty levels/histogram and null portfolio value. Zero
+monthly windows yield null monthly cells and tail count. One window produces
+historical monthly values but no normal monthly comparison; sample standard
+deviation requires two windows. Benchmark monthly availability uses its own
+windows. Missing cells show a dash with no additional short-sample notice.
+
+The normal comparison uses the observed mean and sample standard deviation:
+`VaR = z*sigma - mean` and `CVaR = sigma*phi(z)/(1-c) - mean`, where `c` is the
+confidence ratio and `z` its standard-normal quantile. It appears only inside
+the calculation model. Valid existing questionnaire answers supply the shared
+Overview Risk upper volatility threshold through `risk_answers_valid` and
+`risk_thresholds`. The reference assumes zero mean: daily `z*threshold/sqrt(252)`
+and monthly `z*threshold*sqrt(21/252)`. It remains available when portfolio 99%
+is gated, and is a comparison line without caution or position judgement.
+Missing/invalid answers show a questionnaire link; there is no questionnaire
+change or new logging.
+
+The card follows successful replay currency/benchmark responses and queues only
+the latest settings during a request. Span changes and the local 95%/99% toggle
+make no tail request. On failure it retains prior data, displays an error and
+waits for a settings change. The calculating overlay covers the initial toggle,
+three-column table, histogram, legend, notices and model; title, explanation and
+load error remain outside. Model details stay closed initially at every width.
+The histogram uses 0.005-wide bins including empty bins, marking the selected
+daily VaR/CVaR and questionnaire reference when present. Portfolio figures are
+rendered with reversed signs as percentage and amount, benchmark figures as
+percentage only. The table cells and legend wrap and the histogram fills the
+card at 375px in dark mode.
+
+The 66% approximation notice is preserved, with a separate proxy-understates
+notice whenever proxy or head-proxy value is positive. The model states window,
+samples, coverage, overlapping windows, formulas, reference derivation and
+hindsight/period limitations. No backtest, result cache, dependency, settings,
+migration or nightly-fill change is introduced. Review, merge, deployment and
+production operations remain separately authorized.

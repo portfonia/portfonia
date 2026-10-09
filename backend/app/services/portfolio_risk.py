@@ -150,13 +150,32 @@ def _beta(
     return BetaResult("ok", covariance / variance, len(pairs))
 
 
-def _risk_label(
-    vol: Decimal, appetite: str, horizon: str | None, objective: str | None
-) -> Literal["within", "caution", "exceeds"]:
+def risk_answers_valid(answers: dict[str, object] | None) -> bool:
+    appetite = answers.get("risk_appetite") if answers is not None else None
+    horizon = answers.get("horizon") if answers is not None else None
+    objective = answers.get("objective") if answers is not None else None
+    return answers is not None and not (
+        not isinstance(appetite, str)
+        or appetite not in RISK_BASE
+        or horizon not in ("SHORT", "MEDIUM", "LONG")
+        or objective not in ("PRESERVATION", "GROWTH", "INCOME")
+    )
+
+
+def risk_thresholds(
+    appetite: str, horizon: str | None, objective: str | None
+) -> tuple[Decimal, Decimal]:
     caution, exceeds = RISK_BASE[appetite]
     if horizon == "SHORT" or objective == "PRESERVATION":
         caution = max(caution - DEFENSIVE_SHIFT, RISK_FLOOR[0])
         exceeds = max(exceeds - DEFENSIVE_SHIFT, RISK_FLOOR[1])
+    return caution, exceeds
+
+
+def _risk_label(
+    vol: Decimal, appetite: str, horizon: str | None, objective: str | None
+) -> Literal["within", "caution", "exceeds"]:
+    caution, exceeds = risk_thresholds(appetite, horizon, objective)
     if vol < caution:
         return "within"
     if vol < exceeds:
@@ -317,15 +336,8 @@ def compute_portfolio_risk(
     answers = context.questionnaire if context is not None else None
     answer_markets = answers.get("markets") if answers is not None else None
     appetite = answers.get("risk_appetite") if answers is not None else None
-    horizon = answers.get("horizon") if answers is not None else None
-    objective = answers.get("objective") if answers is not None else None
     style = answers.get("style") if answers is not None else None
-    risk_answers_valid = answers is not None and not (
-        not isinstance(appetite, str)
-        or appetite not in RISK_BASE
-        or horizon not in ("SHORT", "MEDIUM", "LONG")
-        or objective not in ("PRESERVATION", "GROWTH", "INCOME")
-    )
+    valid_risk_answers = risk_answers_valid(answers)
     deviation_answers_valid = answers is not None and not (
         not isinstance(appetite, str)
         or appetite not in RISK_BASE
@@ -336,9 +348,9 @@ def compute_portfolio_risk(
             for market in answer_markets
         )
     )
-    if answers is not None and (not risk_answers_valid or not deviation_answers_valid):
+    if answers is not None and (not valid_risk_answers or not deviation_answers_valid):
         logger.warning("Invalid stored investment questionnaire for user %s", user_id)
-    if not risk_answers_valid or answers is None:
+    if not valid_risk_answers or answers is None:
         risk = RiskResult("no_questionnaire")
     else:
         if portfolio_vol.current is None:

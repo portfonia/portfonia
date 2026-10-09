@@ -40,3 +40,5 @@ Keep this coupling in mind:
 - A visual change to the live chart JSX in `RiskPanel` has to be mirrored in `home-risk-preview.tsx`.
 
 The homepage copy is i18n-keyed under `home.productPreviews` (`riskHeading`, `riskBody`, `riskCtaHeading`, `riskCtaBody`).
+
+`risk_thresholds` and `risk_answers_valid` are shared with Jade tail risk (issue #718); Overview Risk output and warning behavior are unchanged.

@@ -1,17 +1,20 @@
 "use client";
 
+import { TailRiskSection } from "./tail-risk-section";
 import { ReplaySection } from "./replay-section";
+import type { BaseCurrency } from "@/app/portfolio/_components/currencies";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { setJadeCadence, type BriefingPlan, type Me } from "@/lib/api";
+import { setJadeCadence, type BenchmarkCode, type BriefingPlan, type Me } from "@/lib/api";
 import { useSubscription } from "@/app/profile/_components/use-subscription";
 import { SubscriptionDialog } from "@/app/profile/_components/subscription-dialog";
 
 export function JadePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError: boolean }) {
+  const [replaySettings, setReplaySettings] = useState<{ currency: BaseCurrency; benchmark: BenchmarkCode } | null>(null);
   const t = useTranslations("jade");
   const profile = useTranslations("profile");
   const router = useRouter();
@@ -66,6 +69,6 @@ export function JadePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError
         {cadenceError && <p role="alert" className="text-destructive">{t("cadenceError")}</p>}
       </CardContent>
     </Card>}
-    {isJade && <ReplaySection />}
+    {isJade && <><ReplaySection onSettled={(currency, benchmark) => setReplaySettings({ currency, benchmark })} /><TailRiskSection settings={replaySettings} /></>}
   </div>;
 }

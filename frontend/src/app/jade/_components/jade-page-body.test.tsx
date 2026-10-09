@@ -6,6 +6,7 @@ vi.mock("@/hooks/use-session", () => ({ revalidateSession: vi.fn() }));
 vi.mock("next-intl", () => ({ useTranslations: () => (key: string, values?: object) => key + (values ? JSON.stringify(values) : "") }));
 vi.mock("@/lib/api", async () => ({ ...await vi.importActual<typeof import("@/lib/api")>("@/lib/api"), setJadeCadence, getSubscriptionQuote, setSubscription, cancelSubscription }));
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
+vi.mock("./tail-risk-section", () => ({ TailRiskSection: () => <div data-testid="tail-risk-section" /> }));
 vi.mock("./replay-section", () => ({ ReplaySection: () => <div data-testid="replay-section" /> }));
 import type { Me } from "@/lib/api";
 import { JadePageBody } from "./jade-page-body";
@@ -80,4 +81,5 @@ it("375px component check keeps schedule full width and subscription controls wr
 it.each(["jade", "daily", "weekly"] as const)("A11 replay is Jade-only for %s", (plan) => {
   render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, type: plan } }} hadLoadError={false} />);
   expect(screen.queryByTestId("replay-section") !== null).toBe(plan === "jade");
+  expect(screen.queryByTestId("tail-risk-section") !== null).toBe(plan === "jade");
 });

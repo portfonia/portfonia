@@ -77,3 +77,52 @@ class JadeReplayOut(BaseModel):
     metrics: ReplayMetrics
     coverage: Coverage
     holdings: list[ReplayHolding]
+
+
+class TailCell(BaseModel):
+    var: str
+    cvar: str
+    var_amount: str | None = None
+    cvar_amount: str | None = None
+
+
+class TailLevel(BaseModel):
+    level: Literal[95, 99]
+    available: bool
+    tail_days: int | None
+    tail_windows: int | None
+    daily: TailCell | None
+    monthly: TailCell | None
+    normal_daily: TailCell | None
+    normal_monthly: TailCell | None
+    benchmark_daily: TailCell | None
+    benchmark_monthly: TailCell | None
+    reference_daily: str | None
+    reference_monthly: str | None
+
+
+class HistogramBin(BaseModel):
+    lower: str
+    upper: str
+    count: int
+
+
+class JadeTailRiskOut(BaseModel):
+    status: Literal["ok", "pending", "no_holdings", "insufficient"]
+    base_currency: str
+    benchmark: Literal["sp500", "dow30", "nasdaq", "csi300"]
+    benchmark_symbol: str
+    benchmark_name: str
+    benchmark_status: Literal["ok", "pending", "unavailable"]
+    window_start: date
+    window_end: date
+    first_valid_date: date | None
+    sample_count: int
+    month_windows: int
+    month_independent: int
+    portfolio_value: str | None
+    levels: list[TailLevel]
+    histogram: list[HistogramBin]
+    tolerance_status: Literal["ok", "no_questionnaire"]
+    coverage: Coverage
+    proxy_understates: bool
