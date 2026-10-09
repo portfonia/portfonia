@@ -1,7 +1,7 @@
 # Personal agent API access (#651, #652)
 
 A user's own agent can read reports on every plan and complete daily holding
-snapshots and intelligence on an active Advanced plan (currently Daily).
+snapshots and intelligence on an active Advanced plan (Daily or Jade).
 The public `/agent` page explains all three endpoints and provides token
 settings after session verification. Get started links to it for guests and
 signed-in users. `/llms.txt` points to the English `/agent.md` API reference

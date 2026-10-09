@@ -189,10 +189,14 @@ plan notice texts remain unchanged.
      briefing emails per week (Monday, Wednesday, Friday).
    - Daily briefing (Advanced) — 2.49 credits per month. One personalized
      briefing email every weekday (Monday to Friday), including market holidays.
+   - Jade — 9.99 credits per month. Includes everything in the Advanced plan.
+     You choose the Weekly, Mon / Wed / Fri, or Daily briefing schedule and
+     can change it at any time on the Jade page. Portfolio risk tools are
+     added to Jade as they are released.
    - Weekly and Mon / Wed / Fri differ only in how often briefings are sent.
-     Daily is the Advanced plan: besides weekday briefings, it lets your AI
-     agent read your daily holding snapshots and holding-related intelligence.
-     Report history is available to AI agents on every plan.
+     Daily is the Advanced plan. Daily and Jade both let your AI agent read
+     your daily holding snapshots and holding-related intelligence. Report
+     history is available to AI agents on every plan.
 2. **Included in every plan**
    - Holdings upload from CSV, Excel, or Markdown, with row-level editing.
    - Portfolio overview: allocation, performance against benchmarks, and

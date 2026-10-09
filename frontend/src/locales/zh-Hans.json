@@ -1160,7 +1160,7 @@
     "deliveryVerified": "报告将发送至 {deliveryEmail}。",
     "deliveryUnverified": "在 {deliveryEmail} 完成验证之前，报告不会发送。",
     "errorLoadFailed": "无法加载你的账户信息。",
-    "subscriptionPlans": "Portfonia 向订阅者发送定时简报，共有四档套餐：每周（每月 0.99 credits）、隔日（每月 1.99 credits，周一、周三、周五发送）、进阶每日（每月 2.49 credits，工作日发送，含 AI智能体数据接口），以及润玉（每月 9.99 credits，投资组合风险工具、进阶全部功能和自选简报频率）。润玉可在润玉平台订阅。",
+    "subscriptionPlans": "Portfonia \u5411\u8ba2\u9605\u7528\u6237\u53d1\u9001\u5b9a\u671f\u7b80\u62a5\u3002\u6709\u56db\u79cd\u5957\u9910\uff1a\u6bcf\u5468\u7b80\u62a5\uff08\u6bcf\u6708 0.99 credits\uff09\u3001\u9694\u65e5\u7b80\u62a5\uff08\u6bcf\u6708 1.99 credits\uff0c\u5468\u4e00\u3001\u5468\u4e09\u3001\u5468\u4e94\u53d1\u9001\uff09\u3001\u8fdb\u9636\u6bcf\u65e5\u7b80\u62a5\uff08\u6bcf\u6708 2.49 credits\uff0c\u5de5\u4f5c\u65e5\u53d1\u9001\uff0c\u542b AI\u667a\u80fd\u4f53\u6570\u636e\u63a5\u53e3\uff09\u548c\u6da6\u7389\uff08\u6bcf\u6708 9.99 credits\uff0c\u6295\u8d44\u7ec4\u5408\u98ce\u9669\u5de5\u5177\u3001\u8fdb\u9636\u5168\u90e8\u529f\u80fd\u548c\u81ea\u9009\u7b80\u62a5\u9891\u7387\uff09\u3002\u6da6\u7389\u53ef\u5728\u6da6\u7389\u5e73\u53f0\u8ba2\u9605\u3002",
     "subscriptionRequirements": "订阅前不会发送定期简报，部分功能也可能无法使用。您需要先验证邮箱，才能订阅。",
     "choosePlan": "选择套餐"
   },
