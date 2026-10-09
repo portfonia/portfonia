@@ -468,9 +468,11 @@ export async function putInvestmentContext(
 // see docs/mechanisms/identity-and-auth.md's "GET /me" entry). The Profile
 // page reads email/delivery_email, the verification timestamps (issue
 // #269), `missing` (gap card), and `pending_email_verifications`.
-export type SubscriptionType = "weekly" | "mwf" | "daily";
+export type BriefingPlan = "weekly" | "mwf" | "daily";
+export type SubscriptionType = BriefingPlan | "jade";
 
 export interface Subscription {
+  cadence: BriefingPlan | "none";
   status: "active" | "inactive" | "expired" | "cancelled";
   type: SubscriptionType | null;
   expires_on: string | null;
@@ -479,6 +481,7 @@ export interface Subscription {
 }
 
 export interface SubscriptionQuote {
+  cadence: BriefingPlan;
   action: "subscribe" | "change" | "resume" | "none";
   type: SubscriptionType;
   fee: string;
@@ -930,4 +933,14 @@ export async function createApiToken(name: string, expires_on: string | null): P
 export async function revokeApiToken(id: string): Promise<void> {
   const response = await fetch(`/api/me/api-tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!response.ok) await throwOnHttpError(response);
+}
+
+
+export async function setJadeCadence(cadence: BriefingPlan): Promise<Subscription> {
+  const res = await fetch("/api/me/jade/cadence", {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cadence }),
+  });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<Subscription>;
 }

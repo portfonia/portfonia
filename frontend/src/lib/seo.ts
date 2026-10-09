@@ -11,7 +11,7 @@ export const SEO_PAGES = {
 export type SeoPageKey = keyof typeof SEO_PAGES;
 // Shared segment-cache keys require dynamic pages, staleTimes.dynamic = 0, and no cacheComponents/PPR to avoid cross-locale reuse.
 export const ROUTE_LOCALE_HEADER = "x-portfonia-locale";
-export const PROTECTED_PATH_PREFIXES = ["/holdings", "/portfolio", "/profile", "/questionnaire", "/reports", "/welcome"];
+export const PROTECTED_PATH_PREFIXES = ["/holdings", "/portfolio", "/profile", "/questionnaire", "/reports", "/welcome", "/jade"];
 export const HREFLANG: Record<Locale, string[]> = {
   en: ["en"], "zh-Hans": ["zh-Hans", "zh-CN", "zh-SG", "zh"], "zh-Hant": ["zh-Hant", "zh-TW", "zh-HK", "zh-MO"],
 };

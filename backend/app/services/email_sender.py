@@ -1028,6 +1028,7 @@ def send_portfolio_overview_email(session: Session, user_id: UUID, base_currency
 
 _SUBSCRIPTION_NOTICE_COPY: dict[str, dict[str, str]] = {
     "en": {
+        "jade": "Jade",
         "weekly": "Weekly",
         "daily": "Daily",
         "mwf": "Mon/Wed/Fri",
@@ -1037,22 +1038,24 @@ _SUBSCRIPTION_NOTICE_COPY: dict[str, dict[str, str]] = {
         "expired_body": "Your {plan} subscription ended on {expires_on}. It could not be renewed because your balance of {balance} credits does not cover the fee of {fee} credits. Scheduled briefings have stopped. Top up on your Profile page and the subscription resumes on your next report day: {profile_url}",
     },
     "zh": {
+        "jade": "\u6da6\u7389",
         "weekly": "每周",
         "daily": "每日",
         "mwf": "隔日",
         "low_balance_subject": "Portfonia - 您的积分余额不足以支付下次续费",
-        "low_balance_body": "您的{plan}订阅已付费至 {expires_on}。下次费用为 {fee} 积分，您的余额为 {balance} 积分。请在个人资料页面充值，以继续接收简报：{profile_url}",  # noqa: RUF001
+        "low_balance_body": "您的{plan}订阅已付费至 {expires_on}。下次费用为 {fee} 积分，您的余额为 {balance} 积分。请在个人中心页面充值，以继续接收简报：{profile_url}",  # noqa: RUF001
         "expired_subject": "Portfonia - 您的订阅已到期",
-        "expired_body": "您的{plan}订阅已于 {expires_on} 到期。由于您的 {balance} 积分余额不足以支付 {fee} 积分费用，订阅未能续费。定时简报已停止。请在个人资料页面充值，订阅将在您的下一个报告日恢复：{profile_url}",  # noqa: RUF001
+        "expired_body": "您的{plan}订阅已于 {expires_on} 到期。由于您的 {balance} 积分余额不足以支付 {fee} 积分费用，订阅未能续费。定时简报已停止。请在个人中心页面充值，订阅将在您的下一个报告日恢复：{profile_url}",  # noqa: RUF001
     },
     "zh-Hant": {
+        "jade": "\u6f64\u7389",
         "weekly": "每週",
         "daily": "每日",
         "mwf": "隔日",
         "low_balance_subject": "Portfonia - 您的點數餘額不足以支付下次續費",
-        "low_balance_body": "您的{plan}訂閱已付費至 {expires_on}。下次費用為 {fee} 點數，您的餘額為 {balance} 點數。請在個人資料頁面儲值，以繼續接收簡報：{profile_url}",  # noqa: RUF001
+        "low_balance_body": "您的{plan}訂閱已付費至 {expires_on}。下次費用為 {fee} 點數，您的餘額為 {balance} 點數。請在個人中心頁面儲值，以繼續接收簡報：{profile_url}",  # noqa: RUF001
         "expired_subject": "Portfonia - 您的訂閱已到期",
-        "expired_body": "您的{plan}訂閱已於 {expires_on} 到期。由於您的 {balance} 點數餘額不足以支付 {fee} 點數費用，訂閱未能續費。定時簡報已停止。請在個人資料頁面儲值，訂閱將在您的下一個報告日恢復：{profile_url}",  # noqa: RUF001
+        "expired_body": "您的{plan}訂閱已於 {expires_on} 到期。由於您的 {balance} 點數餘額不足以支付 {fee} 點數費用，訂閱未能續費。定時簡報已停止。請在個人中心頁面儲值，訂閱將在您的下一個報告日恢復：{profile_url}",  # noqa: RUF001
     },
 }
 

@@ -99,7 +99,7 @@ const PENDING: PendingEmailVerification = {
 
 const BASE_ME: Me = {
   email: "user@example.com",
-  subscription: { status: "inactive", type: null, expires_on: null, cancel_pending: false, next_adjustment_at: null },
+  subscription: { status: "inactive", type: null, cadence: "none", expires_on: null, cancel_pending: false, next_adjustment_at: null },
   credit_balance: "5.00",
   delivery_email: null,
   email_verified_at: null,
@@ -711,7 +711,7 @@ it("polish_660_acceptance_3 retranslates the lock with frozen countdown values",
   const now = Date.now();
   const clock = vi.spyOn(Date, "now").mockReturnValue(now);
   try {
-    const me: Me = { ...BASE_ME, email_verified_at: "2026-10-04T12:00:00Z", subscription: { status: "active", type: "weekly", expires_on: "2026-11-15", cancel_pending: false, next_adjustment_at: new Date(now + 40 * 60000).toISOString() } };
+    const me: Me = { ...BASE_ME, email_verified_at: "2026-10-04T12:00:00Z", subscription: { status: "active", type: "weekly", cadence: "weekly", expires_on: "2026-11-15", cancel_pending: false, next_adjustment_at: new Date(now + 40 * 60000).toISOString() } };
     const view = render(<NextIntlClientProvider locale="en" messages={en}><ProfilePageBody me={me} hadLoadError={false} /></NextIntlClientProvider>);
     fireEvent.change(screen.getByRole("combobox", { name: en.profile.reportScheduleHeading }), { target: { value: "mwf" } });
     expect(screen.getByRole("alert")).toHaveTextContent(en.profile.subscriptionDailyLock.replace("{hours}", "0").replace("{minutes}", "40"));

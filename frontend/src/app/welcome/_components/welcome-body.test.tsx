@@ -11,7 +11,7 @@ import { WelcomeBody } from "./welcome-body";
 
 const _ME: Me = {
   email: "a@b.com",
-  subscription: { status: "inactive", type: null, expires_on: null, cancel_pending: false, next_adjustment_at: null },
+  subscription: { status: "inactive", type: null, cadence: "none", expires_on: null, cancel_pending: false, next_adjustment_at: null },
   credit_balance: "0.00",
   delivery_email: null,
   email_verified_at: null,
@@ -63,7 +63,7 @@ describe("WelcomeBody", () => {
     expect(
       screen.getByText("Holdings-related sections stay empty until you save holdings."),
     ).toBeInTheDocument();
-    expect(screen.getByText("Portfonia sends scheduled briefings to subscribers. There are three plans: Weekly (0.99 credits per month), Mon/Wed/Fri (1.99 credits per month) and the Advanced Daily plan (2.49 credits per month, weekdays, with AI Agent data access).")).toBeInTheDocument();
+    expect(screen.getByText("Portfonia sends scheduled briefings to subscribers. There are four plans: Weekly (0.99 credits per month), Mon/Wed/Fri (1.99 credits per month), the Advanced Daily plan (2.49 credits per month, weekdays, with AI Agent data access), and Jade (9.99 credits per month, portfolio risk tools, everything in Advanced, and a briefing schedule you choose). Subscribe to Jade on the Jade page.")).toBeInTheDocument();
     expect(screen.getByText("Until you subscribe, scheduled briefings are not sent and some features may be unavailable. You need a verified email address before you can subscribe.")).toBeInTheDocument();
     expect(screen.queryByText(/Your cadence is weekly/)).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
@@ -71,6 +71,14 @@ describe("WelcomeBody", () => {
     // 1-Onboarding.md §2.4) or print the stale MWF 17:00 schedule.
     expect(screen.queryByText(/has been sent/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/17:00/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["zh-Hans", "Portfonia \u5411\u8ba2\u9605\u7528\u6237\u53d1\u9001\u5b9a\u671f\u7b80\u62a5\u3002\u6709\u56db\u79cd\u5957\u9910\uff1a\u6bcf\u5468\u7b80\u62a5\uff08\u6bcf\u6708 0.99 credits\uff09\u3001\u9694\u65e5\u7b80\u62a5\uff08\u6bcf\u6708 1.99 credits\uff0c\u5468\u4e00\u3001\u5468\u4e09\u3001\u5468\u4e94\u53d1\u9001\uff09\u3001\u8fdb\u9636\u6bcf\u65e5\u7b80\u62a5\uff08\u6bcf\u6708 2.49 credits\uff0c\u5de5\u4f5c\u65e5\u53d1\u9001\uff0c\u542b AI\u667a\u80fd\u4f53\u6570\u636e\u63a5\u53e3\uff09\u548c\u6da6\u7389\uff08\u6bcf\u6708 9.99 credits\uff0c\u6295\u8d44\u7ec4\u5408\u98ce\u9669\u5de5\u5177\u3001\u8fdb\u9636\u5168\u90e8\u529f\u80fd\u548c\u81ea\u9009\u7b80\u62a5\u9891\u7387\uff09\u3002\u6da6\u7389\u53ef\u5728\u6da6\u7389\u5e73\u53f0\u8ba2\u9605\u3002"],
+    ["zh-Hant", "Portfonia \u5411\u8a02\u95b1\u4f7f\u7528\u8005\u5bc4\u9001\u5b9a\u671f\u7c21\u5831\u3002\u6709\u56db\u7a2e\u65b9\u6848\uff1a\u6bcf\u9031\u7c21\u5831\uff08\u6bcf\u6708 0.99 credits\uff09\u3001\u9694\u65e5\u7c21\u5831\uff08\u6bcf\u6708 1.99 credits\uff0c\u9031\u4e00\u3001\u9031\u4e09\u3001\u9031\u4e94\u5bc4\u9001\uff09\u3001\u9032\u968e\u6bcf\u65e5\u7c21\u5831\uff08\u6bcf\u6708 2.49 credits\uff0c\u5de5\u4f5c\u65e5\u5bc4\u9001\uff0c\u542b AI \u667a\u80fd\u9ad4\u8cc7\u6599\u4ecb\u9762\uff09\u548c\u6f64\u7389\uff08\u6bcf\u6708 9.99 credits\uff0c\u6295\u8cc7\u7d44\u5408\u98a8\u96aa\u5de5\u5177\u3001\u9032\u968e\u6240\u6709\u529f\u80fd\u8207\u81ea\u9078\u7c21\u5831\u6392\u7a0b\uff09\u3002\u8acb\u81f3\u6f64\u7389\u5e73\u53f0\u8a02\u95b1\u6f64\u7389\u3002"]
+  ] as const)("preserves the original three plan labels and adds Jade in %s", (locale, expected) => {
+    render(<LocaleProvider routeLocale={locale}><WelcomeBody me={_ME} hadLoadError={false} /></LocaleProvider>);
+    expect(screen.getByText(expected)).toBeInTheDocument();
   });
 
   it("shows the with-holdings copy when holdings are saved", () => {

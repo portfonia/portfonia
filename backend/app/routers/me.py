@@ -22,6 +22,7 @@ from app.models.user_investment_context import UserInvestmentContext
 from app.models.waitlist_entry import WaitlistEntry
 from app.schemas.holdings import VALID_CURRENCIES
 from app.schemas.me import (
+    JadeCadenceBody,
     MeOut,
     PendingVerificationOut,
     SubscriptionBody,
@@ -234,7 +235,7 @@ def verify_change_password_altcha(
 
 @router.get("/subscription/quote", response_model=SubscriptionQuoteOut)
 def subscription_quote(
-    type: Literal["weekly", "mwf", "daily"],
+    type: Literal["weekly", "mwf", "daily", "jade"],
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> SubscriptionQuoteOut:
@@ -430,3 +431,18 @@ def refer_someone(
     except Exception:
         logging.getLogger(__name__).exception("referral: failed to enqueue admin notice")
     return {"received": True}
+
+
+@router.patch("/jade/cadence", response_model=SubscriptionOut)
+def set_jade_cadence(
+    body: JadeCadenceBody,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> SubscriptionOut:
+    try:
+        user = subscription.set_jade_cadence(session, principal.user_id, body.cadence)
+    except subscription.SubscriptionError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=exc.code) from None
+    session.commit()
+    return subscription.summary(user, today_et())

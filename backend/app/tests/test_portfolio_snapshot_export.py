@@ -121,7 +121,7 @@ def test_snapshot_export_1_basic_plan_denies_without_counting(
     assert resp.status_code == 403
     assert resp.json() == {"detail": "subscription_required"}
     assert KEY not in cast(rate_limit.InMemoryBackend, rate_limit.get_backend()).stored_keys()
-    assert subscription.ADVANCED_SUBSCRIPTION_TYPES == ("daily",)
+    assert subscription.ADVANCED_SUBSCRIPTION_TYPES == ("daily", "jade")
 
 
 def test_snapshot_export_2_accepts_30_days(

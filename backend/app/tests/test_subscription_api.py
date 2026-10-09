@@ -81,6 +81,7 @@ def test_quote_matches_change_and_writes_nothing(
     result = app_client.post("/me/subscription", json={"type": "mwf"})
     assert result.status_code == 200
     assert result.json() == {
+        "cadence": "mwf",
         "status": "active",
         "type": "mwf",
         "expires_on": "2026-11-30",

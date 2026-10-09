@@ -550,3 +550,46 @@ authorization. Unit tests cover routing, cookie/header preservation, locale
 state, metadata, sitemap, content and font failures; build verifies the client/
 server boundary and emits the PNGs. No local app server is used. HTTP status
 and canonical-host behavior are verified by the owner after deployment.
+
+
+## Jade page, Profile coordination and menu (issue #710)
+
+Every authenticated menu includes Jade directly after Performance; guests do
+not see it. `/jade` joins the protected app paths, inherits the shared header,
+and is absent from public SEO pages and the sitemap. The server page loads
+`getMeServer`, preserves redirect errors and displays the existing Profile load
+error on other failures. All authenticated users can open the introduction and
+subscription entry; future risk tools are absent.
+
+The Jade client reuses Profile's `useSubscription` and `SubscriptionDialog`.
+Inactive/cancelled/Expired or briefing-plan users see Subscribe to Jade; no
+verified recipient disables it. Active Jade shows its paid period and Cancel,
+or Ends and Resume when cancellation is pending. A Jade subscribe/change quote
+also states its resulting translated cadence. Successful subscription actions
+refresh the server page and re-probe session flags through the shared hook.
+
+Only active Jade shows its Weekly, Mon/Wed/Fri and Daily schedule select. A
+change disables the control, calls `setJadeCadence` without a dialog or daily
+lock, then refreshes. Failure retains the previous value with localized error
+copy. Selecting Daily/Mon/Wed/Fri without holdings shows the existing warning.
+Profile displays Jade's plan label but replaces Cancel/Resume with `/jade`
+management links; its disabled plan selector displays the cadence and never
+adds a Jade option. Expired Jade retains ordinary Profile controls.
+
+The menu uses session flags: `jade` takes precedence over Advanced gold.
+`.jade-surface` uses `#2f8a5f` and light text `#f4fbf6` in both themes. Its inline
+SVG fractal-noise layer is screen-blended over the flat base, which remains if
+the image fails. The overlay cannot intercept clicks. Frontend subscription
+status/type checks select management controls only; backend helpers own access.
+
+The Chinese Profile page name changes in navigation, page headings, return
+links, unsubscribe page references, Privacy's account-deletion clause and four
+subscription notices. Privacy's personal-data uses are preserved. Pricing,
+Terms, the home FAQ, Welcome and agent endpoint descriptions include Jade;
+Terms separately describes unlimited Jade cadence changes and management on
+Jade. All three catalogs retain matching key sets and hand-authored Chinese.
+
+375px component checks cover the full-width schedule selects, wrapping action
+rows and both-theme Jade trigger class; they do not constitute physical-device
+or browser layout measurements. The Jade page uses `max-w-2xl px-4 sm:px-6`.
+The production frontend build is a required gate. No local app server is run.

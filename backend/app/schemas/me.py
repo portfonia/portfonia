@@ -25,6 +25,7 @@ class PendingVerificationOut(BaseModel):
 
 
 class SubscriptionOut(BaseModel):
+    cadence: str
     status: str
     type: str | None
     expires_on: date | None
@@ -33,10 +34,15 @@ class SubscriptionOut(BaseModel):
 
 
 class SubscriptionBody(BaseModel):
-    type: Literal["weekly", "mwf", "daily"]
+    type: Literal["weekly", "mwf", "daily", "jade"]
+
+
+class JadeCadenceBody(BaseModel):
+    cadence: Literal["weekly", "mwf", "daily"]
 
 
 class SubscriptionQuoteOut(BaseModel):
+    cadence: str
     action: str
     type: str
     fee: str

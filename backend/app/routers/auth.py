@@ -264,9 +264,10 @@ def forgot_password(
 
 class SessionStatusOut(BaseModel):
     advanced: bool
+    jade: bool
 
 
 @router.get("/session-status", response_model=SessionStatusOut)
 def session_status(principal: Principal = Depends(current_principal)) -> SessionStatusOut:
     """Probe the verified session and its Advanced access, without another query."""
-    return SessionStatusOut(advanced=principal.advanced)
+    return SessionStatusOut(advanced=principal.advanced, jade=principal.jade)

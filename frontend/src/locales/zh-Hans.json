@@ -10,14 +10,15 @@
     "loggingIn": "正在登录...",
     "logoutFailed": "退出失败，请重试。",
     "holdings": "持仓管理",
-    "profile": "个人资料",
+    "profile": "个人中心",
     "portfolio": "持仓总览",
     "portfolioPerformance": "业绩表现",
     "questionnaire": "投资风格",
     "sessionExpired": "由于 {minutes} 分钟内无操作，登录已结束。",
     "editHoldings": "编辑持仓",
     "reports": "报告中心",
-    "agent": "AI智能体"
+    "agent": "AI智能体",
+    "jade": "润玉平台"
   },
   "auth": {
     "loginHeading": "登录",
@@ -376,7 +377,7 @@
     }
   },
   "profile": {
-    "pageTitle": "个人资料",
+    "pageTitle": "个人中心",
     "missingSetupHeading": "完成账户设置",
     "missingSetupQuestionnaire": "设置投资风格",
     "missingSetupHoldings": "录入持仓",
@@ -397,7 +398,7 @@
     "passwordHeading": "修改密码",
     "changePasswordLink": "修改密码",
     "changePasswordPageTitle": "修改密码",
-    "backToProfile": "返回个人资料",
+    "backToProfile": "返回个人中心",
     "currentPasswordLabel": "当前密码",
     "newPasswordLabel": "新密码",
     "confirmNewPasswordLabel": "确认新密码",
@@ -462,12 +463,14 @@
     "subscriptionTitle": {
       "weekly": "每周简报",
       "mwf": "隔日简报",
-      "daily": "每日简报"
+      "daily": "每日简报",
+      "jade": "润玉"
     },
     "subscriptionDescription": {
       "weekly": "每周六发送一份关于您投资组合的简报。",
       "mwf": "每周一、周三和周五发送一份关于您投资组合的简报。",
-      "daily": "每个工作日（周一至周五）发送一份关于您投资组合的简报。进阶套餐：含 AI智能体数据接口。"
+      "daily": "每个工作日（周一至周五）发送一份关于您投资组合的简报。进阶套餐：含 AI智能体数据接口。",
+      "jade": "投资组合风险工具、进阶套餐的全部功能，以及由您选择的简报频率。"
     },
     "subscriptionFee": "费用：每月 {fee} credits。",
     "subscriptionBalance": "当前余额：{balance} credits。",
@@ -492,7 +495,8 @@
       "email_unverified": "请先验证邮箱，再订阅。",
       "insufficient_credits": "您的余额不足。请先在账户区域充值 credits。",
       "no_change": "您的订阅已采用此设置。",
-      "no_subscription": "当前没有可执行此操作的有效订阅。"
+      "no_subscription": "当前没有可执行此操作的有效订阅。",
+      "jade_managed": "您的润玉订阅在润玉平台管理。"
     },
     "deleteAccountDisclosure": "你的持仓、个性化投资设定和报告将被清除。credits 与交易记录出于会计与税务目的予以保留，并与你的邮箱地址解除关联，仅保留该邮箱的单向指纹，用途仅限于防止重复发放注册赠送的 credits。",
     "deleteAccountSubscription": "当前订阅立即终止，本期未使用的部分不予返还。",
@@ -514,7 +518,10 @@
     "referralEmailRequired": "请输入邮箱地址。",
     "referralDailyLimit": "今日推荐次数已达上限，请明天再试。",
     "deleteAccountNegativeBalance": "您的账户 credits 余额为负，请联系 info@portfonia.com 处理账户删除。",
-    "referralError": "无法提交推荐，请重试。"
+    "referralError": "无法提交推荐，请重试。",
+    "subscriptionJadeCadence": "简报频率：{cadence}。您可随时在润玉平台调整。",
+    "jadeManage": "前往润玉平台管理",
+    "jadeScheduleNote": "您的简报频率在润玉平台设置。"
   },
   "portfolio": {
     "riskPanel": {
@@ -1100,7 +1107,7 @@
         },
         {
           "q": "收费吗？",
-          "a": "每周简报每月 0.99 credits 起，隔日简报（周一、周三、周五发送）每月 1.99 credits，含 AI智能体数据接口的进阶每日简报每月 2.49 credits。Credits 以 US$10 和 US$20 点数包出售——详见定价页面。"
+          "a": "每周简报每月 0.99 credits 起，隔日简报（周一、周三、周五发送）每月 1.99 credits，含 AI智能体数据接口的进阶每日简报每月 2.49 credits，润玉每月 9.99 credits，在进阶套餐的全部功能之外增加投资组合风险工具。Credits 以 US$10 和 US$20 点数包出售——详见定价页面。"
         }
       ]
     },
@@ -1153,7 +1160,7 @@
     "deliveryVerified": "报告将发送至 {deliveryEmail}。",
     "deliveryUnverified": "在 {deliveryEmail} 完成验证之前，报告不会发送。",
     "errorLoadFailed": "无法加载你的账户信息。",
-    "subscriptionPlans": "Portfonia 向订阅用户发送定期简报。有三种套餐：每周简报（每月 0.99 credits）、隔日简报（每月 1.99 credits，周一、周三、周五发送）和进阶每日简报（每月 2.49 credits，工作日发送，含 AI智能体数据接口）。",
+    "subscriptionPlans": "Portfonia \u5411\u8ba2\u9605\u7528\u6237\u53d1\u9001\u5b9a\u671f\u7b80\u62a5\u3002\u6709\u56db\u79cd\u5957\u9910\uff1a\u6bcf\u5468\u7b80\u62a5\uff08\u6bcf\u6708 0.99 credits\uff09\u3001\u9694\u65e5\u7b80\u62a5\uff08\u6bcf\u6708 1.99 credits\uff0c\u5468\u4e00\u3001\u5468\u4e09\u3001\u5468\u4e94\u53d1\u9001\uff09\u3001\u8fdb\u9636\u6bcf\u65e5\u7b80\u62a5\uff08\u6bcf\u6708 2.49 credits\uff0c\u5de5\u4f5c\u65e5\u53d1\u9001\uff0c\u542b AI\u667a\u80fd\u4f53\u6570\u636e\u63a5\u53e3\uff09\u548c\u6da6\u7389\uff08\u6bcf\u6708 9.99 credits\uff0c\u6295\u8d44\u7ec4\u5408\u98ce\u9669\u5de5\u5177\u3001\u8fdb\u9636\u5168\u90e8\u529f\u80fd\u548c\u81ea\u9009\u7b80\u62a5\u9891\u7387\uff09\u3002\u6da6\u7389\u53ef\u5728\u6da6\u7389\u5e73\u53f0\u8ba2\u9605\u3002",
     "subscriptionRequirements": "订阅前不会发送定期简报，部分功能也可能无法使用。您需要先验证邮箱，才能订阅。",
     "choosePlan": "选择套餐"
   },
@@ -1168,7 +1175,7 @@
   },
   "unsubscribe": {
     "heading": "退订",
-    "subtitle": "确定要退订 {email} 吗？该地址将停止接收报告，直至重新验证。如果账户中不再有已验证的地址，您的订阅将持续有效至已付费周期结束，不返还任何费用，之后取消订阅。重新验证地址不会恢复订阅；您可在个人资料页面恢复订阅。",
+    "subtitle": "确定要退订 {email} 吗？该地址将停止接收报告，直至重新验证。如果账户中不再有已验证的地址，您的订阅将持续有效至已付费周期结束，不返还任何费用，之后取消订阅。重新验证地址不会恢复订阅；您可在个人中心页面恢复订阅。",
     "confirmButton": "确认退订",
     "confirming": "退订中...",
     "successBody": "已退订 {email}。本账户下其它已验证邮箱不受影响。",
@@ -1187,7 +1194,7 @@
     "resellerNotice": "我们的订单流程由在线经销商 Paddle.com 执行。Paddle.com 是我们所有订单的记录商户（Merchant of Record），负责处理所有客户服务咨询及退货。",
     "terms": {
       "title": "服务条款",
-      "lastUpdated": "最后更新：2026-10-05",
+      "lastUpdated": "最后更新：2026-10-08",
       "intro": "本服务条款规范您对 Portfonia 的使用。请与我们的隐私政策及退款政策一并阅读。",
       "sections": [
         {
@@ -1216,6 +1223,7 @@
             "付费套餐以预付服务点数（credits）计费。Credits 以美元定价的点数包出售（购买时 1 credit = US$1）；现行套餐与点数包见定价页面。",
             "每个月度计费周期开始时，从您的 credits 余额中扣除套餐费用，优先扣除赠送的 credits。更换套餐时，当月费用中未使用的部分将按比例返还至您的 credits 余额，新套餐从当天开始。取消套餐时，套餐将持续有效至已付费周期结束，不返还任何费用。",
             "您每天可调整一次订阅（订阅、更换套餐、取消或恢复），以美国东部时间为准。",
+            "在润玉平台调整润玉订阅的简报频率不属于订阅调整，不受次数限制。润玉订阅的订阅、取消及恢复均在润玉平台操作；如需更换为其他套餐，请先取消润玉，待润玉付费周期结束后再订阅新套餐。",
             "如果您退订某个地址的报告邮件，且账户中不再有已验证的地址，您的订阅将视为已取消：订阅持续有效至已付费周期结束，不返还任何费用，重新验证地址后也不会恢复。",
             "余额提醒和到期通知仅发送至已验证的地址。",
             "Credits 不会过期，仅可用于 Portfonia 订阅，不可转让，除退款政策规定外无现金价值。",
@@ -1284,7 +1292,7 @@
     },
     "privacy": {
       "title": "隐私政策",
-      "lastUpdated": "最后更新：2026-10-04",
+      "lastUpdated": "最后更新：2026-10-08",
       "intro": "我们重视您的隐私。本政策说明我们收集哪些信息、为何收集，以及如何保护这些信息。",
       "sections": [
         {
@@ -1340,7 +1348,7 @@
         {
           "heading": "8. 您的权利",
           "body": [
-            "您可以直接在本服务中查看和更新您的持仓与个人资料。您可以在个人资料页面自行删除账户，也可以联系我们代为删除；删除将按\"数据保留\"一节所述，清除您的持仓、个性化投资设定及身份验证账户。"
+            "您可以直接在本服务中查看和更新您的持仓与个人资料。您可以在个人中心页面自行删除账户，也可以联系我们代为删除；删除将按\"数据保留\"一节所述，清除您的持仓、个性化投资设定及身份验证账户。"
           ]
         },
         {
@@ -1377,7 +1385,7 @@
     },
     "pricing": {
       "title": "定价",
-      "lastUpdated": "最后更新：2026-10-01",
+      "lastUpdated": "最后更新：2026-10-08",
       "intro": "Portfonia 是一款软件工具。您选择简报套餐，并以预付服务点数（credits）支付。",
       "sections": [
         {
@@ -1386,7 +1394,8 @@
             "每周简报——每月 0.99 credits。每周一封个性化简报邮件，与您录入的持仓挂钩。",
             "隔日简报——每月 1.99 credits。每周三封个性化简报邮件（周一、周三、周五）。",
             "每日简报（进阶）——每月 2.49 credits。每个工作日（周一至周五）一封个性化简报邮件，市场假日照常发送。",
-            "每周与隔日两档的区别仅在于发送频率。每日为进阶套餐：除工作日简报外，还允许您的 AI智能体读取逐日持仓快照和与持仓相关的情报。所有套餐都可以让 AI智能体读取历史报告。"
+            "润玉——每月 9.99 credits。包含进阶套餐的全部功能。您可选择每周、隔日（周一、周三、周五）或每日简报，并随时在润玉平台调整。投资组合风险工具将随着发布逐项加入润玉。",
+            "每周与隔日两档的区别仅在于发送频率。每日为进阶套餐。每日与润玉均允许您的 AI智能体读取逐日持仓快照和与持仓相关的情报。所有套餐都可以让 AI智能体读取历史报告。"
           ]
         },
         {
@@ -1556,8 +1565,8 @@
       "gettingStarted": "在下方创建 token，然后将 token 和 https://portfonia.com/llms.txt 交给您的智能体。登录后可管理您的 token。",
       "endpointsTitle": "端点",
       "reports": "报告：所有套餐均可访问。指定起止日期（含首尾，美东时间），返回范围内最新的最多 5 份可用报告，包括 Markdown 正文、total_in_range 和 truncated。",
-      "snapshots": "持仓快照：需要进阶套餐。指定起止日期（含首尾，美东时间），最多涵盖 30 天。",
-      "intel": "情报：需要进阶套餐。指定最近 7 天内的一个美东日期（含今天），返回您的持仓标题和已接受的文章正文，以及该日或之前最新可用报告主题对应的宏观文章。不含来源链接。"
+      "snapshots": "持仓快照：需要进阶套餐或润玉。指定起止日期（含首尾，美东时间），最多涵盖 30 天。",
+      "intel": "情报：需要进阶套餐或润玉。指定最近 7 天内的一个美东日期（含今天），返回您的持仓标题和已接受的文章正文，以及该日或之前最新可用报告主题对应的宏观文章。不含来源链接。"
     }
   },
   "downloadConfirm": {
@@ -1659,5 +1668,13 @@
     "title": "找不到页面",
     "body": "您访问的页面不存在。",
     "homeLink": "返回首页"
+  },
+  "jade": {
+    "title": "润玉平台",
+    "intro": "润玉是一组面向长期持仓者的投资组合风险工具，以您当前的持仓为基础，每项结果都注明所用数据和计算方法。润玉订阅包含进阶套餐的全部功能，您可以选择任一简报频率，并随时调整。风险工具将逐项加入本页面。",
+    "price": "每月 9.99 credits",
+    "subscribe": "订阅润玉",
+    "cadenceError": "未能更改简报频率，请重试。",
+    "cadenceNote": "调整简报频率不会改变费用。"
   }
 }

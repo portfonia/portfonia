@@ -121,7 +121,7 @@ def test_daily_acceptance_11_session_status(
     finally:
         event.remove(connection, "before_cursor_execute", record)
     assert response.status_code == 200
-    assert response.json() == {"advanced": advanced}
+    assert response.json() == {"advanced": advanced, "jade": False}
     assert len([statement for statement in statements if "FROM users" in statement]) == 1
     assert real_auth_client.get("/auth/session-status").status_code == 401
 
@@ -143,4 +143,4 @@ def test_daily_inactive_session_not_advanced(
     )
     assert real_auth_client.get(
         "/auth/session-status", headers={"Authorization": "Bearer test.token"}
-    ).json() == {"advanced": False}
+    ).json() == {"advanced": False, "jade": False}

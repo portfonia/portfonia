@@ -26,6 +26,7 @@ const planLabelKeys: Record<SubscriptionType, string> = {
   weekly: "reportScheduleOptions.weekly",
   mwf: "reportScheduleOptions.everyOtherDay",
   daily: "subscriptionTitle.daily",
+  jade: "subscriptionTitle.jade",
 };
 
 // Split out from page.tsx (issue #220), same reasoning as
@@ -110,6 +111,7 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
   // verified receiving address at all (both timestamps null — the "reports
   // will not be sent" state). Nothing pending AND at least one verified
   // address → hidden, same as before #269.
+  const isJade = me.subscription.status === "active" && me.subscription.type === "jade";
   const noVerifiedRecipient = me.email_verified_at == null && me.delivery_email_verified_at == null;
   const showEmailVerification = me.pending_email_verifications.length > 0 || noVerifiedRecipient;
 
@@ -260,10 +262,10 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
                   plan: t(planLabelKeys[me.subscription.type ?? "mwf"]),
                   expires_on: me.subscription.expires_on ?? "",
                 })}</span>
-                <Button variant="outline" disabled={subscription.pending} onClick={() => {
+                {isJade ? <Link href="/jade" className="text-sm underline underline-offset-2">{t("jadeManage")}</Link> : <Button variant="outline" disabled={subscription.pending} onClick={() => {
                   if (me.subscription.cancel_pending && me.subscription.type) void subscription.choose(me.subscription.type);
                   else void subscription.choose("cancel");
-                }}>{t(me.subscription.cancel_pending ? "subscriptionResume" : "subscriptionCancel")}</Button>
+                }}>{t(me.subscription.cancel_pending ? "subscriptionResume" : "subscriptionCancel")}</Button>}
               </div>
             ) : (
               <Badge className="h-auto whitespace-normal">{me.subscription.status === "expired"
@@ -355,20 +357,21 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
             </div>
             <div className="flex flex-col gap-1.5">
               <select
-                disabled={noVerifiedRecipient || subscription.pending}
+                disabled={isJade || noVerifiedRecipient || subscription.pending}
                 aria-label={t("reportScheduleHeading")}
                 className="w-full rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm"
-                value={me.subscription.status === "active" ? me.subscription.type ?? "" : ""}
+                value={isJade ? me.subscription.cadence : me.subscription.status === "active" ? me.subscription.type ?? "" : ""}
                 onChange={(e) => void subscription.choose(e.target.value as SubscriptionType | "cancel")}
               >
                 <option value="" disabled>{t("subscriptionNoneOption")}</option>
                 <option value="weekly">{t("reportScheduleOptions.weekly")}</option>
                 <option value="mwf">{t("reportScheduleOptions.everyOtherDay")}</option>
                 <option value="daily">{t("reportScheduleOptions.daily")}</option>
-                {!noVerifiedRecipient && me.subscription.status === "active" && !me.subscription.cancel_pending && (
+                {!isJade && !noVerifiedRecipient && me.subscription.status === "active" && !me.subscription.cancel_pending && (
                   <option value="cancel">{t("subscriptionCancel")}</option>
                 )}
               </select>
+              {isJade && <p className="text-sm text-muted-foreground">{t("jadeScheduleNote")} <Link href="/jade" className="underline underline-offset-2">{t("jadeManage")}</Link></p>}
               {subscription.error && !subscription.dialog && <p className="text-sm text-destructive" role="alert">{subscription.error}</p>}
               {noVerifiedRecipient && <p className="text-sm text-muted-foreground">{t("subscriptionVerifyEmail")}</p>}
             </div>

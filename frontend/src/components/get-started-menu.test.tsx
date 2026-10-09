@@ -441,7 +441,7 @@ describe("GetStartedMenu", () => {
       );
 
       await waitFor(() =>
-        expect(screen.getByRole("menuitem", { name: "个人资料" })).toBeInTheDocument(),
+        expect(screen.getByRole("menuitem", { name: "\u4e2a\u4eba\u4e2d\u5fc3" })).toBeInTheDocument(),
       );
       expect(screen.queryByRole("menuitem", { name: "Profile" })).not.toBeInTheDocument();
     });

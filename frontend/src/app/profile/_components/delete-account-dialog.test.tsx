@@ -15,7 +15,7 @@ const me: Me = {
   email_verified_at: null, delivery_email_verified_at: null, tos_accepted_at: null,
   has_questionnaire: true, has_holdings: true, missing: [], pending_email_verifications: [],
   report_language: "en", report_currency: "USD",
-  subscription: { status: "inactive", type: null, expires_on: null, cancel_pending: false, next_adjustment_at: null },
+  subscription: { status: "inactive", type: null, cadence: "none", expires_on: null, cancel_pending: false, next_adjustment_at: null },
 };
 const fetchMock = vi.fn<typeof fetch>();
 let summary = { cash_balance: "0.00", refundable_cash: "0.00", gift_balance: "3.01", subscription_active: true };
