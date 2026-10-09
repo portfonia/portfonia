@@ -1,6 +1,7 @@
 {
   "common": {
-    "brandName": "Portfonia"
+    "brandName": "Portfonia",
+    "calculating": "Calculating…"
   },
   "menu": {
     "trigger": "Get Started",
@@ -1678,9 +1679,8 @@
     "cadenceNote": "Changing the schedule does not change your fee.",
     "replay": {
       "title": "Holdings replay",
-      "intro": "Replays the holdings you have today over the past five years, as if you had held them unchanged. Returns include dividends, treated as reinvested. This is a hypothetical replay, not your own past results.",
+      "intro": "Replays the holdings you have today over the span you choose, up to five years, as if you had held them unchanged. Returns include dividends, treated as reinvested. This is a hypothetical replay, not your own past results.",
       "loadError": "Could not load the replay. Try again later.",
-      "loading": "Loading replay…",
       "pending": "Price history for your holdings is being prepared. It is updated once a day after the US market close.",
       "noHoldings": "Add holdings to see a replay.",
       "insufficient": "Not enough history to replay yet.",
@@ -1717,7 +1717,7 @@
       "volatility": "Volatility: own {own_vol}, filled period {proxy_segment_vol}. The fill does not reproduce this holding's own swings.",
       "sources": "Prices: Yahoo Finance daily adjusted closes. Fund NAV: Eastmoney. FX: the same daily rates as Portfolio Overview. Sample days: NYSE trading days; other markets keep their previous close on their holidays.",
       "method": "Each holding's value today is rolled back along its own total-return history, converted to {currency} at each day's FX rate. The holdings are summed without rebalancing. Annualized volatility is the standard deviation of daily returns × √252.",
-      "limitations": "Hindsight: the holdings you have today are often ones that did well in the past, so the replay can look better than what a portfolio chosen five years ago would have done. Proxies follow an index ETF, not the holding itself. The replay describes the past and is not a forecast.",
+      "limitations": "Hindsight: the holdings you have today are often ones that did well in the past, so the replay can look better than what a portfolio chosen at the start of the span would have done. Proxies follow an index ETF, not the holding itself. The replay describes the past and is not a forecast.",
       "metrics": {
         "cumulative_return": "Cumulative return",
         "annualized_return": "Annualized return",
@@ -1725,7 +1725,18 @@
         "max_drawdown": "Maximum drawdown",
         "worst_day": "Worst day",
         "worst_month": "Worst month"
-      }
+      },
+      "rangeLabel": "Span",
+      "ranges": {
+        "1M": "1M",
+        "3M": "3M",
+        "6M": "6M",
+        "YTD": "YTD",
+        "1Y": "1Y",
+        "3Y": "3Y",
+        "5Y": "5Y"
+      },
+      "annualizedShortNote": "Annualized from this span's data. Annualizing a period shorter than a year magnifies its swings."
     }
   }
 }

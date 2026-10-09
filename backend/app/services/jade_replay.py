@@ -33,9 +33,10 @@ from app.services.jade_replay_config import (
     CLASS_PROXY,
     DATA_QUALITY_SHARE,
     MIN_RETURNS,
-    REPLAY_YEARS,
     STOCK_PROXY_BY_MARKET,
     EtfSpec,
+    ReplayRange,
+    months_before,
     years_before,
 )
 from app.services.portfolio_calculator import HoldingValue, compute_portfolio
@@ -55,7 +56,7 @@ def valid_returns(values: list[tuple[date, float]]) -> list[tuple[date, float]]:
     return [(d, v / prev - 1) for (_, prev), (d, v) in pairwise(values)]
 
 
-def metrics(values: list[tuple[date, float]]) -> Metrics:
+def metrics(values: list[tuple[date, float]], hide_worst_month: bool) -> Metrics:
     start, first = values[0]
     end, last = values[-1]
     returns = valid_returns(values)
@@ -91,8 +92,8 @@ def metrics(values: list[tuple[date, float]]) -> Metrics:
         max_drawdown_trough=dd_trough,
         worst_day=ratio(worst),
         worst_day_date=worst_date,
-        worst_month=ratio(month_return),
-        worst_month_label=worst_month,
+        worst_month=None if hide_worst_month else ratio(month_return),
+        worst_month_label=None if hide_worst_month else worst_month,
     )
 
 
@@ -126,8 +127,24 @@ def proxy_for(h: HoldingValue) -> EtfSpec:
     )
 
 
+def window_start(session: Session, end: date, range_key: ReplayRange) -> date:
+    if range_key == "YTD":
+        return cast(
+            date,
+            session.scalar(
+                select(func.max(BenchmarkPrice.price_date)).where(
+                    BenchmarkPrice.index_code == "sp500",
+                    BenchmarkPrice.price_date < date(end.year, 1, 1),
+                )
+            ),
+        )
+    if range_key.endswith("M"):
+        return months_before(end, int(range_key[:-1]))
+    return years_before(end, int(range_key[:-1]))
+
+
 def compute_replay(
-    session: Session, user_id: UUID, base_currency: str, benchmark: str
+    session: Session, user_id: UUID, base_currency: str, benchmark: str, range_key: ReplayRange
 ) -> JadeReplayOut:
     end = cast(
         date,
@@ -137,7 +154,7 @@ def compute_replay(
             )
         ),
     )
-    start = years_before(end, REPLAY_YEARS)
+    start = window_start(session, end, range_key)
     days = list(
         session.scalars(
             select(BenchmarkPrice.price_date)
@@ -385,8 +402,12 @@ def compute_replay(
         if not usable(benchmark_key) or len(benchmark_values) - 1 < MIN_RETURNS
         else "ok"
     )
-    pm = metrics(portfolio) if status == "ok" else None
-    bm = metrics(benchmark_values) if benchmark_status == "ok" else None
+    pm = metrics(portfolio, hide_worst_month=range_key == "1M") if status == "ok" else None
+    bm = (
+        metrics(benchmark_values, hide_worst_month=range_key == "1M")
+        if benchmark_status == "ok"
+        else None
+    )
     pv = dict(portfolio)
     bv = dict(benchmark_values) if bm else {}
     points = (
@@ -403,6 +424,7 @@ def compute_replay(
         else []
     )
     return JadeReplayOut(
+        range=range_key,
         status=status,
         base_currency=base_currency,
         benchmark=benchmark,

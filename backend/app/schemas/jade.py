@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from app.services.jade_replay_config import ReplayRange
+
 
 class Metrics(BaseModel):
     cumulative_return: str
@@ -16,8 +18,8 @@ class Metrics(BaseModel):
     max_drawdown_trough: date
     worst_day: str
     worst_day_date: date
-    worst_month: str
-    worst_month_label: str
+    worst_month: str | None
+    worst_month_label: str | None
 
 
 class ReplayMetrics(BaseModel):
@@ -59,6 +61,7 @@ class ReplayHolding(BaseModel):
 
 
 class JadeReplayOut(BaseModel):
+    range: ReplayRange
     status: Literal["ok", "pending", "no_holdings", "insufficient"]
     base_currency: str
     benchmark: Literal["sp500", "dow30", "nasdaq", "csi300"]
