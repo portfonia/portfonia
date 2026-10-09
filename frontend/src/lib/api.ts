@@ -5,6 +5,7 @@
 // with types generated from the FastAPI OpenAPI schema (see concept design doc
 // section 10, frontend constraint 4). Keep these in sync until then.
 
+import type { BaseCurrency } from "@/app/portfolio/_components/currencies";
 import { logout } from "@/lib/auth-actions";
 import { filenameFromContentDisposition } from "@/lib/template";
 
@@ -943,4 +944,66 @@ export async function setJadeCadence(cadence: BriefingPlan): Promise<Subscriptio
   });
   if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<Subscription>;
+}
+
+// Jade holdings replay (issue #714); ratios are serialized decimal strings.
+export interface ReplayMetrics {
+  cumulative_return: string;
+  annualized_return: string;
+  annualized_vol: string;
+  max_drawdown: string;
+  max_drawdown_peak: string;
+  max_drawdown_trough: string;
+  worst_day: string;
+  worst_day_date: string;
+  worst_month: string;
+  worst_month_label: string;
+}
+export interface ReplayHolding {
+  holding_id: string;
+  name: string;
+  weight: string | null;
+  method: "own" | "fund_nav" | "head_proxy" | "proxy" | "cash" | "cash_assumed" | "excluded";
+  excluded_reason: "unvalued" | "pending" | "data_unavailable" | null;
+  own_history_unavailable: boolean;
+  proxy_symbol: string | null;
+  proxy_name: string | null;
+  beta: string | null;
+  beta_samples: number | null;
+  own_first_date: string | null;
+  own_vol: string | null;
+  proxy_segment_vol: string | null;
+}
+export interface JadeReplay {
+  status: "ok" | "pending" | "no_holdings" | "insufficient";
+  base_currency: string;
+  benchmark: BenchmarkCode;
+  benchmark_symbol: string;
+  benchmark_name: string;
+  benchmark_status: "ok" | "pending" | "unavailable";
+  window_start: string;
+  window_end: string;
+  first_valid_date: string | null;
+  sample_count: number;
+  skipped_days: number;
+  points: { date: string; portfolio: string | null; benchmark: string | null }[];
+  metrics: { portfolio: ReplayMetrics | null; benchmark: ReplayMetrics | null };
+  coverage: {
+    own_share: string;
+    head_proxy_share: string;
+    proxy_share: string;
+    cash_share: string;
+    cash_assumed_share: string;
+    approx_share_at_start: string;
+    data_quality: boolean;
+    pending_share: string | null;
+  };
+  holdings: ReplayHolding[];
+}
+export async function getJadeReplay(baseCurrency?: BaseCurrency, benchmark: BenchmarkCode = "sp500"): Promise<JadeReplay> {
+  const params = new URLSearchParams({ benchmark });
+  if (baseCurrency) params.set("base_currency", baseCurrency);
+  const res = await fetch(`/api/jade/replay?${params.toString()}`, { cache: "no-store" });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<JadeReplay>;
 }

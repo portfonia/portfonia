@@ -20,6 +20,7 @@ celery_app = Celery(
     broker=_settings.redis_url,
     backend=_settings.redis_url,
     include=[
+        "app.tasks.jade_tasks",
         "app.tasks.report_tasks",
         "app.tasks.capture_tasks",
         "app.tasks.holdings_tasks",
@@ -338,6 +339,10 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.operational_events_tasks.cleanup_operational_events",
         "schedule": crontab(hour=5, minute=0, nowfun=_NowIn(UTC)),
     },
+    "refresh-jade-price-history-daily": {
+        "task": "app.tasks.jade_tasks.refresh_jade_price_history_task",
+        "schedule": crontab(hour=22, minute=15),
+    },
     # Eligible pending waitlist entries (issue #672). Every day, including
     # weekends. 0 on WAITLIST_AUTO_INVITE_DAILY_LIMIT pauses the run.
     "waitlist-auto-invite-daily": {
@@ -382,6 +387,7 @@ API_QUIET_BEAT_ENTRIES: dict[str, bool] = {
     "check-capture-health-daily": False,
     "capture-fx-evening-daily": False,
     "cleanup-operational-events-daily": False,
+    "refresh-jade-price-history-daily": True,
     "waitlist-auto-invite-daily": False,
     "intel-slot-pre_open": True,
     "intel-slot-post_close": True,

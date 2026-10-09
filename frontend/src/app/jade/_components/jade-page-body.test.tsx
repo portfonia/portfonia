@@ -6,6 +6,7 @@ vi.mock("@/hooks/use-session", () => ({ revalidateSession: vi.fn() }));
 vi.mock("next-intl", () => ({ useTranslations: () => (key: string, values?: object) => key + (values ? JSON.stringify(values) : "") }));
 vi.mock("@/lib/api", async () => ({ ...await vi.importActual<typeof import("@/lib/api")>("@/lib/api"), setJadeCadence, getSubscriptionQuote, setSubscription, cancelSubscription }));
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
+vi.mock("./replay-section", () => ({ ReplaySection: () => <div data-testid="replay-section" /> }));
 import type { Me } from "@/lib/api";
 import { JadePageBody } from "./jade-page-body";
 const me: Me = { email: "jade@example.com", credit_balance: "10.00", delivery_email: null, email_verified_at: "2026-10-01T12:00:00Z", delivery_email_verified_at: null, tos_accepted_at: null, has_questionnaire: true, has_holdings: false, missing: [], pending_email_verifications: [], report_language: "en", report_currency: "USD", subscription: { status: "inactive", type: null, cadence: "none", expires_on: null, cancel_pending: false, next_adjustment_at: null } };
@@ -74,4 +75,9 @@ it("375px component check keeps schedule full width and subscription controls wr
   expect(cancel.parentElement).toHaveClass("flex-wrap");
   expect(container.querySelector(".min-w-0")).toBeInTheDocument();
   vi.unstubAllGlobals();
+});
+
+it.each(["jade", "daily", "weekly"] as const)("A11 replay is Jade-only for %s", (plan) => {
+  render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, type: plan } }} hadLoadError={false} />);
+  expect(screen.queryByTestId("replay-section") !== null).toBe(plan === "jade");
 });

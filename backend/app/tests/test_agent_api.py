@@ -301,8 +301,9 @@ def test_acceptance_10_explicit_beat_declarations() -> None:
 
     check()
     mapping = tasks.API_QUIET_BEAT_ENTRIES
-    assert len(mapping) == 49
+    assert len(mapping) == 50
     assert {key for key, value in mapping.items() if value} == {
+        "refresh-jade-price-history-daily",
         "intel-slot-pre_open",
         "intel-slot-post_close",
         "report-incremental-weekday",

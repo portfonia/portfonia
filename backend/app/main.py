@@ -22,6 +22,7 @@ from app.routers import (
     holdings,
     investment_context,
     invitation_letters,
+    jade,
     me,
     paddle_webhooks,
     payments,
@@ -84,6 +85,7 @@ app.include_router(api_token_revoke.router, prefix="/api-tokens", tags=["api-tok
 app.include_router(agent.router, prefix="/agent/v1", tags=["agent"])
 app.include_router(holdings.router, prefix="/holdings", tags=["holdings"])
 app.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
+app.include_router(jade.router, prefix="/jade", tags=["jade"])
 app.include_router(reports.router, prefix="/reports", tags=["reports"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
 app.include_router(auth.router, prefix="/auth", tags=["auth"])

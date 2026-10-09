@@ -1,0 +1,66 @@
+"""Issue #714 proxy table and replay constants."""
+
+from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
+
+REPLAY_YEARS = 5
+FETCH_MARGIN_DAYS = 15
+CARRY_DAYS = 10
+MIN_RETURNS = 10
+BETA_MIN_SAMPLES = 60
+DATA_QUALITY_SHARE = Decimal("0.66")
+NAV_PAGE_SIZE = 20
+NAV_PAGE_PAUSE_SECONDS = 0.2
+
+
+@dataclass(frozen=True)
+class EtfSpec:
+    symbol: str
+    currency: str
+    name: str
+
+
+SPY = EtfSpec("SPY", "USD", "SPDR S&P 500 ETF Trust")
+CSI = EtfSpec("510300.SS", "CNY", "Huatai-PineBridge CSI 300 ETF")
+ACWI = EtfSpec("ACWI", "USD", "iShares MSCI ACWI ETF")
+STOCK_PROXY_BY_MARKET = {
+    "US": SPY,
+    "HK": EtfSpec("2800.HK", "HKD", "Tracker Fund of Hong Kong"),
+    "A-Share": CSI,
+    "UK": EtfSpec("ISF.L", "GBP", "iShares Core FTSE 100 UCITS ETF"),
+    "Europe": EtfSpec("EXSA.DE", "EUR", "iShares STOXX Europe 600 UCITS ETF (DE)"),
+    "Japan": EtfSpec("1306.T", "JPY", "NEXT FUNDS TOPIX ETF"),
+    "Korea": EtfSpec("069500.KS", "KRW", "KODEX 200"),
+    "Other": ACWI,
+}
+CLASS_PROXY = {
+    "EQUITY_US_BROAD": SPY,
+    "EQUITY_US_TECH": EtfSpec("QQQ", "USD", "Invesco QQQ Trust"),
+    "EQUITY_DM": EtfSpec("EFA", "USD", "iShares MSCI EAFE ETF"),
+    "EQUITY_CN": CSI,
+    "EQUITY_EM": EtfSpec("EEM", "USD", "iShares MSCI Emerging Markets ETF"),
+    "EQUITY_BROAD": ACWI,
+    "REIT": EtfSpec("VNQ", "USD", "Vanguard Real Estate ETF"),
+    "PRECIOUS_METALS": EtfSpec("GLD", "USD", "SPDR Gold Shares"),
+    "ENERGY": EtfSpec("XLE", "USD", "Energy Select Sector SPDR Fund"),
+    "COMMODITY": EtfSpec("DBC", "USD", "Invesco DB Commodity Index Tracking Fund"),
+    "BOND_FUND": EtfSpec("AGG", "USD", "iShares Core U.S. Aggregate Bond ETF"),
+}
+BENCHMARK_ETF = {
+    "sp500": SPY,
+    "csi300": CSI,
+    "nasdaq": EtfSpec("ONEQ", "USD", "Fidelity Nasdaq Composite Index ETF"),
+    "dow30": EtfSpec("DIA", "USD", "SPDR Dow Jones Industrial Average ETF Trust"),
+}
+FIXED_ETF_SYMBOLS = {
+    e.symbol
+    for e in [*STOCK_PROXY_BY_MARKET.values(), *CLASS_PROXY.values(), *BENCHMARK_ETF.values()]
+}
+
+
+def years_before(day: date, years: int) -> date:
+    try:
+        return day.replace(year=day.year - years)
+    except ValueError:
+        return day.replace(year=day.year - years, day=28)

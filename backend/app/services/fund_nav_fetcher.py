@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -423,3 +424,70 @@ def update_fund_navs(session: Session) -> FundNavFetchResult:
 
     session.flush()
     return result
+
+
+@dataclass(frozen=True)
+class NavRow:
+    """Unit NAV and cash-distribution text for Jade's total-return index."""
+
+    nav_date: date
+    unit_nav: Decimal
+    fhsp: str
+
+
+def fetch_nav_history_pages(
+    fund_code: str,
+    client: httpx.Client,
+    start_date: date,
+    end_date: date,
+    stop_after: date | None,
+) -> list[NavRow] | None:
+    """Page newest-first LSJZ history; a failed page invalidates this fetch."""
+    from app.services.jade_replay_config import NAV_PAGE_PAUSE_SECONDS, NAV_PAGE_SIZE
+
+    by_date: dict[date, NavRow] = {}
+    page = 1
+    while True:
+        url = _LSJZ_URL.format(
+            fund_code=fund_code,
+            page_size=NAV_PAGE_SIZE,
+            start=start_date.isoformat(),
+            end=end_date.isoformat(),
+        ).replace("pageIndex=1", f"pageIndex={page}")
+        try:
+            resp = client.get(url, headers=_LSJZ_HEADERS, timeout=10)
+            resp.raise_for_status()
+            payload = resp.json()
+            if not isinstance(payload, dict) or payload.get("ErrCode") != 0:
+                return None
+            data = payload.get("Data") or {}
+            if not isinstance(data, dict):
+                return None
+            rows = data.get("LSJZList") or []
+            if not isinstance(rows, list):
+                return None
+            if not rows:
+                break
+            stop = False
+            for raw in rows:
+                if not isinstance(raw, dict):
+                    return None
+                day = date.fromisoformat(str(raw["FSRQ"]))
+                nav = _parse_unit_nav(raw["DWJZ"])
+                if nav is None:
+                    return None
+                text = raw.get("FHSP") or ""
+                if not isinstance(text, str):
+                    return None
+                if stop_after is not None and day <= stop_after:
+                    stop = True
+                if start_date <= day <= end_date:
+                    by_date.setdefault(day, NavRow(day, nav, text))
+            if stop:
+                break
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            logger.warning("Failed paged NAV history for fund %s", fund_code, exc_info=True)
+            return None
+        time.sleep(NAV_PAGE_PAUSE_SECONDS)
+        page += 1
+    return [by_date[d] for d in sorted(by_date)]
