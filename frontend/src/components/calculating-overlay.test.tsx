@@ -18,8 +18,7 @@ it("A7 overlay uses caller label, inert controls and a covering pointer layer", 
   expect(layer).toHaveTextContent("Working");
   expect(layer).toHaveAttribute("aria-live", "polite");
   expect(layer).toHaveClass("absolute", "inset-0", "z-10");
-  // jsdom has no hit testing or native inert. A pointer over the covered
-  // button targets this full-region layer in the browser.
-  fireEvent.click(layer);
-  expect(handler).not.toHaveBeenCalled();
+  expect(layer).not.toHaveClass("pointer-events-none");
+  expect(layer.style.pointerEvents).not.toBe("none");
+  expect(window.getComputedStyle(layer).pointerEvents).not.toBe("none");
 });
