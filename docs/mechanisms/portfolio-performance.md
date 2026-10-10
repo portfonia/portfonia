@@ -531,6 +531,10 @@ non-USD `base_currency` needs FX depth aligned with the benchmark seed.
 Issue #720 adds `--before-earliest`: extend each FX pair only before its earliest existing date, preserving every existing row; the default upsert behavior is unchanged.
 
 **Ops (one-off after merge, production):** run
+`app/scripts/backfill_fx_fred.py` (#723) is a separate one-time dry-run/default
+H.10 backfill for the dot-com and 2008 stress windows; separately authorized
+`--apply` inserts only within those windows and never updates existing rows.
+
 `python -m app.scripts.backfill_fx_rates` (default 5 years; `--years`
 override allowed) once against the production database, then confirm
 `min(rate_date)` / `count(*)` per pair and smoke

@@ -15,7 +15,7 @@ vi.mock("recharts", () => ({
   ReferenceLine: ({ x, strokeDasharray }: { x: number; strokeDasharray: string }) => <span data-testid="reference" data-x={x} data-dash={strokeDasharray} />,
 }));
 const coverage={ own_share:"1.000000",head_proxy_share:"0.000000",proxy_share:"0.000000",cash_share:"0.000000",cash_assumed_share:"0.000000",approx_share_at_start:"0.000000",data_quality:false,pending_share:null };
-const scenario={ id:"covid_2020",peak_date:"2020-02-19",trough_date:"2020-03-23",window_start:"2019-08-19",window_end:"2020-09-23",status:"ok",first_valid_date:"2019-08-19",sample_count:100,portfolio_value:"100000.00",shock_return:"-0.178571",shock_amount:"-17857.10",max_drawdown:"-0.250000",max_drawdown_peak:"2020-02-20",max_drawdown_trough:"2020-03-24",benchmark_status:"ok",benchmark_shock_return:"-0.339000",benchmark_max_drawdown:"-0.340000",contributions:[{asset_class:"STOCK",contribution:"-0.186090"},{asset_class:"BOND_FUND",contribution:"0.007519"}],points:[{date:"2020-02-19",portfolio:"0.000000",benchmark:"0.000000"}],coverage,proxy_understates:false,holdings:[] };
+const scenario={ fx_source:"standard",benchmark_symbol:"SPY",benchmark_name:"SPDR S&P 500 ETF Trust",benchmark_price_only:false,substitutions:[],price_index_symbols:[],id:"covid_2020",peak_date:"2020-02-19",trough_date:"2020-03-23",window_start:"2019-08-19",window_end:"2020-09-23",status:"ok",first_valid_date:"2019-08-19",sample_count:100,portfolio_value:"100000.00",shock_return:"-0.178571",shock_amount:"-17857.10",max_drawdown:"-0.250000",max_drawdown_peak:"2020-02-20",max_drawdown_trough:"2020-03-24",benchmark_status:"ok",benchmark_shock_return:"-0.339000",benchmark_max_drawdown:"-0.340000",contributions:[{asset_class:"STOCK",contribution:"-0.186090"},{asset_class:"BOND_FUND",contribution:"0.007519"}],points:[{date:"2020-02-19",portfolio:"0.000000",benchmark:"0.000000"}],coverage,proxy_understates:false,holdings:[] };
 const data={base_currency:"USD",benchmark:"sp500",benchmark_symbol:"SPY",benchmark_name:"SPDR S&P 500 ETF Trust",scenarios:[scenario,{...scenario,id:"rates_2022",peak_date:"2022-01-03",trough_date:"2022-10-12",shock_return:"-0.100000",shock_amount:"-10000.00",contributions:[{asset_class:"BOND_FUND",contribution:"-0.100000"}]},{...scenario,id:"tariffs_2025"}]};
 type Settings={currency:"USD"|"EUR"|"CNY";benchmark:"sp500"|"csi300"}|null;
 async function view(settings: Settings=null) {
@@ -34,7 +34,7 @@ it("A16 initial layout under overlay settles",async()=>{
   await act(async()=>resolve(data));expect(screen.queryByTestId("calculating-overlay")).not.toBeInTheDocument();
 });
 it("A17 local scenario switch swaps figures dates and contributions",async()=>{
-  getJadeStress.mockResolvedValue(data);await view();await screen.findByTestId("line-chart");expect(screen.getByRole("button",{name:"2020 COVID shock"})).toHaveAttribute("aria-pressed","true");
+  getJadeStress.mockResolvedValue(data);await view();await screen.findByTestId("line-chart");expect(screen.getByRole("button",{name:"2025 tariff shock"})).toHaveAttribute("aria-pressed","true");
   fireEvent.click(screen.getByRole("button",{name:"2022 rate hikes"}));expect(getJadeStress).toHaveBeenCalledOnce();expect(screen.getByTestId("stress-table")).toHaveTextContent("-10.00%");expect(screen.getByText(/S&P 500 closing peak 2022-01-03/)).toBeInTheDocument();expect(screen.getByTestId("stress-contributions").querySelectorAll("[data-contribution]")).toHaveLength(1);
 });
 it("A18 percentage amount dates and null table cells",async()=>{
@@ -74,4 +74,95 @@ it.each([
   getJadeStress.mockResolvedValue({ ...data, scenarios: [{ ...scenario, holdings: [{ holding_id: "watched", name: "Watched", asset_class: "STOCK", method: "excluded", weight: null, excluded_reason: "watch_only", proxy_symbol: null, proxy_name: null, beta: null, beta_samples: null, own_first_date: null }] }] });
   render(<LocaleProvider routeLocale={locale}><StressSection settings={null} /></LocaleProvider>);
   expect(await screen.findByText(text)).toBeInTheDocument();
+});
+
+const modern = { ...scenario, fx_source: "standard", benchmark_symbol: "ONEQ", benchmark_name: "Nasdaq ETF", benchmark_price_only: false, substitutions: [], price_index_symbols: [] };
+const substitution = { primary: "2800.HK", symbol: "^HSI", name: "Hang Seng Index", price_only: true };
+const historical = { ...modern, id: "dotcom_2000", fx_source: "fred", benchmark_symbol: "^IXIC", benchmark_price_only: true, substitutions: [substitution], price_index_symbols: ["^HSI"], coverage: { ...coverage, approx_share_at_start: "0.823400", data_quality: true }, holdings: [{ holding_id: "sub", name: "Hong Kong", asset_class: "STOCK", method: "proxy", weight: "1.000000", excluded_reason: null, proxy_symbol: "^HSI", proxy_name: "Hang Seng Index", proxy_for: "2800.HK", price_only: true, beta: null, beta_samples: null, own_first_date: null }] };
+const five = { ...data, benchmark: "nasdaq", benchmark_symbol: "ONEQ", scenarios: [historical, { ...modern, id: "gfc_2008" }, modern, { ...modern, id: "rates_2022" }, { ...modern, id: "tariffs_2025" }] };
+it("B14 five initial buttons are chronological and latest pressed; response last wins locally", async () => {
+  let resolve: (value: typeof five) => void = () => {};
+  getJadeStress.mockImplementation(() => new Promise(r => { resolve = r; }));
+  await view();
+  const buttons = within(screen.getByRole("radiogroup")).getAllByRole("button");
+  expect(buttons.map(b => b.textContent)).toEqual(["2000–2002 dot-com crash", "2008 financial crisis", "2020 COVID shock", "2022 rate hikes", "2025 tariff shock"]);
+  buttons.forEach(b => expect(b).toBeDisabled());
+  expect(buttons[4]).toHaveAttribute("aria-pressed", "true");
+  await act(async () => resolve({ ...five, scenarios: five.scenarios.slice(0, 4) }));
+  expect(screen.getByRole("button", { name: "2022 rate hikes" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(screen.getByRole("button", { name: "2000–2002 dot-com crash" }));
+  expect(screen.getByRole("button", { name: "2000–2002 dot-com crash" })).toHaveAttribute("aria-pressed", "true");
+  expect(getJadeStress).toHaveBeenCalledOnce();
+});
+it.each(["quality", "substitutions", "indexes"])("B15 independent notice trigger %s", async trigger => {
+  const selected = { ...modern, coverage: { ...coverage, approx_share_at_start: "0.823400", data_quality: trigger === "quality" }, substitutions: trigger === "substitutions" ? [substitution] : [], price_index_symbols: trigger === "indexes" ? ["^HSI"] : [] };
+  getJadeStress.mockResolvedValue({ ...data, scenarios: [selected] });
+  const { container } = await view();
+  const notice = await screen.findByTestId("stress-approx-notice");
+  expect(notice).toHaveAttribute("role", "note");
+  expect(notice).toHaveTextContent("About 82.34%");
+  expect(notice).toHaveClass("rounded-lg", "border-amber-300/60", "bg-amber-50", "dark:bg-amber-950/30", "flex", "min-w-0", "flex-col", "gap-1", "break-words");
+  expect(notice.compareDocumentPosition(screen.getByTestId("stress-table")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(notice).queryByText(/At least 66%/) !== null).toBe(trigger === "quality");
+  expect(within(notice).queryByText(/Where the usual index ETF/) !== null).toBe(trigger === "substitutions");
+  expect(within(notice).queryByText(/price indexes without dividends/) !== null).toBe(trigger === "indexes");
+  expect(container.querySelectorAll("p").length).toBeGreaterThan(0);
+  expect(screen.queryAllByText(/At least 66%/)).toHaveLength(trigger === "quality" ? 1 : 0);
+});
+it("B15 all four notice lines; insufficient allowed, pending/no_holdings hidden and low approximation hidden", async () => {
+  for (const status of ["ok", "insufficient", "pending", "no_holdings"]) {
+    getJadeStress.mockResolvedValue({ ...data, scenarios: [{ ...historical, status }] });
+    const { unmount } = await view();
+    await waitFor(() => expect(screen.queryByTestId("calculating-overlay")).not.toBeInTheDocument());
+    if (status === "ok" || status === "insufficient") {
+      expect(screen.getByTestId("stress-approx-notice").children).toHaveLength(4);
+    } else expect(screen.queryByTestId("stress-approx-notice")).not.toBeInTheDocument();
+    unmount();
+  }
+  getJadeStress.mockResolvedValue({ ...data, scenarios: [{ ...modern, coverage: { ...coverage, approx_share_at_start: "0.100000" } }] });
+  await view(); await screen.findByTestId("line-chart");
+  expect(screen.queryByTestId("stress-approx-notice")).not.toBeInTheDocument();
+  expect(screen.queryByText(/At least 66%/)).not.toBeInTheDocument();
+});
+it("B16 holdings disclosures and model notes follow their fields", async () => {
+  getJadeStress.mockResolvedValue(five);
+  await view(); await screen.findByTestId("line-chart");
+  expect(screen.queryByText(/Exchange rates in this window are US Federal Reserve/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Betas are estimated against/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "2000–2002 dot-com crash" }));
+  expect(screen.getByText("^HSI stands in for 2800.HK, which has no data in this window.")).toBeInTheDocument();
+  expect(screen.getByText("Price index, dividends excluded.")).toBeInTheDocument();
+  expect(screen.getByText(/Betas are estimated against the usual ETF/)).toBeInTheDocument();
+  expect(screen.getByText(/1 HKD = 1.03 MOP/)).toBeInTheDocument();
+  expect(screen.getByText(/CNH, which began trading in 2010/)).toBeInTheDocument();
+});
+it("B17 table and legend use selected benchmark symbol", async () => {
+  getJadeStress.mockResolvedValue(five);
+  await view(); await screen.findByTestId("line-chart");
+  expect(screen.getByTestId("stress-table")).toHaveTextContent("(ONEQ)");
+  fireEvent.click(screen.getByRole("button", { name: "2000–2002 dot-com crash" }));
+  expect(screen.getByTestId("stress-table")).toHaveTextContent("(^IXIC)");
+  expect(screen.getByTestId("stress-legend")).toHaveTextContent("(^IXIC)");
+  fireEvent.click(screen.getByRole("button", { name: "2020 COVID shock" }));
+  expect(screen.getByTestId("stress-table")).toHaveTextContent("(ONEQ)");
+});
+it("B18 scenario names and revised total-return exception are authored in all catalogs", () => {
+  const expected = [[en, "2000–2002 dot-com crash", "2008 financial crisis"], [hans, "2000–2002 \u4e92\u8054\u7f51\u6ce1\u6cab", "2008 \u91d1\u878d\u5371\u673a"], [hant, "2000–2002 \u7db2\u8def\u6ce1\u6cab", "2008 \u91d1\u878d\u6d77\u562f"]] as const;
+  for (const [catalog, dotcom, gfc] of expected) {
+    const scenarios = catalog.jade.stress.scenarios as unknown as Record<string, { name: string }>;
+    expect(scenarios.dotcom_2000?.name).toBe(dotcom);
+    expect(scenarios.gfc_2008?.name).toBe(gfc);
+  }
+  expect(en.jade.stress.methodText).toContain("except the price indexes named for a scenario, which exclude dividends");
+  expect(hans.jade.stress.methodText).toContain("\u60c5\u666f\u4e2d\u5217\u660e\u7684\u4ef7\u683c\u6307\u6570\u9664\u5916");
+  expect(hant.jade.stress.methodText).toContain("\u60c5\u5883\u6240\u5217\u4e4b\u50f9\u683c\u6307\u6578\u4e0d\u542b\u80a1\u606f");
+});
+it("B15 375px five-button selector and amber notice wrap within the card", async () => {
+  getJadeStress.mockResolvedValue({ ...five, scenarios: [...five.scenarios.slice(1), historical] });
+  await view();
+  const notice = await screen.findByTestId("stress-approx-notice");
+  expect(within(screen.getByRole("radiogroup")).getAllByRole("button")).toHaveLength(5);
+  expect(screen.getByRole("radiogroup")).toHaveClass("flex-wrap");
+  expect(notice).toHaveClass("min-w-0", "break-words", "flex-col");
+  expect(notice.closest(".px-4")).toHaveClass("min-w-0");
 });

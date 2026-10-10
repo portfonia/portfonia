@@ -1,5 +1,6 @@
 """Nightly shared total-return history fill for active Jade users."""
 
+import csv
 import logging
 import re
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ from app.services.jade_replay_config import (
     SCENARIOS,
     years_before,
 )
+from app.services.jade_substitutes import DATA_DIR, file_spec, substitute_keys
 from app.services.markets import is_capture_supported
 
 logger = logging.getLogger(__name__)
@@ -152,7 +154,7 @@ def refresh_jade_price_history(session: Session, today: date) -> FillSummary:
         result.written,
         result.failed,
     )
-    fill_scenarios(session, today, keys)
+    fill_scenarios(session, today, keys | substitute_keys())
     return result
 
 
@@ -190,6 +192,17 @@ def fill_scenarios(session: Session, today: date, keys: set[str]) -> FillSummary
                         (day, Decimal(str(close)), None)
                         for day, _, _, _, close, _ in bars.get(key[3:], [])
                     ]
+                elif key.startswith("file:"):
+                    spec = file_spec(key)
+                    assert spec is not None and spec.file is not None
+                    with (DATA_DIR / spec.file).open(encoding="utf-8", newline="") as data:
+                        points = [
+                            (day, Decimal(row["close"]), None)
+                            for row in csv.DictReader(data)
+                            if scenario.start - timedelta(days=CARRY_DAYS)
+                            <= (day := date.fromisoformat(row["date"]))
+                            <= scenario.end
+                        ]
                 else:
                     with httpx.Client() as client:
                         rows = fetch_nav_history_pages(

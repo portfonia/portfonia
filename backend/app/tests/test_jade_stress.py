@@ -98,7 +98,11 @@ def compute(session: Session, benchmark: str = "sp500") -> StressScenario:
 
     return cast(
         StressScenario,
-        stress().compute_stress(session, TEST_USER_ID, "USD", benchmark).scenarios[0],
+        next(
+            s
+            for s in stress().compute_stress(session, TEST_USER_ID, "USD", benchmark).scenarios
+            if s.id == "covid_2020"
+        ),
     )
 
 
@@ -119,6 +123,8 @@ def test_a1_config() -> None:
     scenarios = getattr(config, "SCENARIOS", None)
     assert scenarios is not None
     assert [(s.id, s.start, s.end) for s in scenarios] == [
+        ("dotcom_2000", date(1999, 9, 24), date(2003, 4, 9)),
+        ("gfc_2008", date(2007, 4, 9), date(2009, 9, 9)),
         ("covid_2020", START, date(2020, 9, 23)),
         ("rates_2022", date(2021, 7, 3), date(2023, 4, 12)),
         ("tariffs_2025", date(2024, 8, 19), date(2025, 10, 8)),
@@ -179,14 +185,14 @@ def test_a3_fill_retry_future_holdings(
 
     monkeypatch.setattr(history, "fetch_ohlcv_range_bounded", yf)
     r = fill(db_session, E, {"yf:A", "yf:EMPTY"})
-    assert (r.attempted, r.written, r.failed) == (6, 3, 3)
+    assert (r.attempted, r.written, r.failed) == (10, 5, 5)
     assert calls == [
         (["A", "EMPTY"], s.start - timedelta(days=10), s.end + timedelta(days=1))
         for s in config.SCENARIOS
     ]
     calls.clear()
     fill(db_session, E + timedelta(days=1), {"yf:A", "yf:ABC", "yf:EMPTY"})
-    assert [c[0] for c in calls] == [["ABC", "EMPTY"]] * 3
+    assert [c[0] for c in calls] == [["ABC", "EMPTY"]] * 5
     for s in config.SCENARIOS:
         abc = db_session.get(JadeScenarioSeries, (s.id, "yf:ABC"))
         empty = db_session.get(JadeScenarioSeries, (s.id, "yf:EMPTY"))
@@ -415,12 +421,16 @@ def test_a8_classification(db_session: Session, kind: str, method: str, reason: 
 
     stress()
     if kind == "BOXX":
-        s = config.SCENARIOS[1]
+        s = next(s for s in config.SCENARIOS if s.id == "rates_2022")
         ds = [s.peak, s.trough, date(2022, 12, 28)]
         cached(db_session, "yf:SPY", ds, [100.0] * 3, s.id)
         cached(db_session, "yf:BOXX", [ds[-1]], [50.0], s.id)
         holding(db_session, auto=True, ticker="BOXX")
-        out = stress().compute_stress(db_session, TEST_USER_ID, "USD", "sp500").scenarios[1]
+        out = next(
+            s
+            for s in stress().compute_stress(db_session, TEST_USER_ID, "USD", "sp500").scenarios
+            if s.id == "rates_2022"
+        )
     else:
         if kind != "proxy_pending":
             cached(db_session, "yf:SPY", DAYS, [100.0] * len(DAYS), attempted=kind != "calendar")
@@ -568,7 +578,13 @@ def test_a14_api(app_client: TestClient, db_session: Session) -> None:
     assert response.status_code == 200, response.text
     out = importlib.import_module("app.schemas.jade").JadeStressOut.model_validate(response.json())
     assert (out.base_currency, out.benchmark) == ("EUR", "sp500")
-    assert [s.id for s in out.scenarios] == ["covid_2020", "rates_2022", "tariffs_2025"]
+    assert [s.id for s in out.scenarios] == [
+        "dotcom_2000",
+        "gfc_2008",
+        "covid_2020",
+        "rates_2022",
+        "tariffs_2025",
+    ]
     assert app_client.get("/jade/stress?benchmark=invalid").status_code == 422
     u.subscription_type = "daily"
     db_session.flush()

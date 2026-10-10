@@ -14,7 +14,7 @@ import { BENCHMARK_COLORS, PORTFOLIO_COLOR } from "@/app/portfolio/performance/_
 import { getJadeStress, type BenchmarkCode, type JadeStress, type ScenarioId, type StressHolding } from "@/lib/api";
 
 type Settings = { currency: BaseCurrency; benchmark: BenchmarkCode };
-const ids: ScenarioId[] = ["covid_2020", "rates_2022", "tariffs_2025"];
+const ids: ScenarioId[] = ["dotcom_2000", "gfc_2008", "covid_2020", "rates_2022", "tariffs_2025"];
 function matches(settings: Settings, data: JadeStress | null) {
   return data?.base_currency === settings.currency && data?.benchmark === settings.benchmark;
 }
@@ -63,11 +63,11 @@ export function StressSection({ settings }: { settings: Settings | null }) {
     latestSettings.current = next;
     if (!busy.current && !matches(next, savedData.current)) request.current(next);
   }, [currency, benchmark]);
-  const selected = data?.scenarios.find(s => s.id === scenario) ?? data?.scenarios[0];
-  const selectedId = selected?.id ?? ids[0];
+  const selected = data?.scenarios.find(s => s.id === scenario) ?? data?.scenarios.at(-1);
+  const selectedId = selected?.id ?? ids.at(-1) ?? "tariffs_2025";
   const ok = selected?.status === "ok";
   const names = portfolio.raw("performance.benchmarkNames") as Record<BenchmarkCode, string>;
-  const benchmarkLabel = data ? `${names[data.benchmark]} (${data.benchmark_symbol})` : names[benchmark ?? "sp500"];
+  const benchmarkLabel = data ? `${names[data.benchmark]} (${selected?.benchmark_symbol ?? data.benchmark_symbol})` : names[benchmark ?? "sp500"];
   const coverage = selected ? (["own", "proxy", "head_proxy", "cash", "cash_assumed"] as const)
     .filter(key => Number(selected.coverage[`${key}_share`]) > 0)
     .map(key => replay(`coverage.${key}`, { pct: (Number(selected.coverage[`${key}_share`]) * 100).toFixed(2) }))
@@ -93,6 +93,15 @@ export function StressSection({ settings }: { settings: Settings | null }) {
           </div>
           <p>{t(`scenarios.${selectedId}.description`)}</p>
           {selected && <p>{t("windowText", { start: selected.window_start, end: selected.window_end, peak: selected.peak_date, trough: selected.trough_date })}</p>}
+          {selected && (ok || selected.status === "insufficient") && (selected.coverage.data_quality || selected.substitutions.length > 0 || selected.price_index_symbols.length > 0) && <div
+            data-testid="stress-approx-notice" role="note"
+            className="rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200 flex min-w-0 flex-col gap-1 break-words"
+          >
+            <p>{t("approxShare", { pct: (Number(selected.coverage.approx_share_at_start) * 100).toFixed(2) })}</p>
+            {selected.coverage.data_quality && <p>{replay("dataQuality")}</p>}
+            {selected.substitutions.length > 0 && <p>{t("substitutes", { list: selected.substitutions.map(item => t("substituteItem", { primary: item.primary, symbol: item.symbol, name: item.name })).join(locale === "en" ? ", " : "，") })}</p>}
+            {selected.price_index_symbols.length > 0 && <p>{t("priceIndex", { symbols: selected.price_index_symbols.join(", ") })}</p>}
+          </div>}
           <div data-testid="stress-table" className="grid min-w-0 grid-cols-3 gap-x-2 gap-y-3 text-xs sm:text-sm">
             <span className="min-w-0 break-words" /><span className="min-w-0 break-words">{t("columns.portfolio")}</span><span className="min-w-0 break-words">{t("columns.benchmark", { benchmark: benchmarkLabel })}</span>
             <div className="contents"><span className="min-w-0 break-words">{t("rows.shock")}</span>
@@ -129,14 +138,13 @@ export function StressSection({ settings }: { settings: Settings | null }) {
               <div data-track className="relative h-2 w-full min-w-0 bg-muted"><span className="absolute inset-y-0 left-1/2 w-px bg-muted-foreground" /><span data-bar className="absolute inset-y-0" style={{ ...(value < 0 ? { right: "50%" } : { left: "50%" }), width: `${maxContribution ? Math.abs(value) / maxContribution * 50 : 0}%`, background: value < 0 ? "var(--destructive)" : PORTFOLIO_COLOR }} /></div>
             </div>; })}<p>{t("contributionsNote")}</p>
           </div>}
-          {selected && (ok || selected.status === "insufficient") && <>
-            {selected.coverage.data_quality && <p>{replay("dataQuality")}</p>}
-            {selected.proxy_understates && <p>{t("proxyUnderstates")}</p>}
-          </>}
+          {selected && (ok || selected.status === "insufficient") && selected.proxy_understates && <p>{t("proxyUnderstates")}</p>}
           <details className="min-w-0 break-words"><summary className="cursor-pointer font-medium">{t("model")}</summary>
             <div className="mt-3 flex min-w-0 flex-col gap-3">
               {selected && (ok || selected.status === "insufficient") && <><p>{t("sampleText", { count: selected.sample_count, first: selected.first_valid_date ?? "—", end: selected.window_end })}</p><p>{coverage}</p></>}
-              {selected && <ul className="flex min-w-0 flex-col gap-3 break-words">{selected.holdings.map(h => <li key={h.holding_id} className="min-w-0"><p className="font-medium">{h.name}{h.weight !== null && <> · {pct(h.weight)}</>}</p><p>{method(h)}</p></li>)}</ul>}
+              {selected && <ul className="flex min-w-0 flex-col gap-3 break-words">{selected.holdings.map(h => <li key={h.holding_id} className="min-w-0"><p className="font-medium">{h.name}{h.weight !== null && <> · {pct(h.weight)}</>}</p><p>{method(h)}</p>{h.proxy_for && <p>{t("substituteFor", { symbol: h.proxy_symbol ?? "", primary: h.proxy_for })}</p>}{h.price_only && <p>{t("priceIndexTag")}</p>}</li>)}</ul>}
+              {selected && selected.substitutions.length > 0 && <p>{t("substituteMethod")}</p>}
+              {selected?.fx_source === "fred" && <p>{t("fredFxNote")}</p>}
               <p>{t("methodText", { currency: data?.base_currency ?? currency ?? "USD" })}</p><p>{t("limitations")}</p>
             </div>
           </details>
