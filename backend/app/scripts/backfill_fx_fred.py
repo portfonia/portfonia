@@ -9,7 +9,7 @@ import argparse
 import csv
 import io
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 
 import httpx
 from sqlalchemy import func, or_, select
@@ -88,8 +88,18 @@ def run(session: Session, *, apply: bool = False) -> int:
                 )
                 latest = max(check, key=lambda p: p[0])[1] if check else None
                 diff = (latest / earliest.rate - 1) * 100 if latest is not None else None
+                places = Decimal("0.0001")
+                shown_fred = (
+                    latest.quantize(places, rounding=ROUND_HALF_EVEN)
+                    if latest is not None
+                    else None
+                )
+                shown_stored = earliest.rate.quantize(places, rounding=ROUND_HALF_EVEN)
+                shown_diff = (
+                    diff.quantize(places, rounding=ROUND_HALF_EVEN) if diff is not None else None
+                )
                 print(
-                    f"check {pair} {earliest.rate_date}: fred={latest} stored={earliest.rate} diff={diff}%"
+                    f"check {pair} {earliest.rate_date}: fred={shown_fred} stored={shown_stored} diff={shown_diff}%"
                 )
         except httpx.HTTPError as exc:
             print(f"[ERR] {series}: {exc}")

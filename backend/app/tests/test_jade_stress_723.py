@@ -530,7 +530,7 @@ def test_b11_fred(
     db_session.refresh(row)
     assert (row.rate, row.source, row.fetched_at) == snapshot
     assert (
-        "check USDEUR 1999-09-24: fred=0.9554748710108924135295241735 stored=0.8 diff="
+        "check USDEUR 1999-09-24: fred=0.9555 stored=0.8000 diff=19.4344%"
         in capsys.readouterr().out
     )
 

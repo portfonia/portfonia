@@ -531,10 +531,6 @@ non-USD `base_currency` needs FX depth aligned with the benchmark seed.
 Issue #720 adds `--before-earliest`: extend each FX pair only before its earliest existing date, preserving every existing row; the default upsert behavior is unchanged.
 
 **Ops (one-off after merge, production):** run
-`app/scripts/backfill_fx_fred.py` (#723) is a separate one-time dry-run/default
-H.10 backfill for the dot-com and 2008 stress windows; separately authorized
-`--apply` inserts only within those windows and never updates existing rows.
-
 `python -m app.scripts.backfill_fx_rates` (default 5 years; `--years`
 override allowed) once against the production database, then confirm
 `min(rate_date)` / `count(*)` per pair and smoke
@@ -543,6 +539,8 @@ HKD (plus one other `_PAIRS` currency, e.g. EUR). Comparable benchmark
 `display_start_date` / `display_end_date` — not truncated to FX-capture
 depth. Remote paths and host identifiers stay in the private ops vault,
 not this file.
+
+`app/scripts/backfill_fx_fred.py` (#723) is a separate one-time dry-run/default H.10 backfill for the dot-com and 2008 stress windows; separately authorized `--apply` inserts only within those windows and never updates existing rows.
 
 **Issues #402/#403 (2026-09-09) — both one-off seed scripts hit the #194
 param-limit bug**: `backfill_fx_rates.py`'s bulk `fx_fetcher._upsert_fx_history`
