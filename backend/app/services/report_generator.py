@@ -53,6 +53,7 @@ from app.core.timezones import ET
 from app.models.intel import IntelSlotRun
 from app.models.paid_intel import IntelArticle, IntelArticleLink
 from app.models.report import Report
+from app.models.user import User
 from app.services.analysis_framework import load_analysis_framework
 from app.services.email_sender import send_ops_alert, send_report_email
 from app.services.forward_events import FORWARD_WINDOW_DAYS, load_forward_events
@@ -111,6 +112,7 @@ from app.services.section3_proportionality import (
     HoldingCheckInput,
     check_section3_proportionality,
 )
+from app.services.subscription import is_jade
 from app.services.technical_position import compute_technical_positions
 from app.services.user_scope import user_holdings
 from app.services.watch_tier_config import load_watch_tier_weights
@@ -142,6 +144,17 @@ logger = logging.getLogger(__name__)
 _PROMPT_VERSION = (
     "f2-v12"  # Issue #639: grounded direction, section-label suppression and rolling moves.
 )
+
+
+def _pass2_route(session: Session, user_id: uuid.UUID) -> tuple[str, dict[str, Any]]:
+    settings = get_settings()
+    user = session.get(User, user_id)
+    if user is not None and is_jade(user):
+        return settings.JADE_PASS2_MODEL, {
+            "pin_provider": False,
+            "reasoning_effort": settings.JADE_PASS2_REASONING_EFFORT,
+        }
+    return settings.PRIMARY_LLM_MODEL, {}
 
 
 def _serialize_holding_move(move: HoldingMove) -> dict[str, Any]:
@@ -989,7 +1002,6 @@ def generate_report(
         "not_reached",
     )
     validate_report_type(report_type)
-    settings = get_settings()
     # A local cache when the caller supplied none: the global move set has two
     # consumers in this function (anomaly detection, then the large-holding
     # window moves), and without a cache to share, the second would pay
@@ -1541,15 +1553,17 @@ def generate_report(
             investor_free_text=investor_prefs.free_text,
             macro_continuity=ctx.macro_continuity_snapshot,
         )
-        ctx.pass2_model = settings.PRIMARY_LLM_MODEL
+        model, route_kwargs = _pass2_route(session, user_id)
+        ctx.pass2_model = model
         ctx.pass2_prompt = pass2_user
         raw_pass2 = _call_llm(
             client,
-            settings.PRIMARY_LLM_MODEL,
+            model,
             _build_pass2_system(),
             pass2_user,
             with_holdings=True,
             usage_sink=ctx.llm_calls,
+            **route_kwargs,
         )
         if body_is_incomplete(raw_pass2):
             ctx.rejected_pass2_raw = raw_pass2
@@ -1710,13 +1724,15 @@ def regenerate_report(
             investor_free_text=investor_prefs.free_text,
             macro_continuity=macro_continuity,
         )
+        model, route_kwargs = _pass2_route(session, user_id)
         raw_body = _call_llm(
             _openrouter_client(),
-            get_settings().PRIMARY_LLM_MODEL,
+            model,
             _build_pass2_system(),
             pass2_user,
             with_holdings=True,
             usage_sink=regen_calls,
+            **route_kwargs,
         )
         if body_is_incomplete(raw_body):
             raise RuntimeError(
@@ -1725,6 +1741,7 @@ def regenerate_report(
             )
         body_update: dict[str, Any] = {
             "pass2_raw": raw_body,
+            "pass2_model": model,
             "pass2_prompt": pass2_user,
             "analysis_framework_version": load_analysis_framework().version,
             "investor_questionnaire_snapshot": investor_prefs.questionnaire,
