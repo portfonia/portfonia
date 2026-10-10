@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from app.services.jade_replay_config import ReplayRange
+from app.services.jade_replay_config import ReplayRange, ScenarioId
 
 
 class Metrics(BaseModel):
@@ -126,3 +126,61 @@ class JadeTailRiskOut(BaseModel):
     tolerance_status: Literal["ok", "no_questionnaire"]
     coverage: Coverage
     proxy_understates: bool
+
+
+class StressHolding(BaseModel):
+    holding_id: UUID
+    name: str
+    asset_class: str | None
+    weight: str | None = None
+    method: Literal["own", "fund_nav", "head_proxy", "proxy", "cash", "cash_assumed", "excluded"]
+    excluded_reason: Literal["unvalued", "pending", "data_unavailable"] | None = None
+    proxy_symbol: str | None = None
+    proxy_name: str | None = None
+    beta: str | None = None
+    beta_samples: int | None = None
+    own_first_date: date | None = None
+
+
+class StressContribution(BaseModel):
+    asset_class: str
+    contribution: str
+
+
+class StressPoint(BaseModel):
+    date: date
+    portfolio: str
+    benchmark: str | None
+
+
+class StressScenario(BaseModel):
+    id: ScenarioId
+    peak_date: date
+    trough_date: date
+    window_start: date
+    window_end: date
+    status: Literal["ok", "pending", "no_holdings", "insufficient"]
+    first_valid_date: date | None
+    sample_count: int  # max(len(valid) - 1, 0)
+    portfolio_value: str | None
+    shock_return: str | None
+    shock_amount: str | None
+    max_drawdown: str | None
+    max_drawdown_peak: date | None
+    max_drawdown_trough: date | None
+    benchmark_status: Literal["ok", "pending", "unavailable"]
+    benchmark_shock_return: str | None
+    benchmark_max_drawdown: str | None
+    contributions: list[StressContribution]
+    points: list[StressPoint]
+    coverage: Coverage
+    proxy_understates: bool
+    holdings: list[StressHolding]
+
+
+class JadeStressOut(BaseModel):
+    base_currency: str
+    benchmark: Literal["sp500", "dow30", "nasdaq", "csi300"]
+    benchmark_symbol: str
+    benchmark_name: str
+    scenarios: list[StressScenario]  # SCENARIOS order

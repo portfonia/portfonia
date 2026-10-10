@@ -13,15 +13,22 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
-from app.models.jade_price import JadePricePoint, JadePriceSeries
+from app.models.jade_price import (
+    JadePricePoint,
+    JadePriceSeries,
+    JadeScenarioPoint,
+    JadeScenarioSeries,
+)
 from app.models.user import User
 from app.services._yfinance import fetch_ohlcv_range_bounded
 from app.services.fund_nav_fetcher import fetch_nav_history_pages
 from app.services.instrument_symbols import normalize_legacy_ticker
 from app.services.jade_replay_config import (
+    CARRY_DAYS,
     FETCH_MARGIN_DAYS,
     FIXED_ETF_SYMBOLS,
     REPLAY_YEARS,
+    SCENARIOS,
     years_before,
 )
 from app.services.markets import is_capture_supported
@@ -141,6 +148,115 @@ def refresh_jade_price_history(session: Session, today: date) -> FillSummary:
             logger.exception("[!] Jade history fill failed for %s", key)
     logger.info(
         "[OK] Jade history: attempted=%d written=%d failed=%d",
+        result.attempted,
+        result.written,
+        result.failed,
+    )
+    fill_scenarios(session, today, keys)
+    return result
+
+
+def fill_scenarios(session: Session, today: date, keys: set[str]) -> FillSummary:
+    """Fill each missing instrument/window pair once; empty results retry nightly."""
+    result = FillSummary()
+    for scenario in SCENARIOS:
+        missing = []
+        for key in sorted(keys):
+            row = session.get(JadeScenarioSeries, (scenario.id, key))
+            if row is None or (row.last_success_on is None and row.unusable_reason is None):
+                missing.append(key)
+        symbols = [key[3:] for key in missing if key.startswith("yf:")]
+        bars = (
+            fetch_ohlcv_range_bounded(
+                symbols,
+                scenario.start - timedelta(days=CARRY_DAYS),
+                scenario.end + timedelta(days=1),
+            )
+            if symbols
+            else {}
+        )
+        for key in missing:
+            result.attempted += 1
+            try:
+                row = session.get(JadeScenarioSeries, (scenario.id, key))
+                if row is None:
+                    row = JadeScenarioSeries(scenario_id=scenario.id, series_key=key)
+                    session.add(row)
+                row.last_attempt_on = today
+                session.flush()
+                points: list[tuple[date, Decimal, Decimal | None]] = []
+                if key.startswith("yf:"):
+                    points = [
+                        (day, Decimal(str(close)), None)
+                        for day, _, _, _, close, _ in bars.get(key[3:], [])
+                    ]
+                else:
+                    with httpx.Client() as client:
+                        rows = fetch_nav_history_pages(
+                            key[4:],
+                            client,
+                            scenario.start - timedelta(days=CARRY_DAYS),
+                            scenario.end,
+                            None,
+                        )
+                    if rows is not None:
+                        prev_index = None
+                        prev_nav = None
+                        for nav in rows:
+                            distribution = _DISTRIBUTION.fullmatch(nav.fhsp) if nav.fhsp else None
+                            if nav.fhsp and distribution is None:
+                                logger.warning(
+                                    "Unparsed distribution for scenario %s fund %s: %s",
+                                    scenario.id,
+                                    key[4:],
+                                    nav.fhsp,
+                                )
+                                row.unusable_reason = "unparsed_distribution"
+                                session.execute(
+                                    delete(JadeScenarioPoint).where(
+                                        JadeScenarioPoint.scenario_id == scenario.id,
+                                        JadeScenarioPoint.series_key == key,
+                                    )
+                                )
+                                points = []
+                                break
+                            cash = Decimal(distribution[1]) / 10 if distribution else Decimal(0)
+                            index = (
+                                nav.unit_nav
+                                if prev_index is None
+                                else prev_index * (nav.unit_nav + cash) / cast(Decimal, prev_nav)
+                            )
+                            points.append((nav.nav_date, index, nav.unit_nav))
+                            prev_index, prev_nav = index, nav.unit_nav
+                for day, close, raw in points:
+                    stmt = insert(JadeScenarioPoint).values(
+                        scenario_id=scenario.id,
+                        series_key=key,
+                        trade_date=day,
+                        close=close,
+                        raw_close=raw,
+                    )
+                    session.execute(
+                        stmt.on_conflict_do_update(
+                            index_elements=["scenario_id", "series_key", "trade_date"],
+                            set_={
+                                "close": stmt.excluded.close,
+                                "raw_close": stmt.excluded.raw_close,
+                            },
+                        )
+                    )
+                if points:
+                    row.last_success_on = today
+                    result.written += 1
+                else:
+                    result.failed += 1
+                session.commit()
+            except Exception:
+                session.rollback()
+                result.failed += 1
+                logger.exception("[!] Jade scenario fill failed for %s %s", scenario.id, key)
+    logger.info(
+        "[OK] Jade scenarios: attempted=%d written=%d failed=%d",
         result.attempted,
         result.written,
         result.failed,

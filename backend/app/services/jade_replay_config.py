@@ -84,3 +84,33 @@ MIN_RETURNS_99 = 500
 MONTH_DAYS = 21
 TRADING_DAYS = 252
 HIST_BIN = Decimal("0.005")
+
+ScenarioId = Literal["covid_2020", "rates_2022", "tariffs_2025"]
+SCENARIO_MONTHS = 6
+CALENDAR_KEY = "yf:SPY"
+
+
+def months_after(day: date, months: int) -> date:
+    return months_before(day, -months)
+
+
+@dataclass(frozen=True)
+class Scenario:
+    id: ScenarioId
+    peak: date
+    trough: date
+
+    @property
+    def start(self) -> date:
+        return months_before(self.peak, SCENARIO_MONTHS)
+
+    @property
+    def end(self) -> date:
+        return months_after(self.trough, SCENARIO_MONTHS)
+
+
+SCENARIOS: tuple[Scenario, ...] = (
+    Scenario("covid_2020", date(2020, 2, 19), date(2020, 3, 23)),
+    Scenario("rates_2022", date(2022, 1, 3), date(2022, 10, 12)),
+    Scenario("tariffs_2025", date(2025, 2, 19), date(2025, 4, 8)),
+)
