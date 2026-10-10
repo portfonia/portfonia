@@ -68,7 +68,7 @@ it("375px selector and legend wrap, grid cells wrap and chart/tracks fill card",
 it.each([
   ["en", "Watch only (quantity 0); not included"],
   ["zh-Hans", "\u4ec5\u5173\u6ce8\uff08\u6570\u91cf\u4e3a 0\uff09\uff0c\u4e0d\u8ba1\u5165"],
-  ["zh-Hant", "\u50c5\u95dc\u6ce8\uff08\u6578\u91cf\u70ba 0\uff09\uff0c\u4e0d\u8a08\u5165"],
+  ["zh-Hant", "\u50c5\u95dc\u6ce8\uff08\u6578\u91cf\u70ba 0\uff09\uff0c\u4e0d\u7d0d\u5165"],
 ] as const)("watch-only stress row uses the exact %s copy", async (locale, text) => {
   const { StressSection } = await import("./stress-section");
   getJadeStress.mockResolvedValue({ ...data, scenarios: [{ ...scenario, holdings: [{ holding_id: "watched", name: "Watched", asset_class: "STOCK", method: "excluded", weight: null, excluded_reason: "watch_only", proxy_symbol: null, proxy_name: null, beta: null, beta_samples: null, own_first_date: null }] }] });

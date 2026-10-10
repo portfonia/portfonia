@@ -147,7 +147,7 @@ it("375px span tabs wrap and overlay covers precisely its layout region", async 
 it.each([
   ["en", "Watch only (quantity 0); not included"],
   ["zh-Hans", "\u4ec5\u5173\u6ce8\uff08\u6570\u91cf\u4e3a 0\uff09\uff0c\u4e0d\u8ba1\u5165"],
-  ["zh-Hant", "\u50c5\u95dc\u6ce8\uff08\u6578\u91cf\u70ba 0\uff09\uff0c\u4e0d\u8a08\u5165"],
+  ["zh-Hant", "\u50c5\u95dc\u6ce8\uff08\u6578\u91cf\u70ba 0\uff09\uff0c\u4e0d\u7d0d\u5165"],
 ] as const)("watch-only replay row uses the exact %s copy", async (locale, text) => {
   getJadeReplay.mockResolvedValue({ ...data, holdings: [{ ...data.holdings[0], method: "excluded", weight: null, excluded_reason: "watch_only" }] });
   render(<LocaleProvider routeLocale={locale}><ReplaySection /></LocaleProvider>);

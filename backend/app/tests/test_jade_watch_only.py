@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.services import jade_replay, jade_stress
 from app.services.jade_replay_config import SCENARIOS
+from app.services.portfolio_calculator import compute_portfolio
 from app.tests.conftest import TEST_USER_ID, seed_user
 from app.tests.test_jade_replay import E, S, calendar, holding, series
 from app.tests.test_jade_stress import cached
@@ -91,3 +92,40 @@ def test_stress_watch_only_all_scenarios(
         assert scenario.model_dump(exclude={"holdings"}) == original.model_dump(
             exclude={"holdings"}
         )
+
+
+def test_replay_watched_positive_without_price(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_user(db_session, TEST_USER_ID)
+    monkeypatch.setattr(jade_replay, "today_et", lambda: E)
+    calendar(db_session, [E])
+    h = holding(db_session, auto=True)
+    h.watch_tier = "critical"
+    h.shares = Decimal(1)
+    h.market_price = None
+    db_session.flush()
+    snap = compute_portfolio(db_session, TEST_USER_ID, "USD")
+    assert snap.holdings[0].market_value_base is None
+    out = jade_replay.compute_replay(db_session, TEST_USER_ID, "USD", "sp500", "5Y")
+    row = out.holdings[0]
+    assert (row.method, row.excluded_reason) == ("excluded", "unvalued")
+
+
+@pytest.mark.parametrize("scenario_id", [s.id for s in SCENARIOS])
+def test_stress_watched_positive_without_price(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch, scenario_id: str
+) -> None:
+    seed_user(db_session, TEST_USER_ID)
+    monkeypatch.setattr(jade_stress, "today_et", lambda: E)
+    h = holding(db_session, auto=True)
+    h.watch_tier = "critical"
+    h.shares = Decimal(1)
+    h.market_price = None
+    db_session.flush()
+    snap = compute_portfolio(db_session, TEST_USER_ID, "USD")
+    assert snap.holdings[0].market_value_base is None
+    out = jade_stress.compute_stress(db_session, TEST_USER_ID, "USD", "sp500")
+    scenario = next(s for s in out.scenarios if s.id == scenario_id)
+    row = scenario.holdings[0]
+    assert (row.method, row.excluded_reason) == ("excluded", "unvalued")
