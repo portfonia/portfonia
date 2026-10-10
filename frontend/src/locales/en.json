@@ -1791,6 +1791,14 @@
         "tariffs_2025": {
           "name": "2025 tariff shock",
           "description": "Broad new US tariffs and the market decline that followed in spring 2025."
+        },
+        "dotcom_2000": {
+          "name": "2000–2002 dot-com crash",
+          "description": "The end of the late-1990s technology boom; the S&P 500 fell for two and a half years."
+        },
+        "gfc_2008": {
+          "name": "2008 financial crisis",
+          "description": "The US housing and credit collapse and the failure of major financial institutions."
         }
       },
       "windowText": "Window {start} to {end}. S&P 500 closing peak {peak}, closing trough {trough}.",
@@ -1814,10 +1822,18 @@
       "proxyUnderstates": "Holdings represented by an index ETF lose their own swings, so these scenarios may understate their losses.",
       "model": "Calculation model",
       "sampleText": "{count} daily returns from {first} to {end}.",
-      "methodText": "At the start of each window, every holding is set to its share of today's value; the mix then moves with prices, without rebalancing. Prices are total return (dividends reinvested) and converted to {currency} at each day's exchange rate. A holding without its own history at the start of the window follows its replay proxy ETF, scaled by a beta estimated on the five-year replay, until its own history begins. Amounts apply the percentages to the current value of the holdings included in the scenario.",
+      "methodText": "At the start of each window, every holding is set to its share of today's value; the mix then moves with prices, without rebalancing. Prices are total return (dividends reinvested), except the price indexes named for a scenario, which exclude dividends; all prices are converted to {currency} at each day's exchange rate. A holding without its own history at the start of the window follows its replay proxy ETF, scaled by a beta estimated on the five-year replay, until its own history begins. Amounts apply the percentages to the current value of the holdings included in the scenario.",
       "laterListing": "{proxy} scaled by beta {beta} ({samples} samples) for the whole window; no own history in this window.",
       "limitations": "Scenario dates follow the S&P 500; a portfolio centered on other markets may have fallen over different dates, which the largest-drawdown figure shows. The holdings are today's, so hindsight applies. This replays the past and is not a forecast.",
-      "loadError": "Stress scenarios could not be loaded. Try again later."
+      "loadError": "Stress scenarios could not be loaded. Try again later.",
+      "approxShare": "About {pct}% of this portfolio's value in this scenario is approximated (index proxies, substitutes or cash assumptions).",
+      "substitutes": "Where the usual index ETF has no data in this window, a substitute is used: {list}.",
+      "substituteItem": "{primary} → {symbol} ({name})",
+      "priceIndex": "{symbols}: price indexes without dividends, so returns in those parts are understated by roughly their dividend yield over the window.",
+      "substituteFor": "{symbol} stands in for {primary}, which has no data in this window.",
+      "priceIndexTag": "Price index, dividends excluded.",
+      "substituteMethod": "Where the usual index ETF has no prices on the peak and trough dates, the first listed substitute that has them is used. Betas are estimated against the usual ETF on the five-year replay and applied to the substitute.",
+      "fredFxNote": "Exchange rates in this window are US Federal Reserve H.10 daily rates. MOP is derived from its peg to the Hong Kong dollar (1 HKD = 1.03 MOP); CNH, which began trading in 2010, uses the onshore CNY rate."
     }
   }
 }

@@ -1062,11 +1062,25 @@ export async function getJadeTailRisk(baseCurrency?: BaseCurrency, benchmark: Be
   return res.json() as Promise<JadeTailRisk>;
 }
 
-export type ScenarioId = "covid_2020" | "rates_2022" | "tariffs_2025";
+export type ScenarioId = "dotcom_2000" | "gfc_2008" | "covid_2020" | "rates_2022" | "tariffs_2025";
 export interface StressHolding extends Omit<ReplayHolding, "own_history_unavailable" | "own_vol" | "proxy_segment_vol"> {
   asset_class: string | null;
+  proxy_for: string | null;
+  price_only: boolean;
+}
+export interface StressSubstitution {
+  primary: string;
+  symbol: string;
+  name: string;
+  price_only: boolean;
 }
 export interface StressScenario {
+  fx_source: "standard" | "fred";
+  benchmark_symbol: string;
+  benchmark_name: string;
+  benchmark_price_only: boolean;
+  substitutions: StressSubstitution[];
+  price_index_symbols: string[];
   id: ScenarioId;
   peak_date: string;
   trough_date: string;

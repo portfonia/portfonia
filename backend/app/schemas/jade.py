@@ -140,6 +140,8 @@ class StressHolding(BaseModel):
     beta: str | None = None
     beta_samples: int | None = None
     own_first_date: date | None = None
+    proxy_for: str | None = None
+    price_only: bool = False
 
 
 class StressContribution(BaseModel):
@@ -153,7 +155,20 @@ class StressPoint(BaseModel):
     benchmark: str | None
 
 
+class StressSubstitution(BaseModel):
+    primary: str
+    symbol: str
+    name: str
+    price_only: bool
+
+
 class StressScenario(BaseModel):
+    fx_source: Literal["standard", "fred"]
+    benchmark_symbol: str
+    benchmark_name: str
+    benchmark_price_only: bool
+    substitutions: list[StressSubstitution]
+    price_index_symbols: list[str]
     id: ScenarioId
     peak_date: date
     trough_date: date

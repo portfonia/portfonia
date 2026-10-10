@@ -3,7 +3,7 @@
 from datetime import date, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from itertools import pairwise
-from typing import cast
+from typing import Literal, cast
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -24,6 +24,7 @@ from app.schemas.jade import (
     StressHolding,
     StressPoint,
     StressScenario,
+    StressSubstitution,
 )
 from app.services.benchmark_valuation import load_fx_series
 from app.services.fx_conversion import conversion_pairs, to_base
@@ -39,6 +40,7 @@ from app.services.jade_replay_config import (
     EtfSpec,
     Scenario,
 )
+from app.services.jade_substitutes import SeriesSpec, candidates
 from app.services.portfolio_calculator import HoldingValue, compute_portfolio
 
 
@@ -183,16 +185,16 @@ def scenario_result(
     spec: EtfSpec,
     betas: dict[UUID, tuple[float, int]],
 ) -> StressScenario:
-    keys = {CALENDAR_KEY, "yf:" + spec.symbol}
-    currencies = {base, spec.currency}
+    keys = {CALENDAR_KEY, *(c.key for c in candidates(spec))}
+    currencies = {base, *(c.currency for c in candidates(spec))}
     for h in holdings:
         currencies.add(h.currency)
         if h.pricing_mode == "auto" and (h.ticker or h.fund_code):
             keys.add(own_key(h))
         if h.asset_class != "CASH_EQUIV":
             proxy_spec = proxy_for(h)
-            keys.add("yf:" + proxy_spec.symbol)
-            currencies.add(proxy_spec.currency)
+            keys.update(c.key for c in candidates(proxy_spec))
+            currencies.update(c.currency for c in candidates(proxy_spec))
     cached = {
         row.series_key: row
         for row in session.scalars(
@@ -238,6 +240,17 @@ def scenario_result(
     def pending(key: str) -> bool:
         return key not in cached or cached[key].last_attempt_on is None
 
+    def resolve(primary: EtfSpec) -> SeriesSpec | Literal["pending", "data_unavailable"]:
+        for c in candidates(primary):
+            if pending(c.key):
+                return "pending"
+            if (
+                price_on(prices[c.key], s.peak) is not None
+                and price_on(prices[c.key], s.trough) is not None
+            ):
+                return c
+        return "data_unavailable"
+
     rows: list[StressHolding] = []
     included: list[tuple[HoldingValue, StressHolding, dict[date, Decimal]]] = []
     for h in holdings:
@@ -278,24 +291,27 @@ def scenario_result(
                 if h.asset_class == "BOND_FUND" and h.currency in ("CNY", "CNH")
                 else "proxy"
             )
-        proxy: EtfSpec | None = None
+        proxy: SeriesSpec | None = None
         if row.method in ("proxy", "head_proxy"):
-            proxy = proxy_for(h)
-            row.proxy_symbol = proxy.symbol
-            row.proxy_name = proxy.name
-            key = "yf:" + proxy.symbol
+            primary = proxy_for(h)
+            row.proxy_symbol = primary.symbol
+            row.proxy_name = primary.name
             if row.method == "head_proxy":
                 if h.holding_id not in betas:
-                    betas[h.holding_id] = holding_beta(session, h, proxy)
+                    betas[h.holding_id] = holding_beta(session, h, primary)
                 beta, samples = betas[h.holding_id]
                 row.beta = f"{beta:.4f}"
                 row.beta_samples = samples
-            if pending(key):
+            chosen = resolve(primary)
+            if isinstance(chosen, str):
                 row.method = "excluded"
-                row.excluded_reason = "pending"
-            elif not any(s.start <= d <= s.end for d in prices[key]):
-                row.method = "excluded"
-                row.excluded_reason = "data_unavailable"
+                row.excluded_reason = chosen
+            else:
+                proxy = chosen
+                row.proxy_symbol = chosen.symbol
+                row.proxy_name = chosen.name
+                row.price_only = chosen.price_only
+                row.proxy_for = primary.symbol if chosen.symbol != primary.symbol else None
         values: dict[date, Decimal] = {}
         if row.method in ("cash", "cash_assumed"):
             values = {d: r for d in days if (r := fx(h.currency, base, d)) is not None}
@@ -306,7 +322,7 @@ def scenario_result(
             values = {
                 d: v
                 for d in days
-                if (v := converted("yf:" + proxy.symbol, proxy.currency, base, d)) is not None
+                if (v := converted(proxy.key, proxy.currency, base, d)) is not None
             }
         elif row.method == "head_proxy":
             assert proxy is not None
@@ -317,11 +333,7 @@ def scenario_result(
                 and d >= row.own_first_date
                 and (v := converted(own, h.currency, proxy.currency, d)) is not None
             }
-            p = {
-                d: float(v)
-                for d in days
-                if (v := price_on(prices["yf:" + proxy.symbol], d)) is not None
-            }
+            p = {d: float(v) for d in days if (v := price_on(prices[proxy.key], d)) is not None}
             chain = forward_chain(days, p, local, row.own_first_date, betas[h.holding_id][0])
             values = {
                 d: Decimal(str(v)) * r
@@ -370,23 +382,62 @@ def scenario_result(
         if count < MIN_RETURNS
         else "ok"
     )
-    bench_key = "yf:" + spec.symbol
+    chosen_benchmark = resolve(spec)
+    benchmark_spec = chosen_benchmark if isinstance(chosen_benchmark, SeriesSpec) else None
     bench = [
         (d, float(v))
         for d in days
-        if first_valid is not None
+        if benchmark_spec is not None
+        and first_valid is not None
         and d >= first_valid
-        and (v := converted(bench_key, spec.currency, base, d)) is not None
+        and (v := converted(benchmark_spec.key, benchmark_spec.currency, base, d)) is not None
     ]
     bv = dict(bench)
     bench_status = (
         "pending"
-        if pending(bench_key)
+        if chosen_benchmark == "pending"
         else "unavailable"
         if s.peak not in bv or s.trough not in bv or len(bench) - 1 < MIN_RETURNS
         else "ok"
     )
+    substitutions: list[StressSubstitution] = []
+    seen: set[tuple[str, str]] = set()
+    price_indexes: set[str] = set()
+    for _, row, _ in included:
+        if row.proxy_for is not None and row.proxy_symbol is not None:
+            pair = (row.proxy_for, row.proxy_symbol)
+            if pair not in seen:
+                substitutions.append(
+                    StressSubstitution(
+                        primary=pair[0],
+                        symbol=pair[1],
+                        name=cast(str, row.proxy_name),
+                        price_only=row.price_only,
+                    )
+                )
+                seen.add(pair)
+        if row.price_only and row.proxy_symbol is not None:
+            price_indexes.add(row.proxy_symbol)
+    if bench_status == "ok" and benchmark_spec is not None:
+        pair = (spec.symbol, benchmark_spec.symbol)
+        if spec.symbol != benchmark_spec.symbol and pair not in seen:
+            substitutions.append(
+                StressSubstitution(
+                    primary=pair[0],
+                    symbol=pair[1],
+                    name=benchmark_spec.name,
+                    price_only=benchmark_spec.price_only,
+                )
+            )
+        if benchmark_spec.price_only:
+            price_indexes.add(benchmark_spec.symbol)
     out = StressScenario(
+        fx_source=s.fx_source,
+        benchmark_symbol=benchmark_spec.symbol if benchmark_spec else spec.symbol,
+        benchmark_name=benchmark_spec.name if benchmark_spec else spec.name,
+        benchmark_price_only=benchmark_spec.price_only if benchmark_spec else False,
+        substitutions=substitutions,
+        price_index_symbols=sorted(price_indexes),
         id=s.id,
         peak_date=s.peak,
         trough_date=s.trough,

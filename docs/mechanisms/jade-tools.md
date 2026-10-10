@@ -202,7 +202,7 @@ hindsight/period limitations. No backtest, result cache, dependency, settings,
 migration or nightly-fill change is introduced. Review, merge, deployment and
 production operations remain separately authorized.
 
-## Historical stress scenarios (issue #720)
+## Historical stress scenarios (issues #720, #723)
 
 The Jade-only `GET /jade/stress` endpoint applies past paths to today's
 holdings at today's included market-value weights at each window's first
@@ -214,7 +214,9 @@ The replay and tail-risk responses and cards remain unchanged.
 
 ### Windows and storage
 
-`SCENARIOS` in `jade_replay_config` is chronological: COVID (peak 2020-02-19,
+`SCENARIOS` in `jade_replay_config` is chronological: dot-com (peak
+2000-03-24, trough 2002-10-09; window 1999-09-24–2003-04-09), financial
+crisis (2007-10-09, 2009-03-09; window 2007-04-09–2009-09-09), COVID (peak 2020-02-19,
 trough 2020-03-23), rate hikes (2022-01-03, 2022-10-12), and tariffs
 (2025-02-19, 2025-04-08). Windows extend six calendar months before the peak
 and after the trough, clamping month ends: 2019-08-19–2020-09-23,
@@ -231,7 +233,8 @@ closes and optional raw NAV. No existing table changes. Scenario ids are text
 without a CHECK constraint.
 
 `fill_scenarios` runs after the existing replay fill, only when active Jade
-users exist, using the same rebuilt instrument keys. It logs its own summary;
+users exist, using the rebuilt instrument keys plus scenario-only substitute
+keys. Substitute keys never enter replay storage or its provider batch. It logs its own summary;
 the replay's writes, summary and task return value remain unchanged. Every
 missing yfinance symbol is fetched in one batch per scenario from window start
 minus ten days through window end inclusive. Funds use LSJZ full-window paging
@@ -254,7 +257,10 @@ uses own prices or fund NAV; later history uses a head proxy. Attempted empty
 or unusable own history also uses a head proxy for the whole window, except
 CNY/CNH bond funds, which are cash-assumed. Manual instruments use the replay
 proxy without beta (or cash-assumed for CNY/CNH bond funds). Missing proxy
-attempts are pending; attempted proxies without window points are unavailable.
+attempts are pending. Proxy and benchmark chains choose the first candidate
+with a price on both peak and trough, using the ten-day carry. An unattempted
+candidate stops resolution as pending; when every attempted candidate lacks
+coverage, resolution is unavailable.
 Prices and each USD-pivot FX leg carry for at most ten calendar days.
 
 A head proxy uses one beta per holding per request, estimated from the existing
@@ -277,21 +283,37 @@ the whole valid path with earliest ties. Asset-class contribution is
 tie breaks. Contributions sum before rounding, without rounding adjustment.
 Maximum drawdown and contributions are percentages only.
 
-Curve points are `V(d)/V(P)-1`, with 0% on the S&P 500 peak. The benchmark ETF
-uses its own converted total-return prices over the same window. Missing
+Curve points are `V(d)/V(P)-1`, with 0% on the S&P 500 peak. The resolved benchmark series
+uses its converted prices over the same window. Missing
 attempts are pending; unresolved peak/trough values after ten-day carry, or
 fewer than ten returns, make it unavailable without changing portfolio
 figures. A point one day before the peak resolves that peak. Benchmark figures
 are percentages only. Statuses are no_holdings, pending, insufficient below
 ten returns, and ok. Non-ok figures are null with empty curves/contributions.
 Coverage uses included value; approximation at 66% gives a notice and any
-proxy/head-proxy share gives the separate proxy-understates notice.
+proxy/head-proxy share gives the separate proxy-understates notice. Scenario
+responses add `fx_source`, resolved benchmark symbol/name and price-only flag,
+`substitutions` and sorted unique `price_index_symbols`. Holding rows add
+`proxy_for` and `price_only`. Substitutions list included holdings in book
+order with duplicate (primary, symbol) pairs removed, then an available
+benchmark. Excluded holdings do not contribute to disclosures. The top-level
+benchmark symbol/name still describe the primary ETF.
 
 ### UI and operations
 
 `StressSection` follows replay currency/benchmark below tail risk, with single
 flight and latest-settings queueing. Span/scenario switches make no request.
 Failure retains previous data and shows an alert without automatic retry.
+Five chronological scenario buttons select the last response scenario by
+default (2025 tariffs before data). Selection is local. An amber approximation
+notice sits above the figures for ok/insufficient scenarios when data-quality,
+substitution or price-index disclosure applies. It always states the
+approximated share, then conditionally the quality text, substitutions and
+price indexes without dividends. The plain quality paragraph is replaced by
+this box; proxy-understates text remains. Per-holding and model disclosures
+explain substitutes, primary-ETF beta estimation and FRED FX where applicable.
+Prices use total return except the named price indexes, which omit dividends.
+
 The calculating overlay wraps the disabled initial scenario buttons, table,
 fixed chart frame, contribution tracks, notices and model. Title/intro and
 load error sit outside. Selector, legend and table text wrap at 375px; chart
@@ -307,3 +329,57 @@ operations are: `backfill_fx_rates --years 8 --before-earliest` and earliest-dat
 readback; `backfill_usdcnh_history --years 8` dry run with separately authorized
 `--apply`; then wait for nightly fill or separately trigger the existing task
 and read scenario success counts. Missing CNH history stays unavailable.
+
+### Substitute configuration and gold data (#723)
+
+`backend/config/jade_substitutes.yml` contains ordered substitutes keyed by
+all 18 `FIXED_ETF_SYMBOLS`; an empty list means no substitute. The
+`jade_substitutes` module validates at import with `yaml.safe_load` and raises
+`ValueError` for malformed mappings/lists/entries, missing or extra ETF keys,
+unknown or missing fields, invalid symbol/name/source/currency/bool values,
+invalid or missing file names, repeated/primary symbols in a chain, or a
+symbol whose specifications differ across chains. File sources must exist
+under `config/jade_scenario_data`. There is no hot reload.
+
+New user instruments require no config change: replay classification maps
+them to the existing primary ETF chain. Only a new proxy/benchmark ETF
+requires a config entry, enforced by the exact key-set validation. Beta is
+still estimated against the primary ETF's five-year replay history; scenario
+prices and FX use the resolved substitute's currency, including the own
+history conversion in a head-proxy chain. No dividend adjustment is made
+for price indexes. Nasdaq can resolve to `^IXIC`, and CSI 300 to `000001.SS`.
+
+The committed `backend/config/jade_scenario_data/lbma_gold_pm.csv` is the
+London afternoon LBMA gold fix in USD, redistributed from:
+https://raw.githubusercontent.com/unbalancedparentheses/forex-centuries/70cbfae9610381ace1a893f7beb143fc1de991b5/data/sources/lbma/lbma_gold_daily.csv
+
+Pinned commit: `70cbfae9610381ace1a893f7beb143fc1de991b5`.
+Build filter: `1999-09-14 <= date <= 2003-04-09` and `gold_pm_usd > 0`,
+ascending; header `date,close`, preserve the source price text, LF line endings
+and a trailing newline. There are 896 rows, from `1999-09-14,256.75` to
+`2003-04-09,321.35`. SHA-256:
+`e53708d298c5c0ec7d081781795463211a7950d9b028ab7cb1a820f505b21fc8`.
+The build script is not committed. The file is read locally by scenario fill;
+successful pairs are skipped thereafter. Its empty results in the other four
+windows remain failed and are read again nightly, as are empty Yahoo
+substitute results in the existing per-scenario batch. No extra retries,
+alerts, cache, Beat entry or migration is added.
+
+### One-time FRED FX operations (#723)
+
+`python -m app.scripts.backfill_fx_fred` is a dry run; `--apply` inserts in
+chunks with `ON CONFLICT DO NOTHING` and commits. It fetches 12 H.10 series
+with a 30-second timeout, skips missing observations and dates outside the
+two windows including the ten-day fetch margin. EUR, GBP, AUD and NZD are
+inverted to `1 USD = X`; other series are direct. CNH uses CNY (`fred_cny`),
+and MOP uses HKD × 1.03 (`fred_hkd_peg`); direct rows use `fred`. Every
+existing row retains its rate, source and fetched_at. Output includes counts,
+first/last dates, existing window counts, and an earliest-row comparison for
+existing direct pairs. A failed request skips its pair and derived pair,
+prints `[ERR]`, and gives exit status 1; no nightly FRED job exists.
+
+Each production step requires separate owner authorization: deploy; export
+FX rows inside the windows as a backup; run/review the dry-run counts and
+comparison lines; apply and read back per-pair counts/ranges plus unchanged
+row counts outside the windows; wait for nightly fill or separately trigger
+it and read back the two scenario success counts; owner phone check at 375px.

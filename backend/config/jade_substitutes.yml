@@ -1,0 +1,39 @@
+# Scenario substitutes for proxy and benchmark ETFs (issue #723).
+# Keyed by the ETF symbol used in jade_replay_config (CLASS_PROXY,
+# STOCK_PROXY_BY_MARKET, BENCHMARK_ETF). Every such symbol must appear;
+# [] means no substitute. Candidates are tried in order after the ETF
+# itself (Design D5). source: yf = Yahoo Finance download,
+# file = CSV under config/jade_scenario_data/.
+substitutes:
+  SPY: []
+  QQQ: []
+  XLE: []
+  DIA: []
+  AGG:
+    - {symbol: VBMFX, source: yf, currency: USD, name: "Vanguard Total Bond Market Index Fund", price_only: false}
+  EFA:
+    - {symbol: VGTSX, source: yf, currency: USD, name: "Vanguard Total International Stock Index Fund", price_only: false}
+  ACWI:
+    - {symbol: VGTSX, source: yf, currency: USD, name: "Vanguard Total International Stock Index Fund", price_only: false}
+  EEM:
+    - {symbol: VEIEX, source: yf, currency: USD, name: "Vanguard Emerging Markets Stock Index Fund", price_only: false}
+  VNQ:
+    - {symbol: VGSIX, source: yf, currency: USD, name: "Vanguard Real Estate Index Fund", price_only: false}
+  DBC:
+    - {symbol: "^SPGSCI", source: yf, currency: USD, name: "S&P GSCI", price_only: true}
+  GLD:
+    - {symbol: LBMA_GOLD_PM, source: file, file: lbma_gold_pm.csv, currency: USD, name: "LBMA Gold Price PM (London afternoon fix)", price_only: false}
+  "2800.HK":
+    - {symbol: "^HSI", source: yf, currency: HKD, name: "Hang Seng Index", price_only: true}
+  ISF.L:
+    - {symbol: "^FTSE", source: yf, currency: GBP, name: "FTSE 100 Index", price_only: true}
+  EXSA.DE:
+    - {symbol: VEURX, source: yf, currency: USD, name: "Vanguard European Stock Index Fund", price_only: false}
+  "1306.T":
+    - {symbol: "^N225", source: yf, currency: JPY, name: "Nikkei 225", price_only: true}
+  "069500.KS":
+    - {symbol: "^KS11", source: yf, currency: KRW, name: "KOSPI Composite Index", price_only: true}
+  "510300.SS":
+    - {symbol: "000001.SS", source: yf, currency: CNY, name: "SSE Composite Index", price_only: true}
+  ONEQ:
+    - {symbol: "^IXIC", source: yf, currency: USD, name: "Nasdaq Composite Index", price_only: true}

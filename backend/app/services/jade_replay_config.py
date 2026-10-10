@@ -85,7 +85,8 @@ MONTH_DAYS = 21
 TRADING_DAYS = 252
 HIST_BIN = Decimal("0.005")
 
-ScenarioId = Literal["covid_2020", "rates_2022", "tariffs_2025"]
+ScenarioId = Literal["dotcom_2000", "gfc_2008", "covid_2020", "rates_2022", "tariffs_2025"]
+FxSource = Literal["standard", "fred"]
 SCENARIO_MONTHS = 6
 CALENDAR_KEY = "yf:SPY"
 
@@ -99,6 +100,7 @@ class Scenario:
     id: ScenarioId
     peak: date
     trough: date
+    fx_source: FxSource = "standard"
 
     @property
     def start(self) -> date:
@@ -110,6 +112,8 @@ class Scenario:
 
 
 SCENARIOS: tuple[Scenario, ...] = (
+    Scenario("dotcom_2000", date(2000, 3, 24), date(2002, 10, 9), "fred"),
+    Scenario("gfc_2008", date(2007, 10, 9), date(2009, 3, 9), "fred"),
     Scenario("covid_2020", date(2020, 2, 19), date(2020, 3, 23)),
     Scenario("rates_2022", date(2022, 1, 3), date(2022, 10, 12)),
     Scenario("tariffs_2025", date(2025, 2, 19), date(2025, 4, 8)),
