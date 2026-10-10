@@ -123,6 +123,9 @@ class Settings(BaseSettings):
     # split below (issue #78) — stays on OPENROUTER_PROVIDER_ORDER (marketplace
     # pin) with OPENROUTER_DATA_COLLECTION=deny enforced, no exception.
     PRIMARY_LLM_MODEL: str
+    # Issue #725: Pass 2 + analyze regenerate for Jade subscribers only.
+    JADE_PASS2_MODEL: str = "anthropic/claude-haiku-5.5"
+    JADE_PASS2_REASONING_EFFORT: str = "high"
     # Unstructured (free-text) calls only: report translation (report_generator.py).
     # Structured/JSON extraction
     # (holdings parsing) does NOT use this — see STRUCTURED_LLM_MODEL below.

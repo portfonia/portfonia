@@ -42,11 +42,13 @@ site requiring schema-compliant output) = `STRUCTURED_LLM_MODEL`
   True`) since this alias defaults reasoning on unlike the non-aliased
   model.
 
-**PRIMARY (Pass 2 analysis + regenerate) = `deepseek/deepseek-v4-pro`**,
-unchanged — provider=DigitalOcean,Venice, `data_collection=deny`, no BYOK.
-Sonnet/Anthropic models are NOT used here — too expensive (~$0.2/call); if
-`PRIMARY_LLM_MODEL` ever shows an `anthropic/*` value it is config drift,
-revert it.
+**PRIMARY (Pass 2 analysis + analyze regenerate) for non-Jade users =
+`deepseek/deepseek-v4-pro`**, unchanged — provider=DigitalOcean,Venice,
+`data_collection=deny`, no BYOK. Jade users' Pass 2 and analyze regenerate
+use `JADE_PASS2_MODEL` (`anthropic/claude-haiku-5.5`, `reasoning_effort=high`,
+`data_collection=deny`, unpinned, issue #725), selected by `is_jade(user)`
+at generation or rerun time. Any `anthropic/*` value on `PRIMARY_LLM_MODEL`
+is still config drift; revert it.
 
 ## Data handling: scheduled intelligence isolation + the BYOK exception
 

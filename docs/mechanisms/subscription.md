@@ -311,6 +311,7 @@ and overdue subscriptions awaiting lifecycle processing. Backend access uses
 only `is_advanced` and `is_jade`; the session probe exposes both flags without
 another user query. Existing agent and snapshot gates therefore admit Jade.
 No risk tool ships in this issue.
+Jade Pass 2 and analyze regenerate use `JADE_PASS2_MODEL` (`anthropic/claude-haiku-5.5`) with high reasoning, `data_collection=deny` and no provider pin, selected by the current `is_jade(user)` state (issue #725).
 
 `BRIEFING_PLANS = ("weekly", "mwf", "daily")` names both briefing types and
 Jade's available cadences. Every fresh charge and quote uses

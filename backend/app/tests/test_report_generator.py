@@ -2430,3 +2430,146 @@ def test_issue_640_pass2_prompt_matches_pre_removal_snapshot(db_session: Session
     captured = _capture_pass2_prompt(db_session)
     expected = json.loads(_PASS2_SNAPSHOT.read_text(encoding="utf-8"))
     assert captured == expected
+
+
+# ---------------------------------------------------------------------------
+# Issue #725: subscription-based Pass 2 routing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("cancel_pending", [False, True])
+def test_issue725_route_active_jade(db_session: Session, cancel_pending: bool) -> None:
+    from app.models.user import User
+
+    user = db_session.get(User, _USER)
+    assert user is not None
+    user.subscription_status = "active"
+    user.subscription_type = "jade"
+    user.subscription_cancel_pending = cancel_pending
+    db_session.flush()
+
+    assert rg._pass2_route(db_session, _USER) == (
+        "anthropic/claude-haiku-5.5",
+        {"pin_provider": False, "reasoning_effort": "high"},
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "plan"),
+    [
+        ("expired", "jade"),
+        ("active", "daily"),
+        ("active", "weekly"),
+        ("active", "mwf"),
+        ("inactive", None),
+    ],
+)
+def test_issue725_route_non_jade(db_session: Session, status: str, plan: str | None) -> None:
+    from app.models.user import User
+
+    user = db_session.get(User, _USER)
+    assert user is not None
+    user.subscription_status = status
+    user.subscription_type = plan
+    db_session.flush()
+
+    assert rg._pass2_route(db_session, _USER) == (get_settings().PRIMARY_LLM_MODEL, {})
+    assert rg._pass2_route(db_session, uuid.uuid4()) == (get_settings().PRIMARY_LLM_MODEL, {})
+
+
+def test_issue725_generate_jade_route_and_stored_model(db_session: Session) -> None:
+    from app.models.user import User
+
+    user = db_session.get(User, _USER)
+    assert user is not None
+    user.subscription_status = "active"
+    user.subscription_type = "jade"
+    db_session.flush()
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        llm = stack.enter_context(patch.object(rg, "_call_llm", return_value=_FAKE_LLM_PASS2))
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    llm.assert_called_once()
+    assert llm.call_args.args[1] == "anthropic/claude-haiku-5.5"
+    assert llm.call_args.kwargs == {
+        "pin_provider": False,
+        "reasoning_effort": "high",
+        "with_holdings": True,
+        "usage_sink": [],
+    }
+    db_session.expire(report, ["report_inputs"])
+    assert report.report_inputs is not None
+    assert report.report_inputs["pass2_model"] == "anthropic/claude-haiku-5.5"
+    assert report.status == "success"
+
+
+def test_issue725_generate_daily_request_unchanged(db_session: Session) -> None:
+    from app.models.user import User
+
+    user = db_session.get(User, _USER)
+    assert user is not None
+    user.subscription_status = "active"
+    user.subscription_type = "daily"
+    db_session.flush()
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        llm = stack.enter_context(patch.object(rg, "_call_llm", return_value=_FAKE_LLM_PASS2))
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+
+    llm.assert_called_once()
+    assert llm.call_args.args[1] == get_settings().PRIMARY_LLM_MODEL
+    assert llm.call_args.kwargs == {"with_holdings": True, "usage_sink": []}
+    assert report.status == "success"
+    assert report.report_inputs is not None
+    assert report.report_inputs["pass2_model"] == get_settings().PRIMARY_LLM_MODEL
+
+
+def test_issue725_analyze_uses_current_tier_and_updates_stored_model(db_session: Session) -> None:
+    from app.models.user import User
+
+    # Start with a non-Jade report to prove the rerun replaces its old model.
+    with contextlib.ExitStack() as stack:
+        for p in _normal_path_patches():
+            stack.enter_context(p)  # type: ignore[arg-type]
+        report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY)
+    assert report.report_inputs is not None
+    assert report.report_inputs["pass2_model"] == get_settings().PRIMARY_LLM_MODEL
+    user = db_session.get(User, _USER)
+    assert user is not None
+    user.subscription_status = "active"
+    user.subscription_type = "jade"
+    db_session.flush()
+    with (
+        patch.object(rg, "compute_portfolio", return_value=_portfolio_snap()),
+        patch.object(rg, "_openrouter_client", return_value=MagicMock()),
+        patch.object(rg, "_call_llm", return_value=_FAKE_LLM_PASS2) as llm,
+        patch.object(rg, "load_news_window", side_effect=AssertionError("no news refetch")),
+    ):
+        out = rg.regenerate_report(db_session, report.id, user_id=_USER, mode="analyze")
+        llm.assert_called_once()
+        assert llm.call_args.args[1] == "anthropic/claude-haiku-5.5"
+        assert llm.call_args.kwargs == {
+            "pin_provider": False,
+            "reasoning_effort": "high",
+            "with_holdings": True,
+            "usage_sink": [],
+        }
+        db_session.expire(out, ["report_inputs"])
+        assert out.report_inputs is not None
+        assert out.report_inputs["pass2_model"] == "anthropic/claude-haiku-5.5"
+        assert out.status == "success"
+
+        user.subscription_status = "expired"
+        db_session.flush()
+        llm.reset_mock()
+        out = rg.regenerate_report(db_session, report.id, user_id=_USER, mode="analyze")
+        llm.assert_called_once()
+        assert llm.call_args.args[1] == get_settings().PRIMARY_LLM_MODEL
+        assert llm.call_args.kwargs == {"with_holdings": True, "usage_sink": []}
+        db_session.expire(out, ["report_inputs"])
+        assert out.report_inputs is not None
+        assert out.report_inputs["pass2_model"] == get_settings().PRIMARY_LLM_MODEL
+        assert out.status == "success"
