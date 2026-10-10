@@ -253,7 +253,9 @@ def build_replay(
         own = own_key(h)
         proxy: EtfSpec | None = None
         if h.market_value_base is None or h.market_value_base <= 0:
-            row.excluded_reason = "unvalued"
+            row.excluded_reason = (
+                "watch_only" if h.watch_tier is not None and h.shares == 0 else "unvalued"
+            )
         elif h.asset_type == "cash" or h.asset_class == "CASH_EQUIV":
             row.method = "cash"
         elif h.asset_type == "wmf":

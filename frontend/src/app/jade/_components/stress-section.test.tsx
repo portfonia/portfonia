@@ -64,3 +64,14 @@ it("A24 locale parity and authored titles",()=>{
 it("375px selector and legend wrap, grid cells wrap and chart/tracks fill card",async()=>{
   getJadeStress.mockResolvedValue(data);await view();await screen.findByTestId("line-chart");expect(screen.getByRole("radiogroup")).toHaveClass("flex-wrap");expect(screen.getByTestId("stress-legend")).toHaveClass("flex-wrap");expect(screen.getByTestId("stress-table")).toHaveClass("grid-cols-3","text-xs","sm:text-sm");for(const c of screen.getByTestId("stress-table").querySelectorAll(".contents > *"))expect(c).toHaveClass("min-w-0","break-words");expect(screen.getByTestId("stress-chart")).toHaveClass("h-60","w-full","min-w-0");for(const track of screen.getByTestId("stress-contributions").querySelectorAll("[data-track]"))expect(track).toHaveClass("w-full","min-w-0");
 });
+
+it.each([
+  ["en", "Watch only (quantity 0); not included"],
+  ["zh-Hans", "\u4ec5\u5173\u6ce8\uff08\u6570\u91cf\u4e3a 0\uff09\uff0c\u4e0d\u8ba1\u5165"],
+  ["zh-Hant", "\u50c5\u95dc\u6ce8\uff08\u6578\u91cf\u70ba 0\uff09\uff0c\u4e0d\u7d0d\u5165"],
+] as const)("watch-only stress row uses the exact %s copy", async (locale, text) => {
+  const { StressSection } = await import("./stress-section");
+  getJadeStress.mockResolvedValue({ ...data, scenarios: [{ ...scenario, holdings: [{ holding_id: "watched", name: "Watched", asset_class: "STOCK", method: "excluded", weight: null, excluded_reason: "watch_only", proxy_symbol: null, proxy_name: null, beta: null, beta_samples: null, own_first_date: null }] }] });
+  render(<LocaleProvider routeLocale={locale}><StressSection settings={null} /></LocaleProvider>);
+  expect(await screen.findByText(text)).toBeInTheDocument();
+});

@@ -966,7 +966,7 @@ export interface ReplayHolding {
   name: string;
   weight: string | null;
   method: "own" | "fund_nav" | "head_proxy" | "proxy" | "cash" | "cash_assumed" | "excluded";
-  excluded_reason: "unvalued" | "pending" | "data_unavailable" | null;
+  excluded_reason: "unvalued" | "watch_only" | "pending" | "data_unavailable" | null;
   own_history_unavailable: boolean;
   proxy_symbol: string | null;
   proxy_name: string | null;

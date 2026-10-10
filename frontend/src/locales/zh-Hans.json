@@ -1710,6 +1710,7 @@
       "excluded": {
         "pending": "未计入：数据准备中",
         "unvalued": "未计入：无当前估值",
+        "watch_only": "仅关注（数量为 0），不计入",
         "data_unavailable": "未计入：指数数据不可用"
       },
       "ownHistoryUnavailable": "（无自身价格历史）",
