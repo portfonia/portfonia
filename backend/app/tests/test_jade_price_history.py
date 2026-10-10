@@ -25,6 +25,16 @@ HTTP_CLIENT = httpx.Client
 TODAY = date(2026, 10, 8)
 
 
+@pytest.fixture(autouse=True)
+def replay_fill_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep replay provider fixtures scoped to replay; #720 tests the combined run."""
+    from app.services.jade_price_history import FillSummary
+
+    monkeypatch.setattr(
+        "app.services.jade_price_history.fill_scenarios", Mock(return_value=FillSummary())
+    )
+
+
 def response(rows: list[dict[str, str]], code: int = 0) -> httpx.Response:
     return httpx.Response(200, json={"ErrCode": code, "Data": {"LSJZList": rows}})
 
@@ -244,7 +254,7 @@ def test_d7_10_no_jade(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_a10_migration(alembic_cfg: Config) -> None:
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, "d71400000001")
     engine = create_engine(get_settings().database_url)
     with engine.connect() as conn:
         assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "d71400000001"

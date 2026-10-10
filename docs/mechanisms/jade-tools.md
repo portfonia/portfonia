@@ -196,3 +196,107 @@ samples, coverage, overlapping windows, formulas, reference derivation and
 hindsight/period limitations. No backtest, result cache, dependency, settings,
 migration or nightly-fill change is introduced. Review, merge, deployment and
 production operations remain separately authorized.
+
+## Historical stress scenarios (issue #720)
+
+The Jade-only `GET /jade/stress` endpoint applies past paths to today's
+holdings at today's included market-value weights at each window's first
+valid day. It reads cached data only, with no database writes, outbound calls,
+request-time fill, questionnaire input or recovery metric. Currency defaults
+to the user's report currency and benchmark to `sp500`; invalid benchmark
+codes return 422 and non-Jade callers receive 403 `subscription_required`.
+The replay and tail-risk responses and cards remain unchanged.
+
+### Windows and storage
+
+`SCENARIOS` in `jade_replay_config` is chronological: COVID (peak 2020-02-19,
+trough 2020-03-23), rate hikes (2022-01-03, 2022-10-12), and tariffs
+(2025-02-19, 2025-04-08). Windows extend six calendar months before the peak
+and after the trough, clamping month ends: 2019-08-19–2020-09-23,
+2021-07-03–2023-04-12 and 2024-08-19–2025-10-08. SPY points inside each
+window define the sample calendar. An open window, an attempted empty calendar
+and nonpositive proxy-chain factors are outside the handled states.
+
+Migration `d72000000001`, following `d71400000001`, creates shared
+`jade_scenario_series` keyed by `(scenario_id, series_key)` and
+`jade_scenario_points` keyed by `(scenario_id, series_key, trade_date)`.
+The points' composite foreign key cascades on series deletion. Series retain
+attempt/success dates and unusable reasons; points store numeric total-return
+closes and optional raw NAV. No existing table changes. Scenario ids are text
+without a CHECK constraint.
+
+`fill_scenarios` runs after the existing replay fill, only when active Jade
+users exist, using the same rebuilt instrument keys. It logs its own summary;
+the replay's writes, summary and task return value remain unchanged. Every
+missing yfinance symbol is fetched in one batch per scenario from window start
+minus ten days through window end inclusive. Funds use LSJZ full-window paging
+with no incremental stop, building the same distribution-adjusted NAV index
+as replay. An unknown distribution marks and clears only that window's pair.
+Each pair commits independently; exceptions roll back that pair. Successful
+or unusable pairs are never fetched again; empty/failed pairs retry nightly.
+New holdings therefore enter every scenario on the next nightly run. There
+is no new Beat entry; the existing 22:15 ET entry remains heavy.
+
+### Classification and formulas
+
+Unvalued/nonpositive holdings are excluded. An unattempted SPY calendar makes
+all positive holdings pending. Cash/CASH_EQUIV uses currency values, and
+wealth-management products are cash-assumed. Auto instruments are pending
+until attempted. Own history starting within ten days of the window start
+uses own prices or fund NAV; later history uses a head proxy. Attempted empty
+or unusable own history also uses a head proxy for the whole window, except
+CNY/CNH bond funds, which are cash-assumed. Manual instruments use the replay
+proxy without beta (or cash-assumed for CNY/CNH bond funds). Missing proxy
+attempts are pending; attempted proxies without window points are unavailable.
+Prices and each USD-pivot FX leg carry for at most ten calendar days.
+
+A head proxy uses one beta per holding per request, estimated from the existing
+five-year replay calendar in proxy currency: sample covariance / proxy
+variance, with at least 60 pairs; missing/unattempted/unusable replay data
+produces beta 1 and zero samples. Before own history, the forward chain starts
+at 1 and multiplies by `1 + beta * proxy_return`. It switches to own returns
+only when the previous computed day is already in own history. Unavailable
+days preserve the last computed anchor. The chain then converts to display
+currency. Only holdings with resolved values on both peak and trough enter
+that scenario; others are `data_unavailable`.
+
+With included current value `total`, weights are `w_i = current_value_i/total`.
+For the first common valid day `s0`, `V(d) = sum(w_i * X_i(d)/X_i(s0))`, so
+`V(s0)=1`, with no rebalancing. Peak-to-trough return is `V(T)/V(P)-1`.
+Its amount is the six-decimal serialized return times `total` rounded to
+cents, then half-even cent rounding. Maximum drawdown and its dates come from
+the whole valid path with earliest ties. Asset-class contribution is
+`sum(w_i * (X_i(T)-X_i(P))/X_i(s0))/V(P)`, ordered ascending with class-name
+tie breaks. Contributions sum before rounding, without rounding adjustment.
+Maximum drawdown and contributions are percentages only.
+
+Curve points are `V(d)/V(P)-1`, with 0% on the S&P 500 peak. The benchmark ETF
+uses its own converted total-return prices over the same window. Missing
+attempts are pending; unresolved peak/trough values after ten-day carry, or
+fewer than ten returns, make it unavailable without changing portfolio
+figures. A point one day before the peak resolves that peak. Benchmark figures
+are percentages only. Statuses are no_holdings, pending, insufficient below
+ten returns, and ok. Non-ok figures are null with empty curves/contributions.
+Coverage uses included value; approximation at 66% gives a notice and any
+proxy/head-proxy share gives the separate proxy-understates notice.
+
+### UI and operations
+
+`StressSection` follows replay currency/benchmark below tail risk, with single
+flight and latest-settings queueing. Span/scenario switches make no request.
+Failure retains previous data and shows an alert without automatic retry.
+The calculating overlay wraps the disabled initial scenario buttons, table,
+fixed chart frame, contribution tracks, notices and model. Title/intro and
+load error sit outside. Selector, legend and table text wrap at 375px; chart
+and tracks fill the card. Model details start closed at every width. The
+chart marks S&P 500 peak/trough, and contributions extend left/right of a
+center line. All three locales disclose proxy methods, coverage, today's
+holdings/weights, FX, total returns and hindsight; this is a replay, not a
+forecast.
+
+Deployment/migration, FX extension, USDCNH backfill and manual nightly fill
+each require separate owner authorization. After deployment the ordered
+operations are: `backfill_fx_rates --years 8 --before-earliest` and earliest-date
+readback; `backfill_usdcnh_history --years 8` dry run with separately authorized
+`--apply`; then wait for nightly fill or separately trigger the existing task
+and read scenario success counts. Missing CNH history stays unavailable.

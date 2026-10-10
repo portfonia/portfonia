@@ -21,10 +21,15 @@ from app.services.fx_fetcher import backfill_fx_rates
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--years", type=int, default=5)
+    parser.add_argument(
+        "--before-earliest",
+        action="store_true",
+        help="Only add dates before each pair's earliest existing row",
+    )
     args = parser.parse_args()
 
     with SessionLocal() as session:
-        backfill_fx_rates(session, years=args.years)
+        backfill_fx_rates(session, years=args.years, before_earliest=args.before_earliest)
         session.commit()
 
 

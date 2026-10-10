@@ -1773,6 +1773,50 @@
       "referenceText": "The reference line takes the volatility level that the Overview Risk indicator treats as beyond your questionnaire answers (risk appetite, horizon and objective) and converts it into a loss at this confidence level, assuming a normal distribution with zero mean. It is a point of comparison, not a judgement, and it is not a normal-distribution version of your VaR: the VaR above uses the replay's actual distribution.",
       "limitations": "The figures reflect only what happened inside the five-year replay; events outside it are not included. The replay uses the holdings you have today, so hindsight applies. This describes the past and is not a forecast.",
       "loadError": "Tail risk could not be loaded. Try again later."
+    },
+    "stress": {
+      "title": "Historical stress scenarios",
+      "intro": "Re-runs past market shocks against the holdings you have today, set at today's weights at the start of each scenario. It shows how this portfolio would have moved through those episodes. It replays the past and is not a forecast.",
+      "scenarioLabel": "Scenario",
+      "scenarios": {
+        "covid_2020": {
+          "name": "2020 COVID shock",
+          "description": "Pandemic lockdowns and a liquidity squeeze; one of the fastest bear markets in the S&P 500's history."
+        },
+        "rates_2022": {
+          "name": "2022 rate hikes",
+          "description": "High inflation and rapid central-bank rate rises; stocks and bonds fell together."
+        },
+        "tariffs_2025": {
+          "name": "2025 tariff shock",
+          "description": "Broad new US tariffs and the market decline that followed in spring 2025."
+        }
+      },
+      "windowText": "Window {start} to {end}. S&P 500 closing peak {peak}, closing trough {trough}.",
+      "columns": {
+        "portfolio": "Your portfolio",
+        "benchmark": "{benchmark}"
+      },
+      "rows": {
+        "shock": "Peak to trough",
+        "maxDrawdown": "Largest drawdown in the window"
+      },
+      "drawdownDates": "{peak} to {trough}",
+      "legend": {
+        "portfolio": "Portfolio",
+        "peak": "S&P 500 peak ({date})",
+        "trough": "S&P 500 trough ({date})"
+      },
+      "chartNote": "Both lines start from 0% at the S&P 500 peak.",
+      "contributionsTitle": "Contribution to the peak-to-trough return, by asset class",
+      "contributionsNote": "The bars add up to the portfolio's peak-to-trough return, up to rounding.",
+      "proxyUnderstates": "Holdings represented by an index ETF lose their own swings, so these scenarios may understate their losses.",
+      "model": "Calculation model",
+      "sampleText": "{count} daily returns from {first} to {end}.",
+      "methodText": "At the start of each window, every holding is set to its share of today's value; the mix then moves with prices, without rebalancing. Prices are total return (dividends reinvested) and converted to {currency} at each day's exchange rate. A holding without its own history at the start of the window follows its replay proxy ETF, scaled by a beta estimated on the five-year replay, until its own history begins. Amounts apply the percentages to the current value of the holdings included in the scenario.",
+      "laterListing": "{proxy} scaled by beta {beta} ({samples} samples) for the whole window; no own history in this window.",
+      "limitations": "Scenario dates follow the S&P 500; a portfolio centered on other markets may have fallen over different dates, which the largest-drawdown figure shows. The holdings are today's, so hindsight applies. This replays the past and is not a forecast.",
+      "loadError": "Stress scenarios could not be loaded. Try again later."
     }
   }
 }

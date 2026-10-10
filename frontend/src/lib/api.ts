@@ -1061,3 +1061,46 @@ export async function getJadeTailRisk(baseCurrency?: BaseCurrency, benchmark: Be
   if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<JadeTailRisk>;
 }
+
+export type ScenarioId = "covid_2020" | "rates_2022" | "tariffs_2025";
+export interface StressHolding extends Omit<ReplayHolding, "own_history_unavailable" | "own_vol" | "proxy_segment_vol"> {
+  asset_class: string | null;
+}
+export interface StressScenario {
+  id: ScenarioId;
+  peak_date: string;
+  trough_date: string;
+  window_start: string;
+  window_end: string;
+  status: JadeReplay["status"];
+  first_valid_date: string | null;
+  sample_count: number;
+  portfolio_value: string | null;
+  shock_return: string | null;
+  shock_amount: string | null;
+  max_drawdown: string | null;
+  max_drawdown_peak: string | null;
+  max_drawdown_trough: string | null;
+  benchmark_status: JadeReplay["benchmark_status"];
+  benchmark_shock_return: string | null;
+  benchmark_max_drawdown: string | null;
+  contributions: { asset_class: string; contribution: string }[];
+  points: { date: string; portfolio: string; benchmark: string | null }[];
+  coverage: JadeReplay["coverage"];
+  proxy_understates: boolean;
+  holdings: StressHolding[];
+}
+export interface JadeStress {
+  base_currency: string;
+  benchmark: BenchmarkCode;
+  benchmark_symbol: string;
+  benchmark_name: string;
+  scenarios: StressScenario[];
+}
+export async function getJadeStress(baseCurrency?: BaseCurrency, benchmark: BenchmarkCode = "sp500"): Promise<JadeStress> {
+  const params = new URLSearchParams({ benchmark });
+  if (baseCurrency) params.set("base_currency", baseCurrency);
+  const res = await fetch(`/api/jade/stress?${params.toString()}`, { cache: "no-store" });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<JadeStress>;
+}

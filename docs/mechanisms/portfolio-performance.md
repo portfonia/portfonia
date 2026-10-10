@@ -528,6 +528,8 @@ assumed Performance only needed FX on real portfolio-snapshot days;
 after #377, displayable index history spans the **selected range**, so
 non-USD `base_currency` needs FX depth aligned with the benchmark seed.
 
+Issue #720 adds `--before-earliest`: extend each FX pair only before its earliest existing date, preserving every existing row; the default upsert behavior is unchanged.
+
 **Ops (one-off after merge, production):** run
 `python -m app.scripts.backfill_fx_rates` (default 5 years; `--years`
 override allowed) once against the production database, then confirm

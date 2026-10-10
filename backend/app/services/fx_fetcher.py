@@ -307,7 +307,7 @@ def _upsert_fx_history(session: Session, rows: list[dict[str, object]]) -> int:
     return written
 
 
-def backfill_fx_rates(session: Session, years: int = 5) -> int:
+def backfill_fx_rates(session: Session, years: int = 5, before_earliest: bool = False) -> int:
     """One-off ~`years` daily-close seed for every `_PAIRS` entry.
 
     Observed FX, not portfolio replay — no `is_backfilled`. Safe to re-run
@@ -317,9 +317,21 @@ def backfill_fx_rates(session: Session, years: int = 5) -> int:
     """
     fetched_at = datetime.now(tz=UTC)
     fetched = _fetch_rate_history(_PAIRS, period=f"{max(years, 1)}y")
+    earliest: dict[str, date] = (
+        {
+            pair: day
+            for pair, day in session.execute(
+                select(FxRate.pair, func.min(FxRate.rate_date)).group_by(FxRate.pair)
+            ).all()
+        }
+        if before_earliest
+        else {}
+    )
     rows: list[dict[str, object]] = []
     for pair_name, points in fetched.items():
         for rate_date, rate in points:
+            if pair_name in earliest and rate_date >= earliest[pair_name]:
+                continue
             rows.append(
                 {
                     "pair": pair_name,
