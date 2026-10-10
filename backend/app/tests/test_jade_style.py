@@ -317,21 +317,36 @@ def test_b9_non_ok_copies_benchmark(db_session: Session, bench: str) -> None:
 @pytest.mark.parametrize("kind,flag", [("own", False), ("proxy", True), ("head", True)])
 def test_b10_response(db_session: Session, kind: str, flag: bool) -> None:
     days, values = fixture(db_session, kind=kind)
-    out = compute(db_session)
+    # A varying USD-pivot leg affects every basis column, including a pure USD
+    # ETF fit. Constant HKD/CNY legs alone cannot detect dropped conversion.
+    eur_rates = [Decimal("0.8") + Decimal(i) / 1000 for i in range(len(days))]
+    db_session.add_all(
+        [
+            FxRate(pair="USDEUR", rate_date=d, rate=rate)
+            for d, rate in zip(days, eur_rates, strict=True)
+        ]
+    )
+    db_session.flush()
+    out = module().compute_style(db_session, TEST_USER_ID, "EUR", "sp500")
     assert out.status == "ok" and out.portfolio is not None
     assert [w.symbol for w in out.portfolio.weights] == SYMBOLS
     assert [p.date for p in out.points] == days
     assert out.points[0].portfolio == out.points[0].style_mix == "0.000000"
-    b = replay.build_replay(db_session, TEST_USER_ID, "USD", "sp500", "3M")
+    b = replay.build_replay(db_session, TEST_USER_ID, "EUR", "sp500", "3M")
     assert out.coverage == b.out.coverage and out.proxy_inflates_fit is flag
     assert (out.horizon_days, out.min_samples, out.first_valid_date) == (3, 42, days[0])
-    # Recompute using unrounded solved weights; HK/CNY prices converted at constant FX.
-    normalized = values / values[0, :]
+    # Independently convert local prices into EUR: USDHKD/USDCNY are quoted
+    # foreign units per USD; USDEUR varies by date. Do not reuse to_base here.
+    converted = values.copy()
+    converted[:, 5] /= 7.8
+    converted[:, 6] /= 7.0
+    converted *= np.array([float(rate) for rate in eur_rates])[:, None]
+    normalized = converted / converted[0, :]
     p = np.array([v for _, v in b.portfolio])
     h = 3
     x = normalized[h:] / normalized[:-h] - 1
     y = p[h:] / p[:-h] - 1
-    w = module().constrained_weights(x, y)
+    w = oracle(x, y)
     for i, point in enumerate(out.points):
         assert point.style_mix == replay.ratio(float(normalized[i] @ w - 1))
         assert point.portfolio == replay.ratio(float(p[i] / p[0] - 1))
@@ -389,3 +404,32 @@ def test_b5_sparse_support_13() -> None:
     multipliers = gradient - gradient[support][0]
     assert np.all(np.abs(multipliers[support]) <= 1e-10)
     assert np.all(multipliers[~support] >= -1e-10)
+
+
+def test_b5_infeasible_step_removes_blocking_weight() -> None:
+    # Found with default_rng(727): trial 42 (zero-based), drawing normal(0, .01)
+    # X (6, 3), then y (6,) per trial. The solver takes one infeasible step;
+    # its first weight leaves the free set. No search runs in this test.
+    x = np.array(
+        [
+            [0.007535863008173909, 0.01357615549827467, -0.012607570569885582],
+            [0.00266016356471764, -0.012761677670161873, 0.004667102360185016],
+            [0.0023005798395976554, 0.02163611590446532, -0.027967538892360522],
+            [-0.007185420110838074, -0.00516557065054524, -0.01176659582195718],
+            [0.011094361926607774, 0.014366875227611852, -0.005171848477326379],
+            [0.0009796213847136851, 0.0009080664729796956, 0.0010658198183065245],
+        ]
+    )
+    y = np.array(
+        [
+            -0.013657179993388096,
+            -0.0038091116488480304,
+            0.007034555348565955,
+            -0.003740651063745049,
+            0.006243182529805938,
+            0.009184694518876171,
+        ]
+    )
+    w = module().constrained_weights(x, y)
+    np.testing.assert_allclose(w, oracle(x, y), atol=1e-9, rtol=0)
+    np.testing.assert_allclose(w, [0.0, 0.5499574415578309, 0.4500425584421691], atol=1e-9, rtol=0)

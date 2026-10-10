@@ -7,7 +7,7 @@ vi.mock("@/lib/api", async () => ({ ...await vi.importActual<typeof import("@/li
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 vi.mock("recharts", () => ({ ResponsiveContainer: ({children}: {children: React.ReactNode}) => <div>{children}</div>, LineChart: ({children}: {children: React.ReactNode}) => <div data-testid="line-chart">{children}</div>, Line: ({dataKey}: {dataKey: string}) => <span data-testid={`line-${dataKey}`}/>, XAxis: () => null, YAxis: () => null, Tooltip: () => null, CartesianGrid: () => null }));
 const symbols=["IWF","IWD","IWM","EFA","EEM","2800.HK","510300.SS","AGG","TLT","GLD","DBC","VNQ","BIL"];
-const weights=symbols.map((symbol,i)=>({symbol,weight:i<2?"0.400000":i===2?"0.200000":"0.000000"}));
+const weights=symbols.map((symbol,i)=>({symbol,weight:i<2?"0.300000":i===2?"0.400000":"0.000000"}));
 const fit={weights,r_squared:"0.590000",residual_vol:"0.012300",low_fit:true};
 const data={status:"ok",base_currency:"USD",benchmark:"sp500",benchmark_symbol:"SPY",benchmark_name:"SPDR",benchmark_status:"ok",window_start:"2026-07-08",window_end:"2026-10-08",first_valid_date:"2026-07-08",sample_count:60,horizon_days:3,min_samples:42,portfolio:fit,benchmark_fit:{...fit,weights:weights.map((w,i)=>({...w,weight:i===3?"1.000000":"0.000000"}))},points:[{date:"2026-07-08",portfolio:"0.000000",style_mix:"0.000000"}],coverage:{own_share:"1.000000",proxy_share:"0.000000",head_proxy_share:"0.000000",cash_share:"0.000000",cash_assumed_share:"0.000000",approx_share_at_start:"0.000000",data_quality:false,pending_share:null},proxy_inflates_fit:false};
 type Settings={currency:"USD"|"EUR"|"CNY";benchmark:"sp500"|"csi300"}|null;
@@ -41,7 +41,7 @@ it("B13 failed request keeps previous data and does not retry",async()=>{
 });
 it("B14 table union sort ties bars statistics and both chart lines",async()=>{
   getJadeStyle.mockResolvedValue(data);const {container}=await view();await screen.findByTestId("line-chart");
-  const table=screen.getByTestId("style-table");expect([...table.querySelectorAll("[data-style-row]")].map(e=>e.getAttribute("data-style-row"))).toEqual(["IWF","IWD","IWM","EFA"]);
+  const table=screen.getByTestId("style-table");expect([...table.querySelectorAll("[data-style-row]")].map(e=>e.getAttribute("data-style-row"))).toEqual(["IWM","IWF","IWD","EFA"]);
   expect(table.querySelectorAll("[data-style-bar]")).toHaveLength(4);expect(table.querySelector("[data-style-bar]")).toHaveStyle({width:"40%"});
   expect(table).toHaveTextContent("Share of movement explained (R²)");expect(table).toHaveTextContent("Unexplained volatility (annualized)");expect(table).toHaveTextContent("1.23%");
   expect(screen.getByTestId("line-portfolio")).toBeInTheDocument();expect(screen.getByTestId("line-style_mix")).toBeInTheDocument();expect(container.querySelector("details")).not.toHaveAttribute("open");
@@ -78,4 +78,23 @@ it.each(["en","zh-Hans","zh-Hant"] as const)("B16 %s D9 labels and parity",local
   const keys=(value:object,prefix=""):string[]=>Object.entries(value).flatMap(([key,v])=>v!==null&&typeof v==="object"?keys(v,`${prefix}${key}.`):[`${prefix}${key}`]).sort();
   expect(keys(c.style)).toEqual(keys((catalogs.en.jade as unknown as typeof c).style));
   const expected=locale==="en"?"US large-cap growth":locale==="zh-Hans"?"\u7f8e\u56fd\u5927\u76d8\u6210\u957f":"\u7f8e\u570b\u5927\u578b\u6210\u9577\u80a1";expect(c.style.labels.IWF).toBe(expected);
+});
+
+it.each([
+  ["0.597000", "0.59"],
+  ["0.290000", "0.29"],
+  ["-0.351000", "-0.36"],
+].flatMap(([value, expected]) => ["portfolio", "benchmark", "lowFit"].map(target => [value, expected, target])))("D9 R squared %s displays %s in %s", async (value, expected, target) => {
+  getJadeStyle.mockResolvedValue({
+    ...data,
+    portfolio: { ...fit, r_squared: value },
+    benchmark_fit: { ...data.benchmark_fit, r_squared: value },
+  });
+  await view(); await screen.findByTestId("line-chart");
+  const row = screen.getByText("Share of movement explained (R²)").parentElement;
+  if (target === "lowFit") {
+    expect(screen.getByTestId("style-low-fit")).toHaveTextContent(`R² is ${expected}, below 0.60`);
+  } else {
+    expect(row?.children[target === "portfolio" ? 1 : 2]).toHaveTextContent(expected);
+  }
 });

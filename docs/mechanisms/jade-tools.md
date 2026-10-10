@@ -455,8 +455,10 @@ failure retains previous data and an alert without automatic retry.
 The three-column table shows positive-weight rows in either fit, descending by
 portfolio weight with basis-order ties, portfolio bars, benchmark percentages,
 R² and annualized unexplained volatility. The amber notice appears only for
-low fit. The 240px curve compares portfolio and style mix. The model details
-start closed at every width. Table cells wrap, bars and chart fill their cells,
+low fit. Both R² columns and the low-fit notice floor to two decimals after
+rounding to six-decimal integer precision: 0.597000 → 0.59, 0.290000 → 0.29,
+and -0.351000 → -0.36. The 240px curve compares portfolio and style mix. The
+model details start closed at every width. Table cells wrap, bars and chart fill their cells,
 and dark-mode notice classes are checked at component level in a 375px wrapper.
 
 All three locales explain the fixed three-month window, overlapping samples,

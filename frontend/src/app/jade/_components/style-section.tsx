@@ -17,7 +17,7 @@ function matches(settings: Settings, data: JadeStyle | null) {
   return data?.base_currency === settings.currency && data?.benchmark === settings.benchmark;
 }
 function pct(value: string | null | undefined) { return value == null ? "—" : formatTickPct(Number(value)); }
-function rSquared(value: string | null | undefined) { return value == null ? "—" : Number(value).toFixed(2); }
+function rSquared(value: string | null | undefined) { return value == null ? "—" : (Math.floor(Math.round(Number(value) * 1e6) / 1e4) / 100).toFixed(2); }
 export function StyleSection({ settings }: { settings: Settings | null }) {
   const t = useTranslations("jade.style");
   const replay = useTranslations("jade.replay");
