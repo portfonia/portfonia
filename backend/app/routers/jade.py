@@ -9,11 +9,12 @@ from app.core.database import get_session
 from app.core.deps import Principal, current_principal
 from app.models.user import User
 from app.routers.portfolio import BaseCurrency, BenchmarkCode
-from app.schemas.jade import JadeReplayOut, JadeStressOut, JadeTailRiskOut
+from app.schemas.jade import JadeReplayOut, JadeStressOut, JadeStyleOut, JadeTailRiskOut
 from app.services import subscription
 from app.services.jade_replay import compute_replay
 from app.services.jade_replay_config import DEFAULT_REPLAY_RANGE, ReplayRange
 from app.services.jade_stress import compute_stress
+from app.services.jade_style import compute_style
 from app.services.jade_tail_risk import compute_tail_risk
 from app.services.user_scope import report_currency_for
 
@@ -83,6 +84,26 @@ def get_stress(
     principal: Principal = Depends(current_principal),
 ) -> JadeStressOut:
     return compute_stress(
+        session,
+        principal.user_id,
+        base_currency or report_currency_for(session, principal.user_id, "USD"),
+        benchmark,
+    )
+
+
+@router.get(
+    "/style",
+    response_model=JadeStyleOut,
+    dependencies=[Depends(_jade_access)],
+    summary="Returns-based style exposure of today's holdings over three months (Jade)",
+)
+def get_style(
+    base_currency: Annotated[BaseCurrency | None, Query()] = None,
+    benchmark: BenchmarkCode = "sp500",
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> JadeStyleOut:
+    return compute_style(
         session,
         principal.user_id,
         base_currency or report_currency_for(session, principal.user_id, "USD"),

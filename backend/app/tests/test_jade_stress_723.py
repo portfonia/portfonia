@@ -244,9 +244,19 @@ def test_b5_nightly_keys(db_session: Session, monkeypatch: pytest.MonkeyPatch) -
     summary = history.refresh_jade_price_history(db_session, E)
     primary = {"yf:" + s for s in config.FIXED_ETF_SYMBOLS}
     assert fill.call_args.args[2] == primary | m.substitute_keys()
-    assert set(batch.call_args.args[0]) == config.FIXED_ETF_SYMBOLS
-    assert {p.series_key for p in db_session.scalars(select(JadePricePoint))} == primary
-    assert summary == history.FillSummary(len(primary), len(primary), 0)
+    assert set(batch.call_args.args[0]) == config.FIXED_ETF_SYMBOLS | {
+        "IWF",
+        "IWD",
+        "IWM",
+        "TLT",
+        "BIL",
+    }
+    assert {
+        p.series_key for p in db_session.scalars(select(JadePricePoint))
+    } == primary | config.STYLE_KEYS
+    assert summary == history.FillSummary(
+        len(primary | config.STYLE_KEYS), len(primary | config.STYLE_KEYS), 0
+    )
 
 
 def test_b5_substitute_batch(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:

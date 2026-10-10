@@ -30,6 +30,7 @@ from app.services.jade_replay_config import (
     FIXED_ETF_SYMBOLS,
     REPLAY_YEARS,
     SCENARIOS,
+    STYLE_KEYS,
     years_before,
 )
 from app.services.jade_substitutes import DATA_DIR, file_spec, substitute_keys
@@ -67,14 +68,15 @@ def refresh_jade_price_history(session: Session, today: date) -> FillSummary:
     )
     if not users:
         return result
-    keys = {"yf:" + s for s in FIXED_ETF_SYMBOLS}
+    instrument_keys = {"yf:" + s for s in FIXED_ETF_SYMBOLS}
     for h in session.scalars(
         select(Holding).where(Holding.user_id.in_(users), Holding.pricing_mode == "auto")
     ):
         if is_capture_supported(h) and (h.ticker or h.fund_code):
-            keys.add(
+            instrument_keys.add(
                 "yf:" + normalize_legacy_ticker(h.ticker) if h.ticker else "nav:" + str(h.fund_code)
             )
+    keys = instrument_keys | STYLE_KEYS
     session.execute(
         insert(JadePriceSeries)
         .values([{"series_key": key} for key in sorted(keys)])
@@ -154,7 +156,7 @@ def refresh_jade_price_history(session: Session, today: date) -> FillSummary:
         result.written,
         result.failed,
     )
-    fill_scenarios(session, today, keys | substitute_keys())
+    fill_scenarios(session, today, instrument_keys | substitute_keys())
     return result
 
 

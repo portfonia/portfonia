@@ -199,3 +199,41 @@ class JadeStressOut(BaseModel):
     benchmark_symbol: str
     benchmark_name: str
     scenarios: list[StressScenario]  # SCENARIOS order
+
+
+class StyleWeight(BaseModel):
+    symbol: str
+    weight: str
+
+
+class StyleFit(BaseModel):
+    weights: list[StyleWeight]
+    r_squared: str | None
+    residual_vol: str
+    low_fit: bool
+
+
+class StylePoint(BaseModel):
+    date: date
+    portfolio: str
+    style_mix: str
+
+
+class JadeStyleOut(BaseModel):
+    status: Literal["ok", "pending", "no_holdings", "insufficient"]
+    base_currency: str
+    benchmark: Literal["sp500", "dow30", "nasdaq", "csi300"]
+    benchmark_symbol: str
+    benchmark_name: str
+    benchmark_status: Literal["ok", "pending", "unavailable"]
+    window_start: date
+    window_end: date
+    first_valid_date: date | None
+    sample_count: int
+    horizon_days: int
+    min_samples: int
+    portfolio: StyleFit | None
+    benchmark_fit: StyleFit | None
+    points: list[StylePoint]
+    coverage: Coverage
+    proxy_inflates_fit: bool
