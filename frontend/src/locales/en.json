@@ -1710,6 +1710,7 @@
       "excluded": {
         "pending": "Not included: being prepared",
         "unvalued": "Not included: no current valuation",
+        "watch_only": "Watch only (quantity 0); not included",
         "data_unavailable": "Not included: index data unavailable"
       },
       "ownHistoryUnavailable": "(no price history of its own)",

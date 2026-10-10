@@ -49,7 +49,7 @@ class ReplayHolding(BaseModel):
     name: str
     weight: str | None = None
     method: Literal["own", "fund_nav", "head_proxy", "proxy", "cash", "cash_assumed", "excluded"]
-    excluded_reason: Literal["unvalued", "pending", "data_unavailable"] | None = None
+    excluded_reason: Literal["unvalued", "watch_only", "pending", "data_unavailable"] | None = None
     own_history_unavailable: bool = False
     proxy_symbol: str | None = None
     proxy_name: str | None = None
@@ -134,7 +134,7 @@ class StressHolding(BaseModel):
     asset_class: str | None
     weight: str | None = None
     method: Literal["own", "fund_nav", "head_proxy", "proxy", "cash", "cash_assumed", "excluded"]
-    excluded_reason: Literal["unvalued", "pending", "data_unavailable"] | None = None
+    excluded_reason: Literal["unvalued", "watch_only", "pending", "data_unavailable"] | None = None
     proxy_symbol: str | None = None
     proxy_name: str | None = None
     beta: str | None = None

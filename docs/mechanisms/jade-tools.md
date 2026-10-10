@@ -43,7 +43,12 @@ capture-health integration is added.
 ### Classification and valuation
 
 `compute_replay` uses `compute_portfolio`'s current valuations and book order.
-Unvalued/nonpositive amounts are excluded. Cash and `CASH_EQUIV` remain constant
+Unvalued/nonpositive amounts are excluded. Within this branch, a holding with
+`watch_tier` set and `shares = 0` has `excluded_reason = "watch_only"`; all other
+rows retain `unvalued`. The replay and stress holding lists show "Watch only
+(quantity 0); not included" in the selected locale. This label does not change
+statuses, coverage, weights or `no_holdings`; watched positive quantities are
+unaffected. Cash and `CASH_EQUIV` remain constant
 in their own currency; wealth-management products are treated as cash. An auto
 instrument is pending until its cache is attempted. Usable own history reaching
 the start within ten days uses own prices or the fund NAV index. Later-starting
@@ -239,7 +244,9 @@ is no new Beat entry; the existing 22:15 ET entry remains heavy.
 
 ### Classification and formulas
 
-Unvalued/nonpositive holdings are excluded. An unattempted SPY calendar makes
+Unvalued/nonpositive holdings are excluded, using the same `watch_only` reason
+for watched zero quantities as replay. Other excluded valuations remain
+`unvalued`. An unattempted SPY calendar makes
 all positive holdings pending. Cash/CASH_EQUIV uses currency values, and
 wealth-management products are cash-assumed. Auto instruments are pending
 until attempted. Own history starting within ten days of the window start
