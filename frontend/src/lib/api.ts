@@ -1118,3 +1118,37 @@ export async function getJadeStress(baseCurrency?: BaseCurrency, benchmark: Benc
   if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<JadeStress>;
 }
+
+
+export interface StyleFit {
+  weights: { symbol: string; weight: string }[];
+  r_squared: string | null;
+  residual_vol: string;
+  low_fit: boolean;
+}
+export interface JadeStyle {
+  status: JadeReplay["status"];
+  base_currency: string;
+  benchmark: BenchmarkCode;
+  benchmark_symbol: string;
+  benchmark_name: string;
+  benchmark_status: JadeReplay["benchmark_status"];
+  window_start: string;
+  window_end: string;
+  first_valid_date: string | null;
+  sample_count: number;
+  horizon_days: number;
+  min_samples: number;
+  portfolio: StyleFit | null;
+  benchmark_fit: StyleFit | null;
+  points: { date: string; portfolio: string; style_mix: string }[];
+  coverage: JadeReplay["coverage"];
+  proxy_inflates_fit: boolean;
+}
+export async function getJadeStyle(baseCurrency?: BaseCurrency, benchmark: BenchmarkCode = "sp500"): Promise<JadeStyle> {
+  const params = new URLSearchParams({ benchmark });
+  if (baseCurrency) params.set("base_currency", baseCurrency);
+  const res = await fetch(`/api/jade/style?${params.toString()}`, { cache: "no-store" });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<JadeStyle>;
+}

@@ -1834,6 +1834,46 @@
       "priceIndexTag": "Price index, dividends excluded.",
       "substituteMethod": "Where the usual index ETF has no prices on the peak and trough dates, the first listed substitute that has them is used. Betas are estimated against the usual ETF on the five-year replay and applied to the substitute.",
       "fredFxNote": "Exchange rates in this window are US Federal Reserve H.10 daily rates. MOP is derived from its peg to the Hong Kong dollar (1 HKD = 1.03 MOP); CNH, which began trading in 2010, uses the onshore CNY rate."
+    },
+    "style": {
+      "title": "Style exposure",
+      "intro": "Breaks the last three months of your portfolio's movement into a mix of recognizable styles and asset classes, and shows how much of that movement the mix does not explain.",
+      "columns": {
+        "style": "Style",
+        "portfolio": "Your portfolio"
+      },
+      "rows": {
+        "rSquared": "Share of movement explained (R²)",
+        "residualVol": "Unexplained volatility (annualized)"
+      },
+      "lowFit": "R² is {r2}, below 0.60: these styles explain little of this portfolio's movement, so the mix describes it only loosely.",
+      "sampleNote": "Based on about three months of data ({count} overlapping three-day returns); a single market event can dominate the result.",
+      "proxyFit": "Some holdings follow index ETFs as proxies. Those ETFs resemble the styles above, so they raise the fit mechanically.",
+      "insufficient": "Fewer than {min} three-day returns are available ({count}), so no style mix is shown.",
+      "legend": {
+        "portfolio": "Your portfolio",
+        "styleMix": "Style mix"
+      },
+      "model": "Calculation model",
+      "windowText": "Window {start} – {end}; {count} overlapping three-day returns.",
+      "methodText": "Prices are total return (dividends reinvested), converted to {currency} at each day's exchange rate. Each sample is the return over three trading days, computed every day, so neighbouring samples overlap; this lines up markets that close at different times. The weights make the mix's returns as close as possible to the portfolio's returns (least squares), with every weight at least zero and the weights summing to one (Sharpe's returns-based style analysis). R² is one minus the variance of the unexplained part divided by the variance of the portfolio's returns; it can be below zero when no mix follows the portfolio. Unexplained volatility is the standard deviation of the unexplained part, scaled by √(252/3).",
+      "limitations": "Style weights are a statistical equivalent, not the holdings themselves. The window is fixed at three months and does not follow the replay span; it describes the past, not the future. Overlapping samples are not independent, so the effective sample is smaller than the count shown.",
+      "loadError": "Style exposure could not be loaded.",
+      "labels": {
+        "IWF": "US large-cap growth",
+        "IWD": "US large-cap value",
+        "IWM": "US small-cap",
+        "EFA": "Developed markets ex-US",
+        "EEM": "Emerging markets",
+        "2800_HK": "Hong Kong equities",
+        "510300_SS": "China A-shares (CSI 300)",
+        "AGG": "US aggregate bonds",
+        "TLT": "US long-term Treasuries",
+        "GLD": "Gold",
+        "DBC": "Broad commodities",
+        "VNQ": "US real estate (REITs)",
+        "BIL": "Cash and short-term bills (USD)"
+      }
     }
   }
 }

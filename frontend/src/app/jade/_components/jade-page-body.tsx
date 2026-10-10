@@ -1,5 +1,6 @@
 "use client";
 
+import { StyleSection } from "./style-section";
 import { StressSection } from "./stress-section";
 import { TailRiskSection } from "./tail-risk-section";
 import { ReplaySection } from "./replay-section";
@@ -70,6 +71,6 @@ export function JadePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError
         {cadenceError && <p role="alert" className="text-destructive">{t("cadenceError")}</p>}
       </CardContent>
     </Card>}
-    {isJade && <><ReplaySection onSettled={(currency, benchmark) => setReplaySettings({ currency, benchmark })} /><TailRiskSection settings={replaySettings} /><StressSection settings={replaySettings} /></>}
+    {isJade && <><ReplaySection onSettled={(currency, benchmark) => setReplaySettings({ currency, benchmark })} /><TailRiskSection settings={replaySettings} /><StressSection settings={replaySettings} /><StyleSection settings={replaySettings} /></>}
   </div>;
 }

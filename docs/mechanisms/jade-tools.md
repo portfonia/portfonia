@@ -383,3 +383,88 @@ FX rows inside the windows as a backup; run/review the dry-run counts and
 comparison lines; apply and read back per-pair counts/ranges plus unchanged
 row counts outside the windows; wait for nightly fill or separately trigger
 it and read back the two scenario success counts; owner phone check at 375px.
+
+
+## Style exposure (issue #727)
+
+The Jade-only, read-only `GET /jade/style` endpoint describes today's unchanged
+holdings with Sharpe's returns-based style analysis. Currency defaults to the
+user's report currency, benchmark to `sp500`; non-Jade access returns 403
+`subscription_required` and invalid benchmark values return 422. There are no
+request-time writes, provider calls or fills.
+
+### Basis and cache
+
+The ordered basis is IWF (US large-cap growth), IWD (US large-cap value), IWM
+(US small-cap), EFA (developed markets ex-US), EEM (emerging markets), 2800.HK
+(Hong Kong), 510300.SS (China A-shares), AGG (US aggregate bonds), TLT (US
+long-term Treasuries), GLD (gold), DBC (commodities), VNQ (US real estate) and
+BIL (USD cash and short-term bills). It covers recognizable styles and asset
+classes without the near-duplicate quality, momentum or minimum-volatility
+ETFs. TLT distinguishes duration from AGG; there is no separate CNY bond basis.
+
+`STYLE_KEYS` is separate from `FIXED_ETF_SYMBOLS`, which remains unchanged along
+with the substitute YAML and its exact-key validation. Nightly replay fill uses
+`instrument_keys | STYLE_KEYS`, adding IWF, IWD, IWM, TLT and BIL to the existing
+five-year cache and single Yahoo batch. Scenario fill still receives only
+`instrument_keys | substitute_keys()`; an ETF held by a user remains an instrument
+key. With no active Jade users the existing early return is preserved. There is
+no new dependency, table, migration, Settings field or Beat entry.
+
+### Samples, solver and fit
+
+`compute_style` uses unrounded `build_replay(..., "3M")` values. Basis adjusted
+closes and historical FX carry at most ten calendar days, using the replay's
+`price_on` and USD-pivot `to_base`. Common dates include only portfolio dates
+with all 13 converted basis prices. Each return compares positions three apart:
+`P(D[i])/P(D[i-3])-1`, with the same formula for every basis column. Skipped
+dates are spanned by position. Samples overlap to align asynchronously closing
+markets; their effective independent count is smaller than the displayed count.
+
+The numpy primal active-set solver minimizes `||y-Xw||²` with `w >= 0` and
+`sum(w)=1`. It starts at the closest single-column vertex, solves the free-set
+KKT system, releases the most negative fixed-index multiplier, or steps to the
+first nonnegative boundary and removes zero weights. Ties follow basis order.
+Tolerance is `1e-12`; failure to converge in `10*k` iterations raises
+`RuntimeError`. Singular KKT matrices have no special data-state branch. Tests
+compare seeded 3-, 8- and 13-column problems with an independent exhaustive
+support-enumeration oracle and independently check simplex/KKT conditions.
+
+Residuals are `e=y-Xw`. R² is `1-variance(e)/variance(y)` with sample variances;
+it is null for zero portfolio variance and can be negative. Unexplained
+volatility is `stdev(e)*sqrt(252/3)`. The low-fit flag uses unrounded R² strictly
+below 0.60, excluding null. All 13 weights and ratios serialize independently
+to six decimals without rounding adjustment. The curve is a fixed mix at the
+first common date, `sum(w[j]*B[j](d)/B[j](D[0]))-1`, without rebalancing.
+
+Status order is replay `no_holdings`, replay `pending`, missing/unattempted
+basis `pending`, replay insufficient or fewer than 42 three-day returns
+`insufficient`, then `ok`. Non-ok results have null fits and empty points,
+retaining replay coverage and window fields. Benchmark fitting runs only for
+an ok portfolio, on its own common dates and 42-sample gate; pending remains
+pending and insufficient benchmark data is unavailable. For a non-ok portfolio,
+benchmark status is copied from replay and its fit is null.
+
+### Card and notices
+
+`StyleSection` follows successful replay currency/benchmark settings below the
+stress card, only for active Jade subscribers. It has no span selector or
+questionnaire input. Requests use one flight and queue only the latest settings;
+failure retains previous data and an alert without automatic retry.
+
+The three-column table shows positive-weight rows in either fit, descending by
+portfolio weight with basis-order ties, portfolio bars, benchmark percentages,
+R² and annualized unexplained volatility. The amber notice appears only for
+low fit. Both R² columns and the low-fit notice floor to two decimals after
+rounding to six-decimal integer precision: 0.597000 → 0.59, 0.290000 → 0.29,
+and -0.351000 → -0.36. The 240px curve compares portfolio and style mix. The
+model details start closed at every width. Table cells wrap, bars and chart fill their cells,
+and dark-mode notice classes are checked at component level in a 375px wrapper.
+
+All three locales explain the fixed three-month window, overlapping samples,
+statistical equivalent rather than actual holdings, FX, total returns and
+historical limitations. The replay 66% approximation notice is preserved, and
+positive proxy or head-proxy share separately explains mechanically inflated
+fit. No position judgement or action wording is added. Review, merge, deployment,
+nightly-fill triggering and each production operation remain separately
+authorized. Until nightly fill attempts the five new series the card is pending.

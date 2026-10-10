@@ -233,7 +233,7 @@ def test_a8_yf_upsert_needed_series(db_session: Session, monkeypatch: pytest.Mon
     yf.return_value = {"0700.HK": [(TODAY, 100, 100, 100, 100, 1)]}
     result = refresh_jade_price_history(db_session, TODAY)
     requested = set(yf.call_args.args[0])
-    assert requested == FIXED_ETF_SYMBOLS | {"0700.HK"}
+    assert requested == FIXED_ETF_SYMBOLS | {"0700.HK", "IWF", "IWD", "IWM", "TLT", "BIL"}
     assert yf.call_args.args[2] == TODAY + timedelta(days=1)
     assert cast(JadePricePoint, db_session.get(JadePricePoint, ("yf:0700.HK", TODAY))).close == 100
     assert cast(JadePricePoint, db_session.get(JadePricePoint, ("yf:SPY", TODAY))).close == 90

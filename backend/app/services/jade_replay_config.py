@@ -65,6 +65,29 @@ FIXED_ETF_SYMBOLS = {
 }
 
 
+STYLE_BASIS: tuple[EtfSpec, ...] = (
+    EtfSpec("IWF", "USD", "iShares Russell 1000 Growth ETF"),
+    EtfSpec("IWD", "USD", "iShares Russell 1000 Value ETF"),
+    EtfSpec("IWM", "USD", "iShares Russell 2000 ETF"),
+    CLASS_PROXY["EQUITY_DM"],
+    CLASS_PROXY["EQUITY_EM"],
+    STOCK_PROXY_BY_MARKET["HK"],
+    CSI,
+    CLASS_PROXY["BOND_FUND"],
+    EtfSpec("TLT", "USD", "iShares 20+ Year Treasury Bond ETF"),
+    CLASS_PROXY["PRECIOUS_METALS"],
+    CLASS_PROXY["COMMODITY"],
+    CLASS_PROXY["REIT"],
+    EtfSpec("BIL", "USD", "SPDR Bloomberg 1-3 Month T-Bill ETF"),
+)
+STYLE_KEYS = frozenset("yf:" + e.symbol for e in STYLE_BASIS)
+STYLE_RANGE: ReplayRange = "3M"
+STYLE_HORIZON_DAYS = 3
+STYLE_MIN_RETURNS = 42
+STYLE_LOW_FIT = 0.6
+STYLE_SOLVER_TOL = 1e-12
+
+
 def years_before(day: date, years: int) -> date:
     try:
         return day.replace(year=day.year - years)

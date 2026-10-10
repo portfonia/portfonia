@@ -6,6 +6,7 @@ vi.mock("@/hooks/use-session", () => ({ revalidateSession: vi.fn() }));
 vi.mock("next-intl", () => ({ useTranslations: () => (key: string, values?: object) => key + (values ? JSON.stringify(values) : "") }));
 vi.mock("@/lib/api", async () => ({ ...await vi.importActual<typeof import("@/lib/api")>("@/lib/api"), setJadeCadence, getSubscriptionQuote, setSubscription, cancelSubscription }));
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
+vi.mock("./style-section", () => ({ StyleSection: () => <div data-testid="style-section" /> }));
 vi.mock("./stress-section", () => ({ StressSection: () => <div data-testid="stress-section" /> }));
 vi.mock("./tail-risk-section", () => ({ TailRiskSection: () => <div data-testid="tail-risk-section" /> }));
 vi.mock("./replay-section", () => ({ ReplaySection: () => <div data-testid="replay-section" /> }));
@@ -88,4 +89,13 @@ it.each(["jade", "daily", "weekly"] as const)("A11 replay is Jade-only for %s", 
 it.each(["jade", "daily", "weekly"] as const)("A23 stress is Jade-only for %s", plan => {
   render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, type: plan } }} hadLoadError={false} />);
   expect(screen.queryByTestId("stress-section") !== null).toBe(plan === "jade");
+});
+
+it.each(["jade", "daily", "weekly"] as const)("B16 style is Jade-only for active %s", plan => {
+  render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, type: plan } }} hadLoadError={false} />);
+  expect(screen.queryByTestId("style-section") !== null).toBe(plan === "jade");
+});
+it.each(["inactive", "expired"] as const)("B16 style hidden for %s Jade", status => {
+  render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, status } }} hadLoadError={false} />);
+  expect(screen.queryByTestId("style-section")).not.toBeInTheDocument();
 });
