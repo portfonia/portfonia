@@ -24,7 +24,7 @@ function strings(node: ReactNode): string[] {
   });
 }
 beforeEach(() => vi.clearAllMocks());
-it("prerenders exactly three locale images and rejects unknown locales", async () => {
+it("prerenders exactly four locale images and rejects unknown locales", async () => {
   expect(dynamic).toBe("force-static"); expect(dynamicParams).toBe(false);
   expect(generateStaticParams()).toEqual([{ locale: "en" }, { locale: "es" }, { locale: "zh-Hans" }, { locale: "zh-Hant" }]);
   expect((await GET(new Request("https://portfonia.com/og/invalid"), { params: Promise.resolve({ locale: "invalid" }) })).status).toBe(404);

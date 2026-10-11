@@ -1194,7 +1194,7 @@
       "refund": "Política de reembolsos",
       "buyCredits": "Comprar créditos"
     },
-    "resellerNotice": "Nuestro proceso de pedidos se realiza mediante nuestro revendedor en línea Paddle.com. Paddle.com es el comerciante registrado para todos nuestros pedidos. Paddle atiende todas las consultas de servicio al cliente y gestiona las devoluciones.",
+    "resellerNotice": "Nuestro proceso de pedidos se realiza mediante nuestro revendedor en línea Paddle.com. Paddle.com es el comerciante registrado (Merchant of Record) para todos nuestros pedidos. Paddle atiende todas las consultas de servicio al cliente y gestiona las devoluciones.",
     "terms": {
       "title": "Términos de servicio",
       "lastUpdated": "Última actualización: 2026-10-08",
@@ -1226,7 +1226,7 @@
             "Los planes de pago se facturan en créditos de servicio prepagados. Los créditos se venden en paquetes en dólares estadounidenses (1 crédito = US$1 al comprar); los planes y paquetes actuales figuran en Precios.",
             "La tarifa de su plan se descuenta de su saldo al inicio de cada período mensual, primero de los créditos de cortesía. Si cambia de plan, la parte no utilizada de la tarifa del mes actual se devuelve proporcionalmente a su saldo y el nuevo plan comienza ese día. Si cancela, el plan permanece activo hasta el final del período ya pagado y no se devuelve nada.",
             "Puede ajustar su suscripción (suscribirse, cambiar de plan, cancelar o reanudar) una vez al día, hora del Este.",
-            "Cambiar el calendario de resúmenes de Jade en su página no es un ajuste de suscripción y no tiene límite. La suscripción, cancelación y reanudación de Jade se realizan en su página; para pasar a otro plan, cancele Jade y suscríbase al nuevo después de finalizar el período de Jade.",
+            "Cambiar el calendario de resúmenes de Jade en la página de Jade no es un ajuste de suscripción y no tiene límite. La suscripción, cancelación y reanudación de Jade se realizan en la página de Jade; para pasar a otro plan, cancele Jade y suscríbase al nuevo después de finalizar el período de Jade.",
             "Si cancela la entrega de informes a una dirección y no queda ninguna dirección verificada, su suscripción se considera cancelada: sigue activa hasta el final del período pagado, no se devuelve nada y no se reanuda al verificar otra vez una dirección.",
             "Los recordatorios de saldo y avisos de vencimiento se envían solo a una dirección verificada.",
             "Los créditos no vencen. Solo pueden utilizarse para suscripciones de Portfonia, no son transferibles y no tienen valor en efectivo salvo lo dispuesto en la Política de reembolsos.",
@@ -1310,7 +1310,7 @@
             "Datos de cuenta: su correo electrónico y credenciales de autenticación, gestionados por nuestro proveedor de autenticación.",
             "Datos de posiciones e inversión: posiciones, corredores o custodios y cantidades que suba, además de sus respuestas al cuestionario de estilo de inversión.",
             "Datos de uso: información básica de sesión y actividad necesaria para operar el Servicio de forma segura, como horas de inicio de sesión y aplicación de límites de inactividad.",
-            "Datos de pago y créditos: {merchantOfRecord} procesa las compras como comerciante registrado. {merchantOfRecord} recopila sus datos de pago y facturación bajo su propio aviso de privacidad; recibimos registros como identificador de pedido, importe, moneda, país y correo usado al pagar, pero nunca el número completo de su tarjeta. También registramos su saldo y cada crédito agregado o utilizado."
+            "Datos de pago y créditos: {merchantOfRecord} procesa las compras como comerciante registrado (Merchant of Record). {merchantOfRecord} recopila sus datos de pago y facturación bajo su propio aviso de privacidad; recibimos registros como identificador de pedido, importe, moneda, país y correo usado al pagar, pero nunca el número completo de su tarjeta. También registramos su saldo y cada crédito agregado o utilizado."
           ]
         },
         {
@@ -1332,7 +1332,7 @@
           "body": [
             "Generar un informe implica enviar partes de sus datos a proveedores de grandes modelos de lenguaje para redactarlo. Por defecto, cada llamada se configura para excluir el uso de sus datos en el entrenamiento del proveedor.",
             "Una excepción limitada, aprobada por el propietario, se aplica a dos pasos concretos no analíticos: generar consultas de búsqueda de mercados públicos y traducir un informe terminado al idioma de visualización. Se dirigen a la API propia de un único proveedor identificado, sin la exclusión de entrenamiento anterior, porque es la única vía para ese modelo de bajo costo. Sus condiciones estándar permiten usar datos enviados para mejorar modelos; se acepta ese riesgo solo para esos dos pasos y no existe un acuerdo de no entrenamiento que lo respalde. La ruta está fijada sin alternativa automática a otro proveedor si no está disponible. La traducción sí procesa texto derivado de sus posiciones porque traduce el informe terminado; la generación de consultas no, pues usa solo temáticas públicas de mercado y macroeconomía.",
-            "{merchantOfRecord} procesa los pagos como comerciante registrado y gestiona su información de pago bajo su propio aviso de privacidad."
+            "{merchantOfRecord} procesa los pagos como comerciante registrado (Merchant of Record) y gestiona su información de pago bajo su propio aviso de privacidad."
           ]
         },
         {
@@ -1462,7 +1462,7 @@
           "body": [
             "Los créditos de cortesía, promocionales y por referidos no son reembolsables.",
             "Los créditos ya aplicados a un período de facturación no se reembolsan a su método de pago. Al cambiar de plan, la parte no utilizada de la tarifa del mes actual se devuelve proporcionalmente a su saldo. Al cancelar, no se devuelve nada por los días restantes.",
-            "Después de 120 días de la compra, sus créditos ya no pueden reembolsarse. No vencen y siguen utilizables para su suscripción."
+            "Después de 120 días desde una compra, los créditos de esa compra ya no pueden reembolsarse. No vencen y siguen utilizables para su suscripción."
           ]
         },
         {
