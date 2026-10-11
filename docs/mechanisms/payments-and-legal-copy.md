@@ -146,6 +146,7 @@ No open owner decisions remain for this copy.
 
 | Locale key | Change |
 |---|---|
+| `pricingPlans`, `legal.pricing.sections[0].body[3]`, `legal.pricing.lastUpdated`, `seo.pages.pricing.description` | #731: three-plan comparison summary, five shipped Jade risk tools, Pricing dated 2026-10-11 and updated SEO description |
 | `profile.inviteHeading`, `profile.inviteBody`, `profile.referralThanks`, `profile.referralEmailRequired`, `profile.referralDailyLimit`, `profile.referralError` | #675: referral email form, thank-you dialog and submission errors; remove `invitePlaceholder` |
 | `profile.deleteAccountNegativeBalance` | #675: negative cash deletion refusal with info@portfonia.com |
 | `legal.terms.sections[3].body`, `legal.terms.lastUpdated` | #675: referral paragraph before reseller notice, dated 2026-10-05 in all three locales |
@@ -177,6 +178,9 @@ are reviewed by the product owner in the PR. Billing, refunds and existing
 plan notice texts remain unchanged.
 
 ## Pricing (`legal.pricing`)
+
+The Briefing, Advanced and Jade comparison cards (#731) summarize the plans
+after the intro and above section 1. The Pricing document text stays authoritative.
 
 - **title**: Pricing
 - **intro**: Portfonia is a software tool. You choose a

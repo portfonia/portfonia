@@ -1386,7 +1386,7 @@
     },
     "pricing": {
       "title": "Pricing",
-      "lastUpdated": "Last updated: 2026-10-08",
+      "lastUpdated": "Last updated: 2026-10-11",
       "intro": "Portfonia is a software tool. You choose a briefing plan and pay for it with prepaid service credits.",
       "sections": [
         {
@@ -1395,7 +1395,7 @@
             "Weekly briefing — 0.99 credits per month. One personalized briefing email per week, tied to the holdings you have entered.",
             "Mon / Wed / Fri briefing — 1.99 credits per month. Three personalized briefing emails per week (Monday, Wednesday, Friday).",
             "Daily briefing (Advanced) — 2.49 credits per month. One personalized briefing email every weekday (Monday to Friday), including market holidays.",
-            "Jade — 9.99 credits per month. Includes everything in the Advanced plan. You choose the Weekly, Mon / Wed / Fri, or Daily briefing schedule and can change it at any time on the Jade page. Portfolio risk tools are added to Jade as they are released.",
+            "Jade — 9.99 credits per month. Includes everything in the Advanced plan. You choose the Weekly, Mon / Wed / Fri, or Daily briefing schedule and can change it at any time on the Jade page. Jade includes five portfolio risk tools: holdings replay, tail risk (VaR / CVaR), historical stress scenarios, style exposure, and tracking against your reference.",
             "Weekly and Mon / Wed / Fri differ only in how often briefings are sent. Daily is the Advanced plan. Daily and Jade both let your AI agent read your daily holding snapshots and holding-related intelligence. Report history is available to AI agents on every plan."
           ]
         },
@@ -1594,7 +1594,7 @@
       },
       "pricing": {
         "title": "Pricing — Portfonia",
-        "description": "Weekly, Mon/Wed/Fri, or weekday daily briefings, paid with prepaid credits from US$10. Unused purchased credits are refundable within 120 days."
+        "description": "Weekly, Mon/Wed/Fri, or weekday daily briefings, and Jade portfolio risk tools, paid with prepaid credits from US$10. Unused purchased credits are refundable within 120 days."
       },
       "waitlist": {
         "title": "Join the waitlist — Portfonia",
@@ -1938,5 +1938,53 @@
         "CASH": "Cash ({currency}, held constant)"
       }
     }
+  },
+  "pricingPlans": {
+    "heading": "Plans at a glance",
+    "plans": [
+      {
+        "name": "Briefing",
+        "prices": [
+          "Weekly — 0.99 credits / month",
+          "Mon / Wed / Fri — 1.99 credits / month"
+        ],
+        "lead": "",
+        "features": [
+          "A personalized briefing email every Saturday, or every Monday, Wednesday and Friday",
+          "Holdings upload from CSV, Excel or Markdown, with row-level editing",
+          "Portfolio overview: allocation, performance against benchmarks, volatility and risk views",
+          "Report history on the web, with Markdown or PDF download",
+          "Your AI agent can read your report history"
+        ]
+      },
+      {
+        "name": "Advanced",
+        "prices": [
+          "2.49 credits / month"
+        ],
+        "lead": "Everything in Briefing, plus:",
+        "features": [
+          "A briefing every weekday, Monday to Friday",
+          "Your AI agent can read your daily holding snapshots",
+          "Your AI agent can read intelligence related to your holdings"
+        ]
+      },
+      {
+        "name": "Jade",
+        "prices": [
+          "9.99 credits / month"
+        ],
+        "lead": "Everything in Advanced, plus:",
+        "features": [
+          "Choose weekly, Mon / Wed / Fri or daily briefings, and change at any time",
+          "Holdings replay: today's holdings over up to five years",
+          "Tail risk (VaR / CVaR)",
+          "Historical stress scenarios: five past market shocks",
+          "Style exposure",
+          "Tracking against your reference: a portfolio you define, with tracking error"
+        ]
+      }
+    ],
+    "footnote": "1 credit = US$1."
   }
 }
