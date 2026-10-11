@@ -2,6 +2,7 @@
 
 import { LanguageLinks } from "./language-links";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { useLegalMessages, useLocalizedHref } from "./locale-provider";
 
@@ -22,7 +23,7 @@ function fillMerchant(text: string, resellerNotice: string): string {
     .replaceAll("{merchantOfRecord}", MERCHANT_OF_RECORD);
 }
 
-export function LegalDocument({ doc }: { doc: LegalDocKey }) {
+export function LegalDocument({ doc, afterIntro }: { doc: LegalDocKey; afterIntro?: ReactNode }) {
   const t = useLegalMessages();
   const href = useLocalizedHref();
   const content = t[doc];
@@ -32,6 +33,8 @@ export function LegalDocument({ doc }: { doc: LegalDocKey }) {
       <h1 className="font-serif text-3xl">{content.title}</h1>
       <p className="mt-2 text-sm text-foreground/45">{content.lastUpdated}</p>
       <p className="mt-6 text-sm leading-relaxed text-foreground/80">{fillMerchant(content.intro, t.resellerNotice)}</p>
+
+      {afterIntro}
 
       <div className="mt-10 flex flex-col gap-8">
         {content.sections.map((section) => (
