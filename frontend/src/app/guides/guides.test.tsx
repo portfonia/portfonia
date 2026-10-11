@@ -105,3 +105,9 @@ it.each(["zh-Hans", "zh-Hant"] as const)("737 fix round %s placeholders have CJK
     expect(value, key).not.toMatch(/[\u3400-\u9fff]\{|\}[\u3400-\u9fff]/);
   }
 });
+
+it("737 fix round 2 zh-Hans guide terminology matches Jade", () => {
+  for (const [key, value] of strings(catalogs["zh-Hans"].guides)) {
+    expect(value, key).not.toContain("\u5728\u9669\u4ef7\u503c");
+  }
+});
