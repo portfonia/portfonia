@@ -7,7 +7,7 @@ import { LocaleProvider } from "@/app/_components/locale-provider";
 import { catalogs } from "@/locales";
 import { buildPageMetadata, isSeoPath, localizedPath } from "@/lib/seo";
 import sitemap from "@/app/sitemap";
-import { PORTFOLIO_COLOR } from "@/app/portfolio/performance/_components/performance-colors";
+import { BENCHMARK_COLORS, PORTFOLIO_COLOR } from "@/app/portfolio/performance/_components/performance-colors";
 vi.mock("@supabase/ssr", () => ({ createServerClient: () => ({ auth: { getUser: async () => ({ data: { user: null } }) } }) }));
 import { proxy } from "@/proxy";
 const locales = ["en", "es", "zh-Hans", "zh-Hant"] as const;
@@ -39,6 +39,7 @@ it("739 A6 index and stress metadata", () => {
     const m = buildPageMetadata(key as Parameters<typeof buildPageMetadata>[0], "zh-Hant");
     expect(m.alternates?.canonical).toBe(`https://portfonia.com/zh-Hant${path}`);
     expect(m.title).toBe((catalogs["zh-Hant"].seo.pages as Record<string, { title: string }>)[key].title);
+    expect(m.description).toBe(catalogs["zh-Hant"].seo.pages[key].description);
   }
 });
 it.each(locales)("739 A7 %s server-readable guide sections, tables, captions and rendering", async locale => {
@@ -48,7 +49,8 @@ it.each(locales)("739 A7 %s server-readable guide sections, tables, captions and
   for (const props of cases) {
     window.history.replaceState(null, "", localizedPath(`/guides/jade-${props.kind}`, locale));
     const html = renderToStaticMarkup(<LocaleProvider routeLocale={locale}><Batch2Body {...props} /></LocaleProvider>);
-    const doc = new DOMParser().parseFromString(html, "text/html");
+    const doc = document.createElement("div");
+    doc.innerHTML = html;
     const copy = (catalogs[locale].guides as unknown as Record<string, { title: string; sections: Record<string, { heading: string }> }>)[props.kind];
     expect(doc.querySelector("h1")?.textContent).toBe(copy.title);
     expect([...doc.querySelectorAll("h2")].map(e => e.textContent)).toEqual(Object.values(copy.sections).map(s => s.heading));
@@ -57,9 +59,16 @@ it.each(locales)("739 A7 %s server-readable guide sections, tables, captions and
     for (const caption of doc.querySelectorAll("caption,figcaption")) expect(caption.textContent).toContain(catalogs[locale].guides.common.exampleLabel);
     expect(doc.querySelector(`nav a[href="${localizedPath('/guides', locale)}"]`)).not.toBeNull();
     expect(doc.querySelector(`nav a[href="${localizedPath('/pricing', locale)}"]`)).not.toBeNull();
+    const chart = doc.querySelector("[data-guide-chart]");
+    expect(chart?.getAttribute("data-first-stroke")).toBe(PORTFOLIO_COLOR);
+    expect(chart?.getAttribute("data-second-stroke")).toBe(props.kind === "style" ? "var(--muted-foreground)" : BENCHMARK_COLORS.sp500);
     if (props.kind === "stress") {
       expect(doc.querySelectorAll('button[aria-pressed="true"]')).toHaveLength(1);
       expect(doc.querySelectorAll("button:disabled")).toHaveLength(4);
+      expect(within(doc).getByRole("button", { pressed: true, name: catalogs[locale].jade.stress.scenarios.tariffs_2025.name })).toBe(doc.querySelector('button[aria-pressed="true"]'));
+      for (const id of ["dotcom_2000", "gfc_2008", "covid_2020", "rates_2022"] as const) {
+        expect(within(doc).getByRole("button", { name: catalogs[locale].jade.stress.scenarios[id].name }).hasAttribute("disabled")).toBe(true);
+      }
       const equity = doc.querySelector<HTMLElement>('[data-contribution="EQUITY_US_BROAD"] [data-bar]');
       const bond = doc.querySelector<HTMLElement>('[data-contribution="BOND_FUND"] [data-bar]');
       expect(equity?.style.right).toBe("50%"); expect(equity?.style.width).toBe("50%");

@@ -112,6 +112,7 @@ export function styleExample() {
   const by = b.slice(horizon).map((v, i) => v / b[i] - 1);
   const portfolio = fit(x, y), spy = fit(x, by);
   return { start: dates[0], end: dates[dates.length - 1], sampleCount: y.length, x, y, portfolio, spy,
+    firstCnyUsdLevel: levels[0][STYLE_SYMBOLS.indexOf("510300.SS")],
     listedSymbols: STYLE_SYMBOLS.filter((_, i) => roundSix(portfolio.weights[i]) > 0 || roundSix(spy.weights[i]) > 0),
     points: dates.map((date, i) => ({ date, time: time(date), portfolio: v[i] / v[0] - 1, styleMix: dot(portfolio.weights, levels[i].map((v, j) => v / levels[0][j])) - 1 })),
   };

@@ -77,15 +77,17 @@ export function Batch2Body(props: Props) {
     const secondKey = isStyle ? "styleMix" : "spy";
     const firstName = props.kind === "tracking" ? t("tracking.balancedLegend") : portfolio;
     const secondName = isStyle ? style("legend.styleMix") : props.kind === "tracking" ? t("tracking.spyLegend") : "SPY";
+    const firstStroke = PORTFOLIO_COLOR;
+    const secondStroke = isStyle ? "var(--muted-foreground)" : BENCHMARK_COLORS.sp500;
     return <figure className="my-4 min-w-0">
-      <div data-guide-chart className="h-60 w-full min-w-0" aria-label={t(`${kind}.title`)}>
+      <div data-guide-chart data-first-stroke={firstStroke} data-second-stroke={secondStroke} className="h-60 w-full min-w-0" aria-label={t(`${kind}.title`)}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
             <XAxis type="number" dataKey="time" domain={["dataMin", "dataMax"]} tickFormatter={v => date.format(new Date(Number(v)))} minTickGap={24} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
             <YAxis width={48} tickFormatter={isStyle ? formatTickPct : v => percent.format(v)} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
-            <Line dataKey={firstKey} name={firstName} stroke={PORTFOLIO_COLOR} strokeWidth={2.5} dot={false} isAnimationActive={false} />
-            <Line dataKey={secondKey} name={secondName} stroke={isStyle ? "var(--muted-foreground)" : BENCHMARK_COLORS.sp500} strokeWidth={1.5} dot={false} isAnimationActive={false} />
+            <Line dataKey={firstKey} name={firstName} stroke={firstStroke} strokeWidth={2.5} dot={false} isAnimationActive={false} />
+            <Line dataKey={secondKey} name={secondName} stroke={secondStroke} strokeWidth={1.5} dot={false} isAnimationActive={false} />
             {isStress && props.kind === "stress" && <>
               <ReferenceLine x={Date.parse(props.example.peak)} stroke="var(--muted-foreground)" strokeDasharray="6 3" />
               <ReferenceLine x={Date.parse(props.example.trough)} stroke="var(--muted-foreground)" strokeDasharray="2 3" />

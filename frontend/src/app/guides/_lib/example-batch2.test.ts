@@ -14,8 +14,12 @@ it("739 A1 stress every Exploration value and contribution order", async () => {
 });
 
 it("739 A1 style every Exploration weight fit curve and listed row", async () => {
-  const { styleExample, rSquaredDisplay } = await import("./example-batch2");
+  const { styleExample, rSquaredDisplay, priceOn } = await import("./example-batch2");
+  const { STYLE_BASIS_CLOSES, STYLE_FX } = await import("../_data/style-basis-closes");
   const e = styleExample();
+  expect(e.start).toBe("2026-07-09");
+  expect(e.firstCnyUsdLevel).toBeCloseTo(priceOn(STYLE_BASIS_CLOSES["510300.SS"], e.start)! / priceOn(STYLE_FX.USDCNY, e.start)!, 12);
+  expect(e.firstCnyUsdLevel).toBeCloseTo(0.7226754950064055, 12);
   expect(e.points).toHaveLength(66);
   expect(e.sampleCount).toBe(63);
   const expected = [
