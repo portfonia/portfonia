@@ -2186,27 +2186,27 @@
       "total": "Total",
       "sections": {
         "s1": {
-          "heading": "1. What the tool answers",
+          "heading": "What the tool answers",
           "p1": "The tool asks how today's holdings would have moved through a past market shock. Each window begins with today's value weights, then lets prices change the mix without rebalancing it. This keeps the starting composition comparable across episodes. It does not reconstruct the transactions made at the time, or assume that today's holdings existed in your account then. The result is a replay of the past, not a forecast."
         },
         "s2": {
-          "heading": "2. One episode, two curves",
+          "heading": "One episode, two curves",
           "p1": "This example shows the 2025 tariff shock only. The Jade card offers all five episodes; the four other buttons here are greyed out and cannot be selected. Both curves use the same dates and have zero at the S&P 500 peak. The example's line and SPY's line describe different mixtures over the same market episode, so a gap between them reflects that difference in composition."
         },
         "s3": {
-          "heading": "3. The shock in percentages and dollars",
+          "heading": "The shock in percentages and dollars",
           "p1": "The example's peak-to-trough return is {shock}, compared with {spyShock} for SPY. Applied to USD 100,000, the example change is {amount}. That dollar figure gives the percentage a scale; it is not an account balance or a separate calculation of loss. The table also reports the largest drawdown across the entire window, alongside its own high and low dates. All figures describe this fixed example."
         },
         "s4": {
-          "heading": "4. How the window is defined",
+          "heading": "How the window is defined",
           "p1": "A window runs from six months before the S&P 500 closing peak to six months after its closing trough. Here that is {start} to {end}. The dashed vertical line marks {peak}, and the dotted line marks {trough}. Zero on the chart means the value at the peak, not the value at the beginning of the window. Values before the peak can therefore be below zero even before the named shock begins."
         },
         "s5": {
-          "heading": "5. Peak to trough and largest drawdown",
+          "heading": "Peak to trough and largest drawdown",
           "p1": "Peak to trough fixes the dates using the S&P 500 episode. Largest drawdown searches for the deepest fall from any earlier high to a later low in the portfolio's own window. These are different questions. In this example both identify {peak} to {trough}, and the example's largest drawdown is {drawdown}. In other episodes, a portfolio concentrated in another market can reach its high or low on other days."
         },
         "s6": {
-          "heading": "6. Reading the contribution bars",
+          "heading": "Reading the contribution bars",
           "p1": "The contributions explain the total by asset class. They use each class's price change and its weight at the peak, rather than simply multiplying a loss by the starting weight. This matters because weights already drifted before the shock. The equity and bond contributions are {equityContribution} and {bondContribution} percentage points. Their sum equals the example's peak-to-trough return, apart from display rounding.",
           "r1": "The center line is zero. A bar extending left pulled the portfolio down; one extending right added to its value.",
           "r2": "A bar reflects both the asset class's movement and its share of the portfolio. SPY was {peakWeight} of the example at the peak.",
@@ -2214,19 +2214,19 @@
           "r4": "The numbers add up to {shock}. The bond contribution partly offsets the equity contribution in this episode; the bars describe that arithmetic without rating either asset class."
         },
         "s7": {
-          "heading": "7. Proxies and beta",
+          "heading": "Proxies and beta",
           "p1": "A holding without its own history at the window start follows its replay proxy ETF until its own history begins. Beta is the estimated strength of its movement relative to that ETF, and scales the proxy's returns. An index proxy loses the holding's individual swings, so a scenario can understate its losses. The card states the approximated share and shows an amber note when that share is 66% or more. This example uses the two funds' own histories."
         },
         "s8": {
-          "heading": "8. Earlier episodes and substitute history",
+          "heading": "Earlier episodes and substitute history",
           "p1": "The 2000–2002 and 2008 episodes reach back before some ETFs existed. A fixed substitute chain supplies the first available candidate with the required dates, using mutual funds or indexes. Some substitutes are price indexes that exclude dividends, rather than total-return series with dividends reinvested. Exchange rates before 2021-09 come from a one-time FRED export; FRED is the Federal Reserve Economic Data service. The amber note above the table appears for an approximated share of at least 66%, any substitute, or any price index."
         },
         "s9": {
-          "heading": "9. What is not shown",
+          "heading": "What is not shown",
           "p1": "There is no recovery metric. The curve after the trough shows the following six months, but that segment does not establish when a portfolio recovered its earlier high. There is also no questionnaire reference line. The historical paths and contributions answer what happened to a defined mixture through an episode; they do not compare a loss with a person's questionnaire answers."
         },
         "s10": {
-          "heading": "10. Limits of five past episodes",
+          "heading": "Limits of five past episodes",
           "p1": "Only five past episodes are represented. Other market events, including events unlike any of these, are absent. Today's holdings also carry hindsight: their presence today can reflect what became known later. Prices, proxies and substitute series set further limits on what the calculation describes. History does not repeat in the same form, and a fixed historical path supplies no probability for the next shock."
         },
         "s11": {
@@ -2244,19 +2244,19 @@
       "tableCaption": "{portfolio}, {start} to {end}. {exampleLabel}. Equivalent style weights and fit, with SPY for comparison.",
       "sections": {
         "s1": {
-          "heading": "1. What the tool answers",
+          "heading": "What the tool answers",
           "p1": "Style exposure asks which mix of broad market styles moved most like the portfolio over the last three months. The answer is a statistical resemblance, not a list of what is owned. Different holdings can move together because they respond to similar market forces. A fitted mix makes that shared movement visible, while the unexplained part records what the broad styles did not capture in this particular window."
         },
         "s2": {
-          "heading": "2. Why use returns-based style analysis",
+          "heading": "Why use returns-based style analysis",
           "p1": "Sharpe's returns-based style analysis compares sequences of returns, rather than scoring each stock's characteristics. Per-stock factor models need information about the underlying companies. Funds, wealth products and parts of Asian markets do not always have that information in a comparable form. Returns provide a shared observable series. The calculation finds non-negative weights that minimize the squared differences between the portfolio's returns and the style mix's returns, with a total weight of 100%."
         },
         "s3": {
-          "heading": "3. The thirteen styles",
+          "heading": "The thirteen styles",
           "p1": "The basis contains 13 styles, listed below with their ETF tickers. Growth, value and small-cap distinguish parts of the US stock market; other rows cover markets and asset classes outside it. Quality, low-volatility and momentum are omitted because their correlations with US large-cap exceed 0.9. Highly similar series make their individual weights difficult to distinguish. Long-term Treasuries, represented by TLT, remain separate from aggregate bonds because their interest-rate exposure differs. BIL represents cash and short-term bills in USD. REIT means real estate investment trust: a listed company owning income-producing property."
         },
         "s4": {
-          "heading": "4. Reading the style bars",
+          "heading": "Reading the style bars",
           "p1": "The table shows the fitted example beside a separate fit of SPY over the same dates. Each colored bar begins at the left edge and uses its own weight as a fraction of the cell width. Unlike the stress contribution chart, there is no central zero line and no scaling to the longest bar. The numbers and bar lengths express the same weights.",
           "r1": "Weights are zero or more and add up to 100%. They describe an equivalent mixture under the stated constraints.",
           "r2": "US large-cap growth plus value is {equityStyles}; aggregate bonds plus long-term Treasuries is {bondStyles}. These are close to the example's known starting stock and bond mix.",
@@ -2265,27 +2265,27 @@
           "r5": "A row appears when either fitted weight is positive after rounding to six decimals. SPY therefore displays {zeroWeight} on the bond rows. Rows follow the basis order in this guide."
         },
         "s5": {
-          "heading": "5. Comparing the two cumulative curves",
+          "heading": "Comparing the two cumulative curves",
           "p1": "The example returned {cumulative} over the window, while the style mix returned {mixCumulative}. The example line uses unchanged quantities. The fitted curve starts with the estimated weights and follows each basis ETF's cumulative price change, also without rebalancing. The solver fits overlapping returns; it does not force every cumulative point, or the last point, to match. A small gap in the cumulative chart is therefore compatible with a close statistical fit."
         },
         "s6": {
-          "heading": "6. R-squared and unexplained volatility",
+          "heading": "R-squared and unexplained volatility",
           "p1": "R-squared (R²), the coefficient of determination, measures the fraction of return variation explained by the fitted styles. It is one minus the variance of the residuals divided by the variance of the example's returns. Residuals are the differences left after fitting. R² is displayed rounded down to two decimals: {r2} for the example and {spyR2} for SPY. Unexplained volatility is the residual standard deviation, annualized using the three-day horizon: {residualVol} and {spyResidualVol}. An amber note appears below 0.60; no low-fit example is shown here."
         },
         "s7": {
-          "heading": "7. Three months and overlapping three-day returns",
+          "heading": "Three months and overlapping three-day returns",
           "p1": "The fixed three-month window describes recent behavior, independently of the replay span. Markets close at different times, so a single day's Asian and US prices can reflect different information. Returns over overlapping 3-day intervals soften that misalignment. This example has {samples} returns from {levels} price levels. Neighboring intervals share days and are not independent observations. With fewer than 42 samples the card displays insufficient data, rather than a fitted mixture."
         },
         "s8": {
-          "heading": "8. Constraints and uncertainty",
+          "heading": "Constraints and uncertainty",
           "p1": "The solver enforces non-negative weights and a total of 100%, and solves that constrained problem directly. It does not allow a negative weight to offset another style. No standard errors are supplied. The weights depend on the window and on the chosen basis, so a precise percentage is a numerical solution for these samples, not a statement that the exposure is known with that precision."
         },
         "s9": {
-          "heading": "9. How proxies affect fit",
+          "heading": "How proxies affect fit",
           "p1": "A holding represented by a proxy already follows an index ETF. That ETF can itself closely resemble one of the basis styles, mechanically making the fitted result closer. The card displays a note whenever any proxied share is positive. A high fit can therefore partly reflect how the replay was constructed, rather than independent information about the original holding. Proxy disclosure remains relevant even when both cumulative curves look almost identical."
         },
         "s10": {
-          "heading": "10. Boundaries of the analysis",
+          "heading": "Boundaries of the analysis",
           "p1": "The questionnaire is not used. There is no rolling drift view or per-holding breakdown. The result describes one recent historical window for the portfolio as a whole. It does not assign a judgement to a style, measure whether the mixture fits a person's circumstances, or forecast how these exposures behave in another window."
         },
         "s11": {
@@ -2310,47 +2310,47 @@
       "spyLegend": "Excess vs SPY",
       "sections": {
         "s1": {
-          "heading": "1. What the tool answers",
+          "heading": "What the tool answers",
           "p1": "Tracking asks how far, and how steadily, the holdings diverge from a reference you define. Excess return describes the gap between the two cumulative results; tracking error describes how much their return differences vary. The result describes that difference only. It does not judge whether the reference is appropriate for you or whether either portfolio's result meets a personal objective. These questions depend on information outside the calculation."
         },
         "s2": {
-          "heading": "2. Defining a reference",
+          "heading": "Defining a reference",
           "p1": "A reference contains 1 to 5 components from 23 cached ETFs plus cash in the display currency. Whole percentages add up to 100%, and each user has one saved reference. When none is saved, the card uses 60% SPY + 40% AGG, marked as an example. The available funds represent markets and styles; cash keeps a constant value in the display currency. The reference editor defines the comparison mixture without changing the holdings used in the replay."
         },
         "s3": {
-          "heading": "3. Daily constant weights versus unchanged quantities",
+          "heading": "Daily constant weights versus unchanged quantities",
           "p1": "The reference returns to its stated weights every day. Each day's return is the weighted sum of its components' returns, linked to the previous day's index value. The replay keeps quantities unchanged, so price movements change its weights. Even with identical ingredients and identical starting weights, these two rules create different paths. This comparison models those rules; it does not model trading costs or reconstruct transactions in an account."
         },
         "s4": {
-          "heading": "4. Reading the five-year excess curves",
+          "heading": "Reading the five-year excess curves",
           "p1": "The dashed horizontal line is zero: both sides have the same cumulative return there. Above it, the example's cumulative return is greater; below it, the reference's is greater. The curves end at {balancedExcess} percentage points against the daily constant mix and {spyExcess} against SPY. The caption also states each curve's minimum and maximum with dates. A curve's level is a cumulative gap, not a daily return or the tracking-error figure."
         },
         "s5": {
-          "heading": "5. Comparing one year and five years",
+          "heading": "Comparing one year and five years",
           "p1": "Each table uses a fresh starting mix at the beginning of its own window. The one-year and five-year columns therefore answer separate historical comparisons, rather than cutting the last year from an already-drifted five-year portfolio. The tables repeat the card's cumulative and annualized rows and tracking error, with {oneSamples} overlapping samples for one year and {fiveSamples} for five years. Amounts are percentages or percentage points, without a judgement label."
         },
         "s6": {
-          "heading": "6. The same-assets comparison",
+          "heading": "The same-assets comparison",
           "p1": "Against the daily constant stock-and-bond mix, the ingredients are the same. The example is not rebalanced, and SPY's share drifted from 60% to {endWeight} over five years in a rising stock market. This explains its positive excess and its small but non-zero tracking error: {oneBalancedTe} over one year and {fiveBalancedTe} over five years. The difference comes from the paths created by the two weight rules, even though both portfolios began with the same funds."
         },
         "s7": {
-          "heading": "7. The SPY comparison",
+          "heading": "The SPY comparison",
           "p1": "SPY alone has different ingredients from the example. Tracking error is {oneSpyTe} over one year and {fiveSpyTe} over five years. Roughly, a 5% tracking error means the yearly gap typically varied by about 5 percentage points. It does not mean a fixed 5% loss, or specify which side finishes ahead. The final excess can be negative while tracking error remains positive, because a standard deviation measures variability without carrying the direction of the final gap."
         },
         "s8": {
-          "heading": "8. Cumulative and annualized excess return",
+          "heading": "Cumulative and annualized excess return",
           "p1": "Cumulative excess is the example's cumulative return minus the reference's cumulative return, expressed in percentage points. Annualized excess subtracts their two separately annualized returns. It is not the annualization of the gap itself. Calendar days determine the annualization period. Short spans magnify this conversion, so an annualized difference can look large even when the underlying cumulative difference covers only a brief interval."
         },
         "s9": {
-          "heading": "9. Why overlapping five-day returns",
+          "heading": "Why overlapping five-day returns",
           "p1": "Tracking error uses the sample standard deviation of overlapping 5-day return differences, multiplied by the square root of 252/5. Markets close at different times; daily returns can reflect that timing rather than a difference in exposure. On Hong Kong and A-share mixtures, daily tracking error was 1.6 to 1.8 times the five-day figure; for US-only mixtures it was about 0.9 to 1.05 times. At least 10 samples are required. Overlapping windows share days and are not independent samples."
         },
         "s10": {
-          "heading": "10. Window, currency and missing data",
+          "heading": "Window, currency and missing data",
           "p1": "The comparison follows the replay span, from 1M to 5Y, with a 1Y default, and follows its display currency. Components use historical exchange rates on each date. If a component lacks data needed for the comparison, the reference is unavailable; another fund is not substituted. The example's tables illustrate the one-year and five-year spans only. Different windows can contain different events and produce different comparisons."
         },
         "s11": {
-          "heading": "11. Why there is no information ratio",
+          "heading": "Why there is no information ratio",
           "p1": "The information ratio is not offered. It evaluates active management and can become unstable on short spans. This tool describes a gap and its variability without turning that comparison into a judgement about management or personal fit. Like the other Jade tools, it records historical movement of today's mixture, rather than predicting a future result."
         },
         "s12": {
