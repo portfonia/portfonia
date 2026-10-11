@@ -203,5 +203,8 @@ it("733 A5 explanation placement and wrapping", async () => {
   expect(intro.nextElementSibling).toBe(explanation);
   expect(explanation.closest("[aria-busy], [inert]")).toBeNull();
   expect(explanation).toHaveClass("min-w-0", "break-words");
-  expect(explanation.nextElementSibling).toBe(screen.getByTestId("tracking-editor"));
+  const guide = screen.getByRole("link", { name: catalogs.en.jade.guideLink });
+  expect(explanation.nextElementSibling).toBe(guide);
+  expect(guide).toHaveAttribute("href", "/guides/jade-tracking");
+  expect(guide.nextElementSibling).toBe(screen.getByTestId("tracking-editor"));
 });

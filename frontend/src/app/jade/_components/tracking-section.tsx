@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -7,7 +8,7 @@ import { CalculatingOverlay } from "@/components/calculating-overlay";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useLocale } from "@/app/_components/locale-provider";
+import { useLocale, useLocalizedHref } from "@/app/_components/locale-provider";
 import type { BaseCurrency } from "@/app/portfolio/_components/currencies";
 import { formatShortDate, formatTickPct } from "@/app/portfolio/performance/_components/performance-format";
 import { PORTFOLIO_COLOR } from "@/app/portfolio/performance/_components/performance-colors";
@@ -29,6 +30,8 @@ export function TrackingSection({ settings }: { settings: Settings | null }) {
   const replay = useTranslations("jade.replay");
   const common = useTranslations("common");
   const { locale } = useLocale();
+  const href = useLocalizedHref();
+  const jade = useTranslations("jade");
   const [data, setData] = useState<JadeTracking | null>(null);
   const [pending, setPending] = useState(true);
   const [error, setError] = useState(false);
@@ -115,6 +118,7 @@ export function TrackingSection({ settings }: { settings: Settings | null }) {
     <CardContent className="flex min-w-0 flex-col gap-4 px-4 text-sm">
       <p>{t("intro")}</p>
       <p className="min-w-0 break-words">{t("whatItSays")}</p>
+      <Link className="underline" href={href("/guides/jade-tracking")}>{jade("guideLink")}</Link>
       {rows && <div data-testid="tracking-editor" className="flex min-w-0 flex-col gap-3">
         <h3 className="font-medium">{t("editor.title")}</h3>
         {!reference?.saved && <p>{t("editor.example")}</p>}

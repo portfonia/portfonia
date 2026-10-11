@@ -24,7 +24,6 @@ export function JadePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError
   const href = useLocalizedHref();
   const { locale } = useLocale();
   const separator = { en: " ", es: " ", "zh-Hans": "", "zh-Hant": "" }[locale];
-  const linkSeparator = { en: " · ", es: " · ", "zh-Hans": "·", "zh-Hant": "·" }[locale];
   const profile = useTranslations("profile");
   const router = useRouter();
   const subscription = useSubscription(me?.subscription);
@@ -54,7 +53,7 @@ export function JadePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError
     <SubscriptionDialog state={subscription} />
     <Card><CardHeader><h1 className="font-heading text-2xl font-medium">{t("title")}</h1></CardHeader>
       <CardContent className="flex flex-col gap-3 px-4 text-sm"><p>{t("intro")}</p><p>{t("price")}</p>
-        <p>{t("guidesLead")}{separator}<Link className="underline" href={href("/guides/jade-replay")}>{t("guideLinks.replay")}</Link><span aria-hidden="true">{linkSeparator}</span><Link className="underline" href={href("/guides/jade-var")}>{t("guideLinks.var")}</Link></p></CardContent>
+        <p>{t("guidesLead")}{separator}<Link className="underline" href={href("/guides")}>{t("guideLinks.index")}</Link></p></CardContent>
     </Card>
     <Card><CardHeader><CardTitle>{profile("subscriptionLabel")}</CardTitle></CardHeader>
       <CardContent className="flex flex-wrap items-center gap-3 px-4 text-sm">

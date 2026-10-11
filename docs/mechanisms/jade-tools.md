@@ -590,14 +590,16 @@ once the visible link's boundary prefetch completes; an earlier tap shows the
 fallback as soon as its payload arrives. Phone checks remain owner validation
 after deployment.
 
-## Guide pages (issue #737)
+## Guide pages (issues #737 and #739)
 
-`/guides/jade-replay` and `/guides/jade-var` are public, outside login and
+`/guides` indexes five public guides in card order: `/guides/jade-replay`,
+`/guides/jade-var`, `/guides/jade-stress`, `/guides/jade-style` and
+`/guides/jade-tracking`. They are outside login and
 subscription access, in English, Spanish, Simplified Chinese and Traditional
 Chinese. The locale prefixes, canonical URLs, fourteen language alternates,
-existing OG images and LanguageLinks use the shared SEO registry. Both English
-URLs are listed in `frontend/public/llms.txt`; all eight localized URLs are in
-the 36-entry sitemap.
+existing OG images and LanguageLinks use the shared SEO registry. All six English
+URLs are listed in `frontend/public/llms.txt`; all 24 localized guide/index URLs
+are in the 52-entry sitemap.
 
 The fixed example starts at 60% SPY and 40% AGG, with unchanged quantities and
 no rebalancing, alongside SPY. Its 1255 paired adjusted-close rows cover
@@ -616,13 +618,36 @@ and crawlers without JavaScript. Figures and tables carry a localized example
 disclaimer. Percentages, dates and amounts use locale formatting and ICU
 values; the normal expected tail count alone displays one decimal.
 
-Guide links appear after each paid card explanation outside its calculating overlay,
-in the Jade intro for every signed-in visitor, and on the replay/tail-risk
-features in the Pricing Jade column. Guides end with Pricing, the other guide
-and LanguageLinks. The outdated Jade-intro final sentence is removed.
+Batch 2 uses the paired closes unchanged for the 2025 stress window and the
+1Y/5Y tracking comparisons. The stress example selects only the 2025 episode;
+the other four scenario buttons are disabled. Contributions mirror production's
+peak-value denominator, colors, center anchoring and relative bar widths.
+
+Style uses `jade-guides-style-20261011.csv`, an owner-authorized read-only export
+with SHA-256 `bd53321dda14e6763d4ccfa55e8df7fa8ab5ab3808be4fcdf6b2e4c56f2dd4c2`.
+Only `guides/_data/style-basis-closes.ts` is committed: every decimal is copied
+verbatim, with thirteen adjusted-close series and USDHKD/USDCNY rates. The pure
+`example-batch2.ts` ports the production primal active-set simplex solver,
+including its starting basis, tolerance, tie order, release/step rules and
+iteration limit, using a small Gaussian solve with partial pivoting. Historical
+FX and the ten-calendar-day carry rule produce 66 levels and 63 overlapping
+three-day returns. Listed styles follow basis order in the guide; weights use
+production percentage formatting and R-squared floors to two decimals.
+
+Tracking compares unchanged quantities with a daily constant 60/40 reference
+and 100% SPY, using overlapping five-day active returns and separate annualized
+returns. Every window begins with a fresh 60/40 example. The five-year excess
+chart includes both references, with tables for one-year and five-year metrics.
+
+Guide links appear after all five paid card explanations outside their
+calculating overlays. The Jade intro links once to `/guides` for every visitor;
+the five corresponding Pricing Jade features link to their guides. All guides
+end with Pricing, All guides and LanguageLinks; the index ends with Pricing and
+LanguageLinks. Batch 1 copy and figures are unchanged beyond bottom navigation.
+The outdated Jade-intro final sentence remains removed.
 The replay guide has one table and the tail-risk guide has two; responsive
 charts and wrapping fixed-layout tables support 375px layouts in both themes.
 The tools, backend, questionnaire, proxies, robots, OG routes and root layout
-are unchanged. There is no guide index, data refresh or backtesting mechanism.
+are unchanged. There is no data refresh or backtesting mechanism.
 Owner acceptance of the Spanish and Chinese copy precedes any review or merge;
 merge and deployment require separate authorization.

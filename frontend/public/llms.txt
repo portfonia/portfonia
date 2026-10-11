@@ -9,5 +9,10 @@
 
 ## Guides
 
+- [Jade guides index](https://portfonia.com/guides): Public explanations of all five Jade portfolio tools.
+- [Historical stress scenarios guide](https://portfonia.com/guides/jade-stress): A historical shock, peak-relative paths and asset-class contributions.
+- [Style exposure guide](https://portfonia.com/guides/jade-style): Returns-based style weights, fit and their interpretation.
+- [Tracking error guide](https://portfonia.com/guides/jade-tracking): Excess return and variability against daily constant reference weights.
+
 - [Holdings replay guide](https://portfonia.com/guides/jade-replay): Unchanged quantities, total return, metrics, proxies and historical currency conversion through a fixed example.
 - [Tail risk (VaR / CVaR) guide](https://portfonia.com/guides/jade-var): Historical loss boundaries, tail averages, overlapping monthly windows and the questionnaire reference through a fixed example.

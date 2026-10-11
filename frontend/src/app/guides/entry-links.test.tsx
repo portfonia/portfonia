@@ -79,27 +79,29 @@ it.each(introCases)("737 A9 intro links with $locale Jade subscription $active",
     </LocaleProvider>
   );
   const copy = catalogs[locale].jade;
-  const replayLink = screen.getByRole("link", { name: copy.guideLinks.replay });
-  const varLink = screen.getByRole("link", { name: copy.guideLinks.var });
-  expect(replayLink).toHaveAttribute("href", localizedPath("/guides/jade-replay", locale));
-  expect(varLink).toHaveAttribute("href", localizedPath("/guides/jade-var", locale));
+  const intro = screen.getByText((_, element) => element?.tagName === "P" && !!element.textContent?.startsWith(copy.guidesLead));
+  const indexLink = within(intro).getByRole("link", { name: copy.guideLinks.index });
+  expect(indexLink).toHaveAttribute("href", localizedPath("/guides", locale));
   const leadSeparator = { en: " ", es: " ", "zh-Hans": "", "zh-Hant": "" }[locale];
-  const dotSeparator = { en: " \u00b7 ", es: " \u00b7 ", "zh-Hans": "\u00b7", "zh-Hant": "\u00b7" }[locale];
-  expect(replayLink.parentElement?.textContent).toBe(
-    `${copy.guidesLead}${leadSeparator}${copy.guideLinks.replay}${dotSeparator}${copy.guideLinks.var}`
+  expect(indexLink.parentElement?.querySelectorAll("a")).toHaveLength(1);
+  expect(indexLink.parentElement?.textContent).toBe(
+    `${copy.guidesLead}${leadSeparator}${copy.guideLinks.index}`
   );
 });
 
-it.each(["en", "es", "zh-Hans", "zh-Hant"] as Locale[])("737 A9 %s Pricing only Jade feature indices one and two link", locale => {
+it.each(["en", "es", "zh-Hans", "zh-Hant"] as Locale[])("737 A9 %s Pricing only Jade feature indices one through five link", locale => {
   const { container } = render(<LocaleProvider routeLocale={locale}>
     <PlanComparison />
   </LocaleProvider>);
   const plans = container.querySelectorAll('[data-plan]');
   plans.forEach((plan, i) => {
     expect([...plan.querySelectorAll('li')].map(li => li.textContent)).toEqual(catalogs[locale].pricingPlans.plans[i].features);
-    expect(plan.querySelectorAll('li a')).toHaveLength(i === 2 ? 2 : 0);
+    expect(plan.querySelectorAll('li a')).toHaveLength(i === 2 ? 5 : 0);
   });
   const jade = within(plans[2] as HTMLElement);
   expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[1] })).toHaveAttribute('href', localizedPath('/guides/jade-replay', locale));
   expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[2] })).toHaveAttribute('href', localizedPath('/guides/jade-var', locale));
+  expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[3] })).toHaveAttribute('href', localizedPath('/guides/jade-stress', locale));
+  expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[4] })).toHaveAttribute('href', localizedPath('/guides/jade-style', locale));
+  expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[5] })).toHaveAttribute('href', localizedPath('/guides/jade-tracking', locale));
 });

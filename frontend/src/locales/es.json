@@ -1621,6 +1621,22 @@
       "guideVar": {
         "title": "Guía de riesgo de cola (VaR / CVaR) — Portfonia",
         "description": "Cómo funcionan VaR, CVaR, ventanas mensuales y la referencia del cuestionario, con un ejemplo fijo."
+      },
+      "guides": {
+        "title": "Guías de los métodos de Jade",
+        "description": "Explicaciones públicas de las cinco herramientas de cartera de Jade, con ejemplos fijos y cálculos transparentes."
+      },
+      "guideStress": {
+        "title": "Escenarios de tensión históricos: trayectorias y contribuciones",
+        "description": "Siga un episodio de tensión y observe la contribución de cada clase de activo al rendimiento del ejemplo entre máximo y mínimo."
+      },
+      "guideStyle": {
+        "title": "Exposición por estilos: semejanza entre rendimientos",
+        "description": "Comprenda qué estilos de mercado se parecen más a los rendimientos recientes y por qué los pesos estimados difieren de las posiciones reales."
+      },
+      "guideTracking": {
+        "title": "Error de seguimiento: diferencia de rendimiento y variabilidad",
+        "description": "Compare una cartera sin cambios con pesos de referencia constantes cada día, distinguiendo la diferencia final de rendimiento de su variabilidad."
       }
     },
     "ogImageAlt": "Portfonia: carga de posiciones y seguimiento de mercado y macro, resumidos en las secciones de un informe de ejemplo",
@@ -1957,10 +1973,9 @@
       "whatItSays": "Qué indica: cuánto difieren los movimientos de sus posiciones de una referencia definida por usted, como 60% de acciones de EE. UU. y 40% de bonos de EE. UU. El exceso de rendimiento es la diferencia entre sus rendimientos totales; la curva muestra cómo se acumuló, por encima de cero cuando su cartera iba por delante y por debajo cuando iba detrás. El error de seguimiento mide la irregularidad de la diferencia, independientemente de quién termine por delante: bajo indica movimientos cercanos, alto indica diferencias frecuentes. Como orientación aproximada, 5% significa que la diferencia anual varió normalmente unos 5 puntos porcentuales. Los REIT (fideicomisos de inversión inmobiliaria) son empresas cotizadas propietarias de inmuebles que generan ingresos."
     },
     "guideLink": "Leer la guía",
-    "guidesLead": "Las guías públicas explican cómo funcionan la simulación histórica de posiciones y el riesgo de cola.",
+    "guidesLead": "Las guías públicas explican cómo funciona cada herramienta de Jade.",
     "guideLinks": {
-      "replay": "Simulación histórica de posiciones",
-      "var": "Riesgo de cola"
+      "index": "Leer las guías"
     }
   },
   "pricingPlans": {
@@ -2016,8 +2031,6 @@
       "exampleLabel": "Cartera de ejemplo, no una recomendación",
       "portfolio": "{spyStart} SPY + {aggStart} AGG",
       "pricingLink": "Precios",
-      "replayLink": "Guía de simulación histórica de posiciones",
-      "varLink": "Guía de riesgo de cola",
       "window": "{portfolio}. Del {start} al {end}. {exampleLabel}.",
       "replayCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. Rendimiento acumulado: {cumulative}, frente a {spyCumulative} para SPY. La caída máxima fue {drawdown}, del {peak} al {trough}.",
       "varCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. El VaR de un día al 95% es {dayVar}, el CVaR es {dayCvar} y la referencia es {referenceDay}. La referencia punteada parte de una respuesta conservadora hipotética al cuestionario.",
@@ -2037,7 +2050,9 @@
       "referenceValue": "{confidence}: {value}",
       "dateRange": "{start} – {end}",
       "histogramCounts": "Conteos por banda de rendimiento: {bins}.",
-      "histogramBin": "{lower} – {upper}: {count}"
+      "histogramBin": "{lower} – {upper}: {count}",
+      "guidesLink": "Todas las guías",
+      "figureValue": "{value}"
     },
     "replay": {
       "title": "Simulación histórica de posiciones: cómo leer el recorrido",
@@ -2146,6 +2161,201 @@
         "s13": {
           "heading": "Referencias",
           "p1": "J.P. Morgan/Reuters, RiskMetrics — Technical Document (1996). Artzner, Delbaen, Eber & Heath, Coherent Measures of Risk, Mathematical Finance 9(3), 1999. Rockafellar & Uryasev, Optimization of Conditional Value-at-Risk, Journal of Risk 2(3), 2000. Acerbi & Tasche, On the Coherence of Expected Shortfall, Journal of Banking & Finance 26(7), 2002."
+        }
+      }
+    },
+    "index": {
+      "title": "Cómo funcionan las herramientas de cartera de Jade",
+      "intro": "Las explicaciones de los métodos de Jade son públicas. Cada guía utiliza una cartera fija para ilustrar un cálculo, con precios históricos reales y tablas legibles junto a los gráficos. {exampleLabel}. Los ejemplos describen movimientos pasados sin evaluar decisiones personales. Los resultados calculados con sus propias posiciones están disponibles con Jade. Estas cinco guías siguen el orden de las herramientas en la página de Jade, desde una simulación de todo el período hasta una comparación con una referencia que usted define.",
+      "summaries": {
+        "replay": "Conozca cómo se simulan sus posiciones actuales sin cambiar las cantidades y qué miden el rendimiento acumulado, la volatilidad y la caída máxima.",
+        "var": "Interprete las distribuciones históricas de pérdidas, el límite del VaR y la pérdida media que lo supera, con sus límites de muestreo.",
+        "stress": "Siga un episodio de tensión y observe la contribución de cada clase de activo al rendimiento del ejemplo entre máximo y mínimo.",
+        "style": "Comprenda qué estilos de mercado se parecen más a los rendimientos recientes y por qué los pesos estimados difieren de las posiciones reales.",
+        "tracking": "Compare una cartera sin cambios con pesos de referencia constantes cada día, distinguiendo la diferencia final de rendimiento de su variabilidad."
+      }
+    },
+    "stress": {
+      "title": "Escenarios de tensión históricos: trayectorias y contribuciones",
+      "intro": "Esta guía parte de {portfolio} al inicio de un período histórico, sin cambiar las cantidades después. El ejemplo utiliza precios históricos reales y solo ilustra el método. {exampleLabel}. La comparación es SPY, un fondo cotizado en bolsa (ETF) que sigue el S&P 500. Un ETF es un fondo negociado en una bolsa; aquí representa un mercado amplio, en lugar de la historia de una empresa individual.",
+      "curveCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. Máximo {peak}, mínimo {trough}. Rendimiento entre máximo y mínimo: {shock}, SPY {spyShock}. Caída máxima: {drawdown}, SPY {spyDrawdown}. Final de las curvas relativas al máximo: {endReturn}, SPY {spyEndReturn}.",
+      "barsCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. Contribución de acciones {equityContribution} puntos; bonos {bondContribution} puntos; total {shock}. SPY representaba {peakWeight} en el máximo.",
+      "tableCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. Rendimientos durante el episodio y todo el período.",
+      "contributionCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. Contribuciones por clase de activo al rendimiento entre máximo y mínimo.",
+      "contribution": "Contribución (puntos porcentuales)",
+      "total": "Total",
+      "sections": {
+        "s1": {
+          "heading": "Qué responde la herramienta",
+          "p1": "La herramienta pregunta cómo se habrían movido las posiciones actuales durante una tensión de mercado pasada. Cada período empieza con los pesos por valor de hoy y deja que los precios cambien la mezcla, sin rebalancearla. Así, la composición inicial es comparable entre episodios. No reconstruye las transacciones realizadas entonces ni supone que las posiciones actuales existían en su cuenta en ese momento. El resultado es una simulación del pasado, no un pronóstico."
+        },
+        "s2": {
+          "heading": "Un episodio y dos curvas",
+          "p1": "Este ejemplo muestra únicamente la tensión por aranceles de 2025. La tarjeta de Jade ofrece los cinco episodios; aquí los otros cuatro botones aparecen atenuados y no se pueden seleccionar. Ambas curvas usan las mismas fechas y parten de cero en el máximo del S&P 500. La línea del ejemplo y la de SPY describen mezclas distintas durante el mismo episodio, por lo que su separación refleja esa diferencia de composición."
+        },
+        "s3": {
+          "heading": "El episodio en porcentajes y dólares",
+          "p1": "El rendimiento del ejemplo entre máximo y mínimo es {shock}, frente a {spyShock} de SPY. Aplicado a USD 100,000, el cambio del ejemplo es {amount}. Esa cifra monetaria da escala al porcentaje; no es el saldo de una cuenta ni un cálculo distinto de la pérdida. La tabla también presenta la caída máxima de todo el período, junto con sus propias fechas de máximo y mínimo. Todas las cifras describen este ejemplo fijo."
+        },
+        "s4": {
+          "heading": "Cómo se define el período",
+          "p1": "El período abarca desde seis meses antes del máximo de cierre del S&P 500 hasta seis meses después de su mínimo de cierre. Aquí va del {start} al {end}. La línea vertical de guiones marca {peak} y la punteada marca {trough}. Cero significa el valor en el máximo, no al inicio del período. Los valores anteriores al máximo pueden estar por debajo de cero incluso antes de comenzar el episodio nombrado."
+        },
+        "s5": {
+          "heading": "Entre máximo y mínimo frente a caída máxima",
+          "p1": "El rendimiento entre máximo y mínimo fija las fechas según el episodio del S&P 500. La caída máxima busca el descenso más profundo desde cualquier máximo anterior hasta un mínimo posterior dentro del período propio de la cartera. Son preguntas diferentes. En este ejemplo ambas señalan del {peak} al {trough}, y la caída máxima del ejemplo es {drawdown}. En otros episodios, una cartera concentrada en otro mercado puede alcanzar sus extremos en días distintos."
+        },
+        "s6": {
+          "heading": "Cómo leer las barras de contribución",
+          "p1": "Las contribuciones explican el total por clase de activo. Utilizan el cambio de precio de cada clase y su peso en el máximo, en lugar de multiplicar una pérdida por el peso inicial. Esto importa porque los pesos ya cambiaron antes del episodio. Las contribuciones de acciones y bonos son {equityContribution} y {bondContribution} puntos porcentuales. Su suma coincide con el rendimiento del ejemplo entre máximo y mínimo, salvo el redondeo de presentación.",
+          "r1": "La línea central es cero. Una barra hacia la izquierda restó valor a la cartera; hacia la derecha, aportó valor.",
+          "r2": "La barra refleja tanto el movimiento de la clase de activo como su participación en la cartera. SPY era {peakWeight} del ejemplo en el máximo.",
+          "r3": "Las longitudes se escalan respecto de la contribución absoluta mayor. La barra más larga ocupa la mitad del recorrido; una más corta es una fracción de esa longitud, no un porcentaje absoluto del recorrido.",
+          "r4": "Las cifras suman {shock}. En este episodio, la contribución de bonos compensa parte de la de acciones; las barras describen esa aritmética sin evaluar ninguna clase de activo."
+        },
+        "s7": {
+          "heading": "Aproximaciones y beta",
+          "p1": "Una posición sin historia propia al inicio sigue su ETF de aproximación de la simulación hasta que comienza su historia. Beta es la intensidad estimada de su movimiento respecto de ese ETF y escala sus rendimientos. Una aproximación por índice pierde las oscilaciones individuales de la posición, por lo que un escenario puede subestimar sus pérdidas. La tarjeta indica la proporción aproximada y muestra una nota ámbar cuando llega al 66% o más. Este ejemplo usa las historias propias de los dos fondos."
+        },
+        "s8": {
+          "heading": "Episodios anteriores e historias sustitutas",
+          "p1": "Los episodios de 2000–2002 y 2008 empiezan antes de la existencia de algunos ETF. Una cadena fija de sustitutos aporta el primer candidato disponible con las fechas requeridas, mediante fondos mutuos o índices. Algunos sustitutos son índices de precios sin dividendos, en lugar de series de rendimiento total con dividendos reinvertidos. Los tipos de cambio anteriores a 2021-09 proceden de una exportación única de FRED, el servicio Federal Reserve Economic Data. La nota ámbar sobre la tabla aparece con una proporción aproximada de al menos 66%, cualquier sustituto o cualquier índice de precios."
+        },
+        "s9": {
+          "heading": "Qué no se muestra",
+          "p1": "No hay una métrica de recuperación. La curva posterior al mínimo muestra los seis meses siguientes, pero no determina cuándo una cartera recuperó su máximo anterior. Tampoco hay una línea de referencia del cuestionario. Las trayectorias y contribuciones históricas responden qué ocurrió con una mezcla definida durante un episodio; no comparan una pérdida con las respuestas personales al cuestionario."
+        },
+        "s10": {
+          "heading": "Límites de cinco episodios pasados",
+          "p1": "Solo se representan cinco episodios. Otros eventos de mercado, incluidos los que no se parecen a ninguno de ellos, quedan fuera. Las posiciones actuales también incorporan información retrospectiva: su presencia hoy puede reflejar lo que se supo después. Los precios, las aproximaciones y las series sustitutas añaden límites a lo que describe el cálculo. La historia no se repite de la misma forma y una trayectoria histórica fija no aporta una probabilidad para el próximo episodio."
+        },
+        "s11": {
+          "heading": "Referencias",
+          "p1": "Basel Committee on Banking Supervision, Principles for Sound Stress Testing Practices and Supervision (2009).",
+          "p2": "Berkowitz, J., A Coherent Framework for Stress-Testing, Journal of Risk 2(2), 2000."
+        }
+      }
+    },
+    "style": {
+      "title": "Exposición por estilos: semejanza entre rendimientos",
+      "intro": "El ejemplo comienza como {portfolio} el {start} y mantiene las cantidades sin cambios hasta el {end}. Utiliza precios históricos reales para ilustrar un cálculo basado en rendimientos. {exampleLabel}. Un fondo cotizado en bolsa (ETF) es un fondo negociado en una bolsa. Los ETF siguientes representan estilos amplios de mercado; sus historias de precios dan un lenguaje común para comparar carteras con posiciones de diferentes tipos.",
+      "barsCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. Crecimiento más valor {equityStyles}; bonos agregados más bonos del Tesoro a largo plazo {bondStyles}; BIL {bilWeight}. R cuadrado {r2}, SPY {spyR2}; volatilidad no explicada {residualVol}, SPY {spyResidualVol}. Cada peso se repite en la tabla.",
+      "curveCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. Rendimiento acumulado del ejemplo {cumulative}; mezcla de estilos {mixCumulative}. La mezcla utiliza {samples} rendimientos de tres días superpuestos.",
+      "tableCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. Pesos de estilo equivalentes y ajuste, con SPY como comparación.",
+      "sections": {
+        "s1": {
+          "heading": "Qué responde la herramienta",
+          "p1": "La exposición por estilos pregunta qué mezcla de estilos amplios se movió más como la cartera durante los últimos tres meses. Es una semejanza estadística, no una lista de lo que se posee. Posiciones diferentes pueden moverse juntas porque responden a fuerzas similares. La mezcla estimada hace visible ese movimiento compartido; la parte no explicada registra lo que los estilos amplios no captaron en este período concreto."
+        },
+        "s2": {
+          "heading": "Por qué analizar estilos mediante rendimientos",
+          "p1": "El análisis de estilos basado en rendimientos de Sharpe compara secuencias de rendimientos, en vez de puntuar características de cada acción. Los modelos de factores por acción requieren información sobre las empresas subyacentes. Fondos, productos patrimoniales y partes de los mercados asiáticos no siempre tienen esa información de forma comparable. Los rendimientos aportan una serie observable común. El cálculo encuentra pesos no negativos que minimizan las diferencias al cuadrado entre rendimientos de la cartera y de la mezcla, con un peso total del 100%."
+        },
+        "s3": {
+          "heading": "Los trece estilos",
+          "p1": "La base contiene 13 estilos, listados con sus símbolos ETF. Crecimiento, valor y pequeña capitalización distinguen partes del mercado estadounidense; otras filas cubren mercados y activos fuera de él. Calidad, baja volatilidad y momentum se omiten porque sus correlaciones con la gran capitalización estadounidense superan 0.9. Series muy similares dificultan distinguir sus pesos individuales. Los bonos del Tesoro a largo plazo, representados por TLT, se separan de los bonos agregados porque su exposición a tasas difiere. BIL representa efectivo y letras a corto plazo en USD. REIT significa fideicomiso de inversión inmobiliaria: una empresa cotizada que posee inmuebles que generan ingresos."
+        },
+        "s4": {
+          "heading": "Cómo leer las barras de estilos",
+          "p1": "La tabla muestra el ejemplo junto con un ajuste independiente de SPY en las mismas fechas. Cada barra empieza en el borde izquierdo y utiliza su peso como fracción del ancho de la celda. A diferencia del gráfico de contribuciones, no hay una línea central de cero ni escala respecto de la barra más larga. Las cifras y las longitudes expresan los mismos pesos.",
+          "r1": "Los pesos son cero o más y suman 100%. Describen una mezcla equivalente bajo las restricciones indicadas.",
+          "r2": "Crecimiento más valor de gran capitalización de EE. UU. suma {equityStyles}; bonos agregados más bonos del Tesoro a largo plazo suma {bondStyles}. Se aproximan a la mezcla inicial conocida de acciones y bonos del ejemplo.",
+          "r3": "BIL recibe {bilWeight}, aunque el ejemplo no posee letras del Tesoro. Es una exposición equivalente, no una posición descubierta en la cartera.",
+          "r4": "Pesos de unas décimas de punto en acciones de Hong Kong e inmuebles son ruido estadístico. Su presencia no establece una posición subyacente.",
+          "r5": "Una fila aparece cuando cualquiera de los pesos es positivo después de redondear a seis decimales. SPY muestra por ello {zeroWeight} en las filas de bonos. Esta guía sigue el orden de la base."
+        },
+        "s5": {
+          "heading": "Comparar las dos curvas acumuladas",
+          "p1": "El ejemplo obtuvo {cumulative} durante el período y la mezcla de estilos {mixCumulative}. La línea del ejemplo usa cantidades sin cambios. La curva ajustada empieza con los pesos estimados y sigue el cambio acumulado de cada ETF, también sin rebalanceo. El algoritmo ajusta rendimientos superpuestos; no fuerza cada punto acumulado, ni el último, a coincidir. Una pequeña separación acumulada es compatible con un ajuste estadístico cercano."
+        },
+        "s6": {
+          "heading": "R cuadrado y volatilidad no explicada",
+          "p1": "R cuadrado (R²), el coeficiente de determinación, mide la fracción de variación de rendimientos explicada por los estilos. Es uno menos la varianza de los residuos dividida por la varianza de rendimientos del ejemplo. Los residuos son las diferencias que quedan tras el ajuste. R² se presenta redondeado hacia abajo a dos decimales: {r2} para el ejemplo y {spyR2} para SPY. La volatilidad no explicada es la desviación estándar residual, anualizada con el horizonte de tres días: {residualVol} y {spyResidualVol}. Aparece una nota ámbar por debajo de 0.60; aquí no se muestra un ejemplo de ajuste bajo."
+        },
+        "s7": {
+          "heading": "Tres meses y rendimientos de tres días superpuestos",
+          "p1": "El período fijo de tres meses describe el comportamiento reciente, independientemente de la duración de la simulación. Los mercados cierran a distintas horas; precios asiáticos y estadounidenses del mismo día pueden reflejar información diferente. Los intervalos superpuestos de 3 días suavizan ese desfase. El ejemplo tiene {samples} rendimientos de {levels} niveles de precio. Los intervalos vecinos comparten días y no son observaciones independientes. Con menos de 42 muestras, la tarjeta presenta datos insuficientes en lugar de una mezcla."
+        },
+        "s8": {
+          "heading": "Restricciones e incertidumbre",
+          "p1": "El algoritmo exige pesos no negativos y un total del 100%, resolviendo directamente ese problema restringido. No permite un peso negativo que compense otro estilo. No se proporcionan errores estándar. Los pesos dependen del período y de la base elegida; un porcentaje preciso es una solución numérica para estas muestras, no una afirmación de que la exposición se conoce con esa precisión."
+        },
+        "s9": {
+          "heading": "Cómo afectan las aproximaciones al ajuste",
+          "p1": "Una posición representada por una aproximación ya sigue un ETF de índice. Ese ETF puede parecerse mucho a un estilo de la base, haciendo el ajuste mecánicamente más cercano. La tarjeta muestra una nota cuando cualquier proporción aproximada es positiva. Un ajuste alto puede reflejar en parte la construcción de la simulación, en vez de información independiente sobre la posición original. La divulgación sigue siendo relevante incluso cuando ambas curvas parecen casi idénticas."
+        },
+        "s10": {
+          "heading": "Límites del análisis",
+          "p1": "No se utiliza el cuestionario. No hay una vista de deriva continua ni desglose por posición. El resultado describe un período histórico reciente de la cartera completa. No juzga un estilo, mide si la mezcla encaja con las circunstancias personales ni pronostica cómo se comportan estas exposiciones en otro período."
+        },
+        "s11": {
+          "heading": "Referencias",
+          "p1": "Sharpe, W. F., Asset Allocation: Management Style and Performance Measurement, Journal of Portfolio Management 18(2), 1992.",
+          "p2": "Fama & French, Common Risk Factors in the Returns on Stocks and Bonds, Journal of Financial Economics 33(1), 1993.",
+          "p3": "Carhart, M., On Persistence in Mutual Fund Performance, Journal of Finance 52(1), 1997."
+        }
+      }
+    },
+    "tracking": {
+      "title": "Error de seguimiento: diferencia de rendimiento y variabilidad",
+      "intro": "Esta guía compara {portfolio}, con cantidades sin cambios, frente a dos mezclas de referencia mediante precios históricos reales. {exampleLabel}. Las referencias son una mezcla constante diaria de acciones y bonos y SPY solo. SPY y AGG son fondos cotizados en bolsa (ETF), fondos negociados en una bolsa que representan el S&P 500 y bonos agregados de EE. UU. El mismo ejemplo muestra cómo los componentes y el rebalanceo afectan la comparación.",
+      "curveCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. Exceso final frente a la mezcla constante diaria: {balancedExcess} puntos; frente a SPY: {spyExcess} puntos. Mezcla: mínimo {balancedMin} el {balancedMinDate}, máximo {balancedMax} el {balancedMaxDate}; SPY: mínimo {spyMin} el {spyMinDate}, máximo {spyMax} el {spyMaxDate}.",
+      "tableCaption": "{portfolio}. {reference}. {exampleLabel}. Período de un año del {oneStart} al {end}; de cinco años del {start} al {end}.",
+      "balancedReference": "Referencia: {portfolio}, rebalanceada cada día",
+      "spyReference": "Referencia: 100% SPY",
+      "oneYear": "1 año",
+      "fiveYear": "5 años",
+      "samples": "Muestras de cinco días superpuestas",
+      "balancedLegend": "Exceso frente a mezcla constante diaria",
+      "spyLegend": "Exceso frente a SPY",
+      "sections": {
+        "s1": {
+          "heading": "Qué responde la herramienta",
+          "p1": "El seguimiento pregunta cuánto y con qué regularidad divergen las posiciones de una referencia que usted define. El exceso describe la diferencia entre resultados acumulados; el error de seguimiento describe la variación de las diferencias de rendimiento. El resultado describe únicamente esa diferencia. No juzga si la referencia es apropiada para usted ni si alguna cartera cumple un objetivo personal. Esas preguntas requieren información fuera del cálculo."
+        },
+        "s2": {
+          "heading": "Definir una referencia",
+          "p1": "Una referencia contiene de 1 a 5 componentes de 23 ETF en caché más efectivo en la moneda de presentación. Los porcentajes enteros suman 100% y cada usuario tiene una referencia guardada. Sin una referencia guardada, la tarjeta usa 60% SPY + 40% AGG, marcado como ejemplo. Los fondos disponibles representan mercados y estilos; el efectivo conserva un valor constante en esa moneda. El editor define la mezcla de comparación sin cambiar las posiciones usadas en la simulación."
+        },
+        "s3": {
+          "heading": "Pesos constantes diarios y cantidades sin cambios",
+          "p1": "La referencia vuelve a sus pesos indicados cada día. El rendimiento diario es la suma ponderada de los rendimientos de sus componentes, enlazada al valor del índice anterior. La simulación mantiene cantidades sin cambios, por lo que los precios modifican sus pesos. Incluso con ingredientes y pesos iniciales idénticos, estas reglas crean trayectorias diferentes. La comparación modela esas reglas; no modela costos de negociación ni reconstruye transacciones de una cuenta."
+        },
+        "s4": {
+          "heading": "Leer las curvas de exceso de cinco años",
+          "p1": "La línea horizontal de guiones es cero: ambas partes tienen el mismo rendimiento acumulado allí. Por encima, el rendimiento acumulado del ejemplo es mayor; por debajo, el de la referencia es mayor. Las curvas terminan en {balancedExcess} puntos porcentuales frente a la mezcla constante diaria y {spyExcess} frente a SPY. El pie también indica el mínimo y máximo de cada curva con fechas. El nivel de una curva es una diferencia acumulada, no un rendimiento diario ni el error de seguimiento."
+        },
+        "s5": {
+          "heading": "Comparar un año y cinco años",
+          "p1": "Cada tabla usa una mezcla inicial nueva al comienzo de su propio período. Las columnas responden comparaciones históricas separadas; no recortan el último año de una cartera que ya cambió sus pesos durante cinco años. Las tablas repiten las filas acumuladas y anualizadas y el error de seguimiento de la tarjeta, con {oneSamples} muestras superpuestas para un año y {fiveSamples} para cinco años. Las cifras son porcentajes o puntos porcentuales, sin etiqueta de evaluación."
+        },
+        "s6": {
+          "heading": "Comparación con los mismos activos",
+          "p1": "Frente a la mezcla constante diaria de acciones y bonos, los ingredientes son iguales. El ejemplo no se rebalancea y la participación de SPY pasó del 60% a {endWeight} durante cinco años de mercado accionario ascendente. Esto explica el exceso positivo y el error pequeño pero no nulo: {oneBalancedTe} en un año y {fiveBalancedTe} en cinco años. La diferencia procede de las trayectorias creadas por las dos reglas de pesos, aunque ambas carteras empezaron con los mismos fondos."
+        },
+        "s7": {
+          "heading": "La comparación con SPY",
+          "p1": "SPY solo tiene ingredientes diferentes del ejemplo. El error de seguimiento es {oneSpyTe} en un año y {fiveSpyTe} en cinco años. Aproximadamente, un error del 5% significa que la diferencia anual varió típicamente unos 5 puntos porcentuales. No significa una pérdida fija del 5% ni determina quién termina por delante. El exceso final puede ser negativo mientras el error sigue siendo positivo: la desviación estándar mide variabilidad sin indicar la dirección de la diferencia final."
+        },
+        "s8": {
+          "heading": "Exceso acumulado y anualizado",
+          "p1": "El exceso acumulado resta el rendimiento acumulado de la referencia al del ejemplo, en puntos porcentuales. El exceso anualizado resta sus dos rendimientos anualizados por separado. No es la anualización de la diferencia misma. Los días calendario determinan el período de anualización. Los períodos cortos amplifican esa conversión; una diferencia anualizada puede parecer grande aunque la diferencia acumulada abarque solo un intervalo breve."
+        },
+        "s9": {
+          "heading": "Por qué rendimientos de cinco días superpuestos",
+          "p1": "El error utiliza la desviación estándar muestral de diferencias de rendimientos de 5 días superpuestos, multiplicada por la raíz cuadrada de 252/5. Los mercados cierran a horas diferentes; los rendimientos diarios pueden reflejar esa hora y no una exposición distinta. En mezclas de Hong Kong y acciones A, el error diario fue de 1.6 a 1.8 veces la cifra de cinco días; en mezclas solo estadounidenses, aproximadamente de 0.9 a 1.05 veces. Se requieren al menos 10 muestras. Las ventanas comparten días y no son independientes."
+        },
+        "s10": {
+          "heading": "Período, moneda y datos faltantes",
+          "p1": "La comparación sigue la duración de la simulación, de 1M a 5Y, con 1Y predeterminado, y su moneda de presentación. Los componentes utilizan tipos de cambio históricos de cada fecha. Si un componente carece de datos necesarios, la referencia no está disponible; no se sustituye otro fondo. Las tablas ilustran únicamente los períodos de uno y cinco años. Otros períodos pueden incluir eventos diferentes y dar comparaciones distintas."
+        },
+        "s11": {
+          "heading": "Por qué no hay ratio de información",
+          "p1": "No se ofrece el ratio de información. Evalúa la gestión activa y puede ser inestable en períodos cortos. Esta herramienta describe una diferencia y su variabilidad sin convertirlas en un juicio sobre gestión o adecuación personal. Como otras herramientas de Jade, registra el movimiento histórico de la mezcla actual en lugar de predecir un resultado futuro."
+        },
+        "s12": {
+          "heading": "Referencias",
+          "p1": "Roll, R., A Mean/Variance Analysis of Tracking Error, Journal of Portfolio Management 18(4), 1992."
         }
       }
     }
