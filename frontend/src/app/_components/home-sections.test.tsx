@@ -449,9 +449,9 @@ describe("HomeSections product previews (issue #549)", () => {
         connectNulls: false,
       },
       {
-        key: "csi300",
-        label: catalogs.en.portfolio.performance.benchmarkNames.csi300,
-        color: "var(--chart-csi300)",
+        key: "nasdaq",
+        label: catalogs.en.portfolio.performance.benchmarkNames.nasdaq,
+        color: "var(--chart-4)",
         isPortfolio: false,
         connectNulls: false,
       },
@@ -466,7 +466,7 @@ describe("HomeSections product previews (issue #549)", () => {
     expect(legendPairs(performance)).toEqual([
       { label: catalogs.en.portfolio.performance.chartPortfolioLabel, color: "var(--chart-1)" },
       { label: catalogs.en.portfolio.performance.benchmarkNames.sp500, color: "var(--chart-2)" },
-      { label: catalogs.en.portfolio.performance.benchmarkNames.csi300, color: "var(--chart-csi300)" },
+      { label: catalogs.en.portfolio.performance.benchmarkNames.nasdaq, color: "var(--chart-4)" },
     ]);
     expect(screen.getByText("+16.58%")).toBeInTheDocument();
     expect(screen.getByText(catalogs.en.home.productPreviews.yearToDate)).toBeInTheDocument();
@@ -671,4 +671,60 @@ it("#706 compounds nine complete monthly returns to the cumulative portfolio and
     expect(Math.abs(cumulative - Number(last?.[cumulativeKey]))).toBeLessThan(0.0005);
   }
   expect(HOME_MONTHLY_ROWS.every(row => row.partialReason === null && !row.isApproximate && row.benchmarkUnavailableReason === null)).toBe(true);
+});
+
+
+it("acceptance_03 home series uses fixed Nasdaq values and preserves the other paths", () => {
+  render(<LocaleProvider routeLocale={null}><HomeSections /></LocaleProvider>);
+  const series = JSON.parse(screen.getByTestId("home-performance-preview").getAttribute("data-series") ?? "[]") as PassedSeries[];
+  expect(series.map(item => item.key)).toEqual(["portfolio", "sp500", "nasdaq"]);
+  expect(HOME_PERFORMANCE_ROWS[0].nasdaq).toBe(0);
+  expect(HOME_PERFORMANCE_ROWS.at(-1)?.nasdaq).toBe(0.1557);
+  expect(HOME_PERFORMANCE_ROWS.map(row => [row.date, row.portfolio, row.sp500])).toEqual([
+    ["2026-01-01", 0.0, 0.0],
+    ["2026-01-02", 0.0028, 0.0019],
+    ["2026-01-09", 0.0244, 0.0176],
+    ["2026-01-16", 0.0186, 0.0138],
+    ["2026-01-23", 0.0135, 0.0102],
+    ["2026-01-30", 0.021, 0.0137],
+    ["2026-02-06", 0.0202, 0.0127],
+    ["2026-02-13", 0.0017, -0.0014],
+    ["2026-02-20", 0.0167, 0.0094],
+    ["2026-02-27", 0.0136, 0.0049],
+    ["2026-03-06", -0.0123, -0.0154],
+    ["2026-03-13", -0.0294, -0.0312],
+    ["2026-03-20", -0.0474, -0.0495],
+    ["2026-03-27", -0.0721, -0.0696],
+    ["2026-03-31", -0.046, -0.0463],
+    ["2026-04-02", -0.0334, -0.0384],
+    ["2026-04-10", 0.006, -0.0042],
+    ["2026-04-17", 0.0566, 0.041],
+    ["2026-04-24", 0.0663, 0.0467],
+    ["2026-04-30", 0.0756, 0.0531],
+    ["2026-05-01", 0.0766, 0.0562],
+    ["2026-05-08", 0.1071, 0.0808],
+    ["2026-05-15", 0.1121, 0.0822],
+    ["2026-05-22", 0.1213, 0.0917],
+    ["2026-05-29", 0.1394, 0.1073],
+    ["2026-06-05", 0.1096, 0.0786],
+    ["2026-06-12", 0.1172, 0.0856],
+    ["2026-06-18", 0.1273, 0.0957],
+    ["2026-06-26", 0.1056, 0.0743],
+    ["2026-06-30", 0.132, 0.0955],
+    ["2026-07-02", 0.1265, 0.0932],
+    ["2026-07-10", 0.1447, 0.1066],
+    ["2026-07-17", 0.1273, 0.0894],
+    ["2026-07-24", 0.117, 0.0828],
+    ["2026-07-31", 0.1307, 0.0941],
+    ["2026-08-07", 0.1813, 0.1332],
+    ["2026-08-14", 0.1851, 0.1374],
+    ["2026-08-21", 0.164, 0.1211],
+    ["2026-08-28", 0.1744, 0.1265],
+    ["2026-08-31", 0.1709, 0.1228],
+    ["2026-09-04", 0.1739, 0.1275],
+    ["2026-09-11", 0.1658, 0.1185],
+    ["2026-09-18", 0.1674, 0.1176],
+    ["2026-09-25", 0.1811, 0.1312],
+    ["2026-09-30", 0.1658, 0.1177],
+  ]);
 });

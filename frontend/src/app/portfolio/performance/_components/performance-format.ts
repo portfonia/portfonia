@@ -8,6 +8,7 @@ import type { Locale } from "@/locales";
 
 export const INTL_LOCALES: Record<Locale, string> = {
   en: "en-US",
+  es: "es-419",
   "zh-Hans": "zh-CN",
   "zh-Hant": "zh-TW",
 };

@@ -4,6 +4,7 @@ import type { Locale } from "@/locales";
 const FONT_USER_AGENT = "Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_8; de-at) AppleWebKit/533.21.1 (KHTML, like Gecko) Version/5.0.5 Safari/533.21.1";
 const FONT_FAMILIES: Record<Locale, readonly [string, string]> = {
   en: ["Geist", "Newsreader"],
+  es: ["Geist", "Newsreader"],
   "zh-Hans": ["Noto Sans SC", "Noto Serif SC"],
   "zh-Hant": ["Noto Sans TC", "Noto Serif TC"],
 };

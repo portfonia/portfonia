@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 
-import { catalogs, DEFAULT_LOCALE, isLocale } from "@/locales";
+import { catalogs, DEFAULT_LOCALE, isLocale, serviceLocale } from "@/locales";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
@@ -34,7 +34,7 @@ export async function submitWaitlist(
     const response = await fetch(`${BACKEND_URL}/waitlist`, {
       method: "POST",
       headers: requestHeaders,
-      body: JSON.stringify({ email, locale, altcha }),
+      body: JSON.stringify({ email, locale: serviceLocale(locale), altcha }),
     });
     if (response.ok) return { error: null, received: true };
     if (response.status === 400) return { error: copy.waitlistCaptchaRequired };

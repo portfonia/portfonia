@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("@/hooks/use-session", () => ({ revalidateSession: vi.fn() }));
+vi.mock("@/app/_components/locale-provider", () => ({ useLocale: () => ({ locale: "en" }) }));
 vi.mock("next-intl", () => ({ useLocale: () => "en", useTranslations: () => (key: string) => key }));
 vi.mock("./credit-purchase", () => ({ CreditPurchase: () => null }));
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));

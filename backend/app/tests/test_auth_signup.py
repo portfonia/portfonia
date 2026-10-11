@@ -131,12 +131,12 @@ def test_signup_stores_locale_from_request_when_present(
     assert row.locale == locale
 
 
-def test_signup_falls_back_to_zh_locale_when_absent(
+def test_signup_falls_back_to_en_locale_when_absent(
     app_client: TestClient, db_session: Session, _fake_auth_provider: MagicMock
 ) -> None:
     """Defense-in-depth only (issue #308): the frontend change means this
     should not normally be hit, but an omitted `locale` must still land on
-    the existing hardcoded "zh" default rather than erroring."""
+    the English "en" default rather than erroring."""
     issued = create_invite(db_session, created_by=_CREATOR)
     db_session.flush()
 
@@ -152,7 +152,7 @@ def test_signup_falls_back_to_zh_locale_when_absent(
     assert resp.status_code == 201
 
     row = db_session.execute(select(User).where(User.email == "no-locale@example.com")).scalar_one()
-    assert row.locale == "zh"
+    assert row.locale == "en"
 
 
 @pytest.mark.parametrize("payload_extra", [{}, {"tos_accepted": False}])
@@ -573,3 +573,27 @@ def test_signup_sunday_backfills_seven_calendar_days(
         .all()
     )
     assert marked == ["before"]
+
+
+@pytest.mark.parametrize("requested_locale,expected", [(None, "en"), ("zh-Hant", "zh-Hant")])
+def test_acceptance_02_signup_english_default_preserves_traditional(
+    app_client: TestClient,
+    db_session: Session,
+    _fake_auth_provider: MagicMock,
+    requested_locale: str | None,
+    expected: str,
+) -> None:
+    issued = create_invite(db_session, created_by=_CREATOR)
+    db_session.flush()
+    payload: dict[str, str | bool] = {
+        "invite_token": issued.token,
+        "email": "acceptance-735@example.com",
+        "password": "a-long-enough-password",
+        "tos_accepted": True,
+    }
+    if requested_locale is not None:
+        payload["locale"] = requested_locale
+    response = app_client.post("/auth/signup", json=payload)
+    assert response.status_code == 201
+    row = db_session.execute(select(User).where(User.email == payload["email"])).scalar_one()
+    assert row.locale == expected

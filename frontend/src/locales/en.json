@@ -1185,6 +1185,8 @@
     "genericError": "Something went wrong. Try again."
   },
   "legal": {
+    "englishPrevailsNotice": "",
+    "englishVersionLink": "",
     "nav": {
       "terms": "Terms of Service",
       "privacy": "Privacy Policy",

@@ -26,6 +26,7 @@ import { LOCALES, type Locale } from "@/locales";
 // also an explicit product-owner instruction, not a default assumption.
 const FLAG_CODE: Record<Locale, string> = {
   en: "us",
+  es: "us",
   "zh-Hans": "cn",
   "zh-Hant": "tw",
 };

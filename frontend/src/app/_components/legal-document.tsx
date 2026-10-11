@@ -32,6 +32,12 @@ export function LegalDocument({ doc, afterIntro }: { doc: LegalDocKey; afterIntr
     <main className="mx-auto w-full max-w-2xl px-6 py-12">
       <h1 className="font-serif text-3xl">{content.title}</h1>
       <p className="mt-2 text-sm text-foreground/45">{content.lastUpdated}</p>
+      {t.englishPrevailsNotice && (
+        <p data-english-prevails className="mt-4 text-sm leading-relaxed text-foreground/70">
+          {t.englishPrevailsNotice}{" "}
+          <a href={`/${doc}`} className="underline">{t.englishVersionLink}</a>
+        </p>
+      )}
       <p className="mt-6 text-sm leading-relaxed text-foreground/80">{fillMerchant(content.intro, t.resellerNotice)}</p>
 
       {afterIntro}

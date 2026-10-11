@@ -24,7 +24,7 @@ import { HomeRiskPreview } from "./home-risk-preview";
 
 const SAMPLE_CURRENCY = "USD";
 const SP500_COLOR = BENCHMARK_COLORS.sp500;
-const CSI300_COLOR = BENCHMARK_COLORS.csi300;
+const NASDAQ_COLOR = BENCHMARK_COLORS.nasdaq;
 
 export const HOME_MARKET_SHARES: Record<string, string> = {
   us: "55",
@@ -59,61 +59,61 @@ const HOME_SERIES_POINTS: readonly {
   date: string;
   portfolio: number;
   sp500: number;
-  csi300: number;
+  nasdaq: number;
   weights: readonly [number, number, number, number, number];
 }[] = [
-  { date: "2026-01-01", portfolio: 0.0, sp500: 0.0, csi300: 0.0, weights: [0.52,  0.2,  0.14,  0.09,  0.05] },
-  { date: "2026-01-02", portfolio: 0.0028, sp500: 0.0019, csi300: 0.0, weights: [0.52,  0.2,  0.14,  0.09,  0.05] },
-  { date: "2026-01-09", portfolio: 0.0244, sp500: 0.0176, csi300: 0.0279, weights: [0.52,  0.2,  0.14,  0.09,  0.05] },
-  { date: "2026-01-16", portfolio: 0.0186, sp500: 0.0138, csi300: 0.022, weights: [0.52,  0.2,  0.14,  0.09,  0.05] },
-  { date: "2026-01-23", portfolio: 0.0135, sp500: 0.0102, csi300: 0.0157, weights: [0.52,  0.2,  0.14,  0.09,  0.05] },
-  { date: "2026-01-30", portfolio: 0.021, sp500: 0.0137, csi300: 0.0165, weights: [0.52,  0.2,  0.14,  0.09,  0.05] },
-  { date: "2026-02-06", portfolio: 0.0202, sp500: 0.0127, csi300: 0.003, weights: [0.51,  0.2,  0.15,  0.09,  0.05] },
-  { date: "2026-02-13", portfolio: 0.0017, sp500: -0.0014, csi300: 0.0066, weights: [0.51,  0.2,  0.15,  0.09,  0.05] },
-  { date: "2026-02-20", portfolio: 0.0167, sp500: 0.0094, csi300: 0.0066, weights: [0.51,  0.2,  0.15,  0.09,  0.05] },
-  { date: "2026-02-27", portfolio: 0.0136, sp500: 0.0049, csi300: 0.0174, weights: [0.51,  0.2,  0.15,  0.09,  0.05] },
-  { date: "2026-03-06", portfolio: -0.0123, sp500: -0.0154, csi300: 0.0066, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
-  { date: "2026-03-13", portfolio: -0.0294, sp500: -0.0312, csi300: 0.0085, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
-  { date: "2026-03-20", portfolio: -0.0474, sp500: -0.0495, csi300: -0.0136, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
-  { date: "2026-03-27", portfolio: -0.0721, sp500: -0.0696, csi300: -0.0275, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
-  { date: "2026-03-31", portfolio: -0.046, sp500: -0.0463, csi300: -0.0389, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
-  { date: "2026-04-02", portfolio: -0.0334, sp500: -0.0384, csi300: -0.0389, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
-  { date: "2026-04-10", portfolio: 0.006, sp500: -0.0042, csi300: 0.0014, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
-  { date: "2026-04-17", portfolio: 0.0566, sp500: 0.041, csi300: 0.0213, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
-  { date: "2026-04-24", portfolio: 0.0663, sp500: 0.0467, csi300: 0.0301, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
-  { date: "2026-04-30", portfolio: 0.0756, sp500: 0.0531, csi300: 0.0383, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
-  { date: "2026-05-01", portfolio: 0.0766, sp500: 0.0562, csi300: 0.0383, weights: [0.49,  0.21,  0.16,  0.09,  0.05] },
-  { date: "2026-05-08", portfolio: 0.1071, sp500: 0.0808, csi300: 0.0523, weights: [0.49,  0.21,  0.16,  0.09,  0.05] },
-  { date: "2026-05-15", portfolio: 0.1121, sp500: 0.0822, csi300: 0.0496, weights: [0.49,  0.21,  0.16,  0.09,  0.05] },
-  { date: "2026-05-22", portfolio: 0.1213, sp500: 0.0917, csi300: 0.0465, weights: [0.49,  0.21,  0.16,  0.09,  0.05] },
-  { date: "2026-05-29", portfolio: 0.1394, sp500: 0.1073, csi300: 0.0566, weights: [0.49,  0.21,  0.16,  0.09,  0.05] },
-  { date: "2026-06-05", portfolio: 0.1096, sp500: 0.0786, csi300: 0.0404, weights: [0.49,  0.22,  0.15,  0.09,  0.05] },
-  { date: "2026-06-12", portfolio: 0.1172, sp500: 0.0856, csi300: 0.0318, weights: [0.49,  0.22,  0.15,  0.09,  0.05] },
-  { date: "2026-06-18", portfolio: 0.1273, sp500: 0.0957, csi300: 0.0673, weights: [0.49,  0.22,  0.15,  0.09,  0.05] },
-  { date: "2026-06-26", portfolio: 0.1056, sp500: 0.0743, csi300: 0.0515, weights: [0.49,  0.22,  0.15,  0.09,  0.05] },
-  { date: "2026-06-30", portfolio: 0.132, sp500: 0.0955, csi300: 0.0755, weights: [0.49,  0.22,  0.15,  0.09,  0.05] },
-  { date: "2026-07-02", portfolio: 0.1265, sp500: 0.0932, csi300: 0.0755, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
-  { date: "2026-07-10", portfolio: 0.1447, sp500: 0.1066, csi300: 0.0326, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
-  { date: "2026-07-17", portfolio: 0.1273, sp500: 0.0894, csi300: -0.0218, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
-  { date: "2026-07-24", portfolio: 0.117, sp500: 0.0828, csi300: 0.0042, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
-  { date: "2026-07-31", portfolio: 0.1307, sp500: 0.0941, csi300: -0.009, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
-  { date: "2026-08-07", portfolio: 0.1813, sp500: 0.1332, csi300: 0.0139, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
-  { date: "2026-08-14", portfolio: 0.1851, sp500: 0.1374, csi300: 0.0078, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
-  { date: "2026-08-21", portfolio: 0.164, sp500: 0.1211, csi300: -0.0024, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
-  { date: "2026-08-28", portfolio: 0.1744, sp500: 0.1265, csi300: -0.0045, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
-  { date: "2026-08-31", portfolio: 0.1709, sp500: 0.1228, csi300: -0.001, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
-  { date: "2026-09-04", portfolio: 0.1739, sp500: 0.1275, csi300: -0.0177, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
-  { date: "2026-09-11", portfolio: 0.1658, sp500: 0.1185, csi300: -0.0259, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
-  { date: "2026-09-18", portfolio: 0.1674, sp500: 0.1176, csi300: -0.0265, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
-  { date: "2026-09-25", portfolio: 0.1811, sp500: 0.1312, csi300: -0.0412, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
-  { date: "2026-09-30", portfolio: 0.1658, sp500: 0.1177, csi300: -0.0588, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
+  { date: "2026-01-01", portfolio: 0.0, sp500: 0.0, nasdaq: 0.0, weights: [0.52,  0.2,  0.14,  0.09,  0.05] },
+  { date: "2026-01-02", portfolio: 0.0028, sp500: 0.0019, nasdaq: -0.0003, weights: [0.52,  0.2,  0.14,  0.09,  0.05] },
+  { date: "2026-01-09", portfolio: 0.0244, sp500: 0.0176, nasdaq: 0.0185, weights: [0.52,  0.2,  0.14,  0.09,  0.05] },
+  { date: "2026-01-16", portfolio: 0.0186, sp500: 0.0138, nasdaq: 0.0118, weights: [0.52,  0.2,  0.14,  0.09,  0.05] },
+  { date: "2026-01-23", portfolio: 0.0135, sp500: 0.0102, nasdaq: 0.0112, weights: [0.52,  0.2,  0.14,  0.09,  0.05] },
+  { date: "2026-01-30", portfolio: 0.021, sp500: 0.0137, nasdaq: 0.0095, weights: [0.52,  0.2,  0.14,  0.09,  0.05] },
+  { date: "2026-02-06", portfolio: 0.0202, sp500: 0.0127, nasdaq: -0.0091, weights: [0.51,  0.2,  0.15,  0.09,  0.05] },
+  { date: "2026-02-13", portfolio: 0.0017, sp500: -0.0014, nasdaq: -0.0299, weights: [0.51,  0.2,  0.15,  0.09,  0.05] },
+  { date: "2026-02-20", portfolio: 0.0167, sp500: 0.0094, nasdaq: -0.0153, weights: [0.51,  0.2,  0.15,  0.09,  0.05] },
+  { date: "2026-02-27", portfolio: 0.0136, sp500: 0.0049, nasdaq: -0.0247, weights: [0.51,  0.2,  0.15,  0.09,  0.05] },
+  { date: "2026-03-06", portfolio: -0.0123, sp500: -0.0154, nasdaq: -0.0368, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
+  { date: "2026-03-13", portfolio: -0.0294, sp500: -0.0312, nasdaq: -0.0489, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
+  { date: "2026-03-20", portfolio: -0.0474, sp500: -0.0495, nasdaq: -0.0686, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
+  { date: "2026-03-27", portfolio: -0.0721, sp500: -0.0696, nasdaq: -0.0987, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
+  { date: "2026-03-31", portfolio: -0.046, sp500: -0.0463, nasdaq: -0.0711, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
+  { date: "2026-04-02", portfolio: -0.0334, sp500: -0.0384, nasdaq: -0.0586, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
+  { date: "2026-04-10", portfolio: 0.006, sp500: -0.0042, nasdaq: -0.0146, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
+  { date: "2026-04-17", portfolio: 0.0566, sp500: 0.041, nasdaq: 0.0528, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
+  { date: "2026-04-24", portfolio: 0.0663, sp500: 0.0467, nasdaq: 0.0686, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
+  { date: "2026-04-30", portfolio: 0.0756, sp500: 0.0531, nasdaq: 0.071, weights: [0.5,  0.21,  0.15,  0.09,  0.05] },
+  { date: "2026-05-01", portfolio: 0.0766, sp500: 0.0562, nasdaq: 0.0806, weights: [0.49,  0.21,  0.16,  0.09,  0.05] },
+  { date: "2026-05-08", portfolio: 0.1071, sp500: 0.0808, nasdaq: 0.1293, weights: [0.49,  0.21,  0.16,  0.09,  0.05] },
+  { date: "2026-05-15", portfolio: 0.1121, sp500: 0.0822, nasdaq: 0.1284, weights: [0.49,  0.21,  0.16,  0.09,  0.05] },
+  { date: "2026-05-22", portfolio: 0.1213, sp500: 0.0917, nasdaq: 0.1335, weights: [0.49,  0.21,  0.16,  0.09,  0.05] },
+  { date: "2026-05-29", portfolio: 0.1394, sp500: 0.1073, nasdaq: 0.1605, weights: [0.49,  0.21,  0.16,  0.09,  0.05] },
+  { date: "2026-06-05", portfolio: 0.1096, sp500: 0.0786, nasdaq: 0.1062, weights: [0.49,  0.22,  0.15,  0.09,  0.05] },
+  { date: "2026-06-12", portfolio: 0.1172, sp500: 0.0856, nasdaq: 0.1139, weights: [0.49,  0.22,  0.15,  0.09,  0.05] },
+  { date: "2026-06-18", portfolio: 0.1273, sp500: 0.0957, nasdaq: 0.1409, weights: [0.49,  0.22,  0.15,  0.09,  0.05] },
+  { date: "2026-06-26", portfolio: 0.1056, sp500: 0.0743, nasdaq: 0.0884, weights: [0.49,  0.22,  0.15,  0.09,  0.05] },
+  { date: "2026-06-30", portfolio: 0.132, sp500: 0.0955, nasdaq: 0.1279, weights: [0.49,  0.22,  0.15,  0.09,  0.05] },
+  { date: "2026-07-02", portfolio: 0.1265, sp500: 0.0932, nasdaq: 0.1115, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
+  { date: "2026-07-10", portfolio: 0.1447, sp500: 0.1066, nasdaq: 0.1308, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
+  { date: "2026-07-17", portfolio: 0.1273, sp500: 0.0894, nasdaq: 0.098, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
+  { date: "2026-07-24", portfolio: 0.117, sp500: 0.0828, nasdaq: 0.0746, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
+  { date: "2026-07-31", portfolio: 0.1307, sp500: 0.0941, nasdaq: 0.0917, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
+  { date: "2026-08-07", portfolio: 0.1813, sp500: 0.1332, nasdaq: 0.1484, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
+  { date: "2026-08-14", portfolio: 0.1851, sp500: 0.1374, nasdaq: 0.15, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
+  { date: "2026-08-21", portfolio: 0.164, sp500: 0.1211, nasdaq: 0.1264, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
+  { date: "2026-08-28", portfolio: 0.1744, sp500: 0.1265, nasdaq: 0.136, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
+  { date: "2026-08-31", portfolio: 0.1709, sp500: 0.1228, nasdaq: 0.1346, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
+  { date: "2026-09-04", portfolio: 0.1739, sp500: 0.1275, nasdaq: 0.1405, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
+  { date: "2026-09-11", portfolio: 0.1658, sp500: 0.1185, nasdaq: 0.133, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
+  { date: "2026-09-18", portfolio: 0.1674, sp500: 0.1176, nasdaq: 0.1411, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
+  { date: "2026-09-25", portfolio: 0.1811, sp500: 0.1312, nasdaq: 0.1646, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
+  { date: "2026-09-30", portfolio: 0.1658, sp500: 0.1177, nasdaq: 0.1557, weights: [0.48,  0.22,  0.16,  0.09,  0.05] },
 ];
 
 export const HOME_PERFORMANCE_ROWS: ChartSeriesRow[] = HOME_SERIES_POINTS.map((point) => ({
   date: point.date,
   portfolio: point.portfolio,
   sp500: point.sp500,
-  csi300: point.csi300,
+  nasdaq: point.nasdaq,
 }));
 
 const HOME_ALLOCATION_ROWS: AllocationRow[] = HOME_SERIES_POINTS.map((point) => {
@@ -168,9 +168,9 @@ export function HomeProductPreviews() {
       color: SP500_COLOR,
     },
     {
-      key: "csi300",
-      label: tPerf("benchmarkNames.csi300"),
-      color: CSI300_COLOR,
+      key: "nasdaq",
+      label: tPerf("benchmarkNames.nasdaq"),
+      color: NASDAQ_COLOR,
     },
   ];
   const passedSeries = series.map((item) => ({

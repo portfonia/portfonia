@@ -109,7 +109,7 @@ def signup(
             auth_subject=sub,
             email=email,
             status="active",
-            locale=req.locale or "zh",
+            locale=req.locale or "en",
             base_currency="USD",
             # No cadence until the user subscribes (issue #595); the plan
             # chosen then sets it.

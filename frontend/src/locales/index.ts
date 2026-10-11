@@ -1,4 +1,5 @@
 import en from "./en.json";
+import es from "./es.json";
 import zhHans from "./zh-Hans.json";
 import zhHant from "./zh-Hant.json";
 
@@ -15,7 +16,7 @@ import zhHant from "./zh-Hant.json";
 // two catalogs serve different runtimes (React vs the Python translation
 // pass) with different shapes (keyed chrome with ICU interpolation vs
 // EN-term-to-locale rendering pairs).
-export type Locale = "en" | "zh-Hans" | "zh-Hant";
+export type Locale = "en" | "es" | "zh-Hans" | "zh-Hant";
 
 export const DEFAULT_LOCALE: Locale = "en";
 
@@ -25,6 +26,7 @@ export const DEFAULT_LOCALE: Locale = "en";
 // real user can reach; see LOCALES below.
 const ALL_LOCALE_META: { value: Locale; label: string }[] = [
   { value: "en", label: "English" },
+  { value: "es", label: "Español" },
   { value: "zh-Hans", label: "简体中文" },
   { value: "zh-Hant", label: "繁體中文" },
 ];
@@ -76,6 +78,12 @@ export type Messages = typeof en;
 
 export const catalogs: Record<Locale, Messages> = {
   en,
+  es,
   "zh-Hans": zhHans,
   "zh-Hant": zhHant,
 };
+
+// UI-only Spanish uses English on service surfaces that retain three locales.
+export function serviceLocale(locale: Locale): "en" | "zh-Hans" | "zh-Hant" {
+  return locale === "es" ? "en" : locale;
+}

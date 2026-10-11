@@ -184,6 +184,7 @@ it.each(LOCALE_VALUES)("%s referral copy and Terms preserve the required layout 
   expect(catalog.profile.inviteBody).not.toMatch(/\d|%/);
   expect(catalog.profile.deleteAccountNegativeBalance).toContain("info@portfonia.com");
   const expectedUpdated = locale === "en" ? "Last updated: 2026-10-08"
+    : locale === "es" ? "Última actualización: 2026-10-08"
     : locale === "zh-Hans" ? "\u6700\u540e\u66f4\u65b0\uff1a2026-10-08"
       : "\u6700\u5f8c\u66f4\u65b0\uff1a2026-10-08";
   expect(catalog.legal.terms.lastUpdated).toBe(expectedUpdated);
@@ -201,9 +202,21 @@ it.each(LOCALE_VALUES)("#706 %s OG copy has three markets and removes legacy sam
 });
 
 it("A21 tail risk titles and catalog key parity match #718", () => {
-  const titles = { en: "Tail risk (VaR / CVaR)", "zh-Hans": "\u5c3e\u90e8\u98ce\u9669\uff08VaR / CVaR\uff09", "zh-Hant": "\u5c3e\u90e8\u98a8\u96aa\uff08VaR / CVaR\uff09" };
+  const titles = { en: "Tail risk (VaR / CVaR)", es: "Riesgo de cola (VaR / CVaR)", "zh-Hans": "\u5c3e\u90e8\u98ce\u9669\uff08VaR / CVaR\uff09", "zh-Hant": "\u5c3e\u90e8\u98a8\u96aa\uff08VaR / CVaR\uff09" };
   for (const locale of LOCALE_VALUES) {
     expect(catalogs[locale]).toHaveProperty("jade.tailRisk.title", titles[locale]);
     expect(leafPaths(catalogs[locale]).sort()).toEqual(leafPaths(catalogs.en).sort());
   }
+});
+
+function catalogPaths(value: unknown, prefix = ""): string[] {
+  if (value !== null && typeof value === "object") {
+    return Object.entries(value).flatMap(([key, child]) => catalogPaths(child, prefix ? `${prefix}.${key}` : key));
+  }
+  return [prefix];
+}
+
+it("acceptance_04 Spanish has exactly the English key paths", () => {
+  expect(catalogs).toHaveProperty("es");
+  expect(catalogPaths(catalogs.es).sort()).toEqual(catalogPaths(catalogs.en).sort());
 });

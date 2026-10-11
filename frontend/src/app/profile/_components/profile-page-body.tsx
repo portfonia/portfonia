@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
+import { useLocale } from "@/app/_components/locale-provider";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogFooter, AlertDialogCancel } from "@/components/ui/alert-dialog";
@@ -11,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Me, SubscriptionType } from "@/lib/api";
-import { REPORT_LANGUAGES, type ReportLanguage } from "@/locales";
+import { serviceLocale, REPORT_LANGUAGES, type ReportLanguage } from "@/locales";
 import { DeleteAccountDialog } from "./delete-account-dialog";
 import { PendingVerificationsList } from "./pending-verifications-list";
 import { CreditPurchase } from "./credit-purchase";
@@ -37,7 +38,7 @@ const planLabelKeys: Record<SubscriptionType, string> = {
 export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError: boolean }) {
   const t = useTranslations("profile");
   const tAuth = useTranslations("auth");
-  const locale = useLocale();
+  const { locale } = useLocale();
   const [referralEmail, setReferralEmail] = useState("");
   const [referralPending, setReferralPending] = useState(false);
   const [referralError, setReferralError] = useState<string | null>(null);
@@ -51,7 +52,7 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
     try {
       const response = await fetch("/api/me/referrals", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: referralEmail, locale }),
+        body: JSON.stringify({ email: referralEmail, locale: serviceLocale(locale) }),
       });
       if (response.ok) {
         setReferralEmail("");

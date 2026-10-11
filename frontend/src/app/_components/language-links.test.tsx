@@ -14,8 +14,8 @@ it("7f server-renders plain language anchors and an unlinked current locale", ()
   expect(html).toContain('href="/zh-Hant/pricing"');
   expect(html).toContain('aria-current="page"');
   render(<LanguageLinks />);
-  expect(screen.getByText(LOCALES[1].label)).not.toHaveAttribute("href");
-  expect(screen.getByText(LOCALES[1].label)).toHaveAttribute("aria-current", "page");
+  expect(screen.getByText(LOCALES[2].label)).not.toHaveAttribute("href");
+  expect(screen.getByText(LOCALES[2].label)).toHaveAttribute("aria-current", "page");
 });
 it("calls rememberLocale without navigation or preventing the full document navigation", () => {
   render(<LanguageLinks />);
