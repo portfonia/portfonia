@@ -86,6 +86,7 @@ export function StressSection({ settings }: { settings: Settings | null }) {
     <CardHeader><CardTitle>{t("title")}</CardTitle></CardHeader>
     <CardContent className="flex min-w-0 flex-col gap-4 px-4 text-sm">
       <p>{t("intro")}</p>
+      <p className="min-w-0 break-words">{t("whatItSays")}</p>
       <CalculatingOverlay active={pending} label={common("calculating")}>
         <div className="flex min-w-0 flex-col gap-4">
           <div role="radiogroup" aria-label={t("scenarioLabel")} className="flex flex-wrap items-center gap-1">
@@ -133,10 +134,11 @@ export function StressSection({ settings }: { settings: Settings | null }) {
           </div><p>{t("chartNote")}</p></>}
           {ok && <div data-testid="stress-contributions" className="flex min-w-0 flex-col gap-3">
             <h3 className="font-medium">{t("contributionsTitle")}</h3>
+            <p className="min-w-0 break-words">{t("readBars")}</p>
             {selected.contributions.map(c => { const value = Number(c.contribution); return <div key={c.asset_class} data-contribution={c.asset_class} className="min-w-0">
               <div className="flex flex-wrap justify-between gap-2"><span>{portfolio(`assetClasses.${c.asset_class}`)}</span><span>{pct(c.contribution)}</span></div>
               <div data-track className="relative h-2 w-full min-w-0 bg-muted"><span className="absolute inset-y-0 left-1/2 w-px bg-muted-foreground" /><span data-bar className="absolute inset-y-0" style={{ ...(value < 0 ? { right: "50%" } : { left: "50%" }), width: `${maxContribution ? Math.abs(value) / maxContribution * 50 : 0}%`, background: value < 0 ? "var(--destructive)" : PORTFOLIO_COLOR }} /></div>
-            </div>; })}<p>{t("contributionsNote")}</p>
+            </div>; })}
           </div>}
           {selected && (ok || selected.status === "insufficient") && selected.proxy_understates && <p>{t("proxyUnderstates")}</p>}
           <details className="min-w-0 break-words"><summary className="cursor-pointer font-medium">{t("model")}</summary>

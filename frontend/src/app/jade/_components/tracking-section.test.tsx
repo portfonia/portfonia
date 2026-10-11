@@ -193,3 +193,15 @@ it("F1 pre-save GET cannot replace saved editor state and post-save GET updates 
   expect(getJadeTracking).toHaveBeenLastCalledWith("EUR", "1Y");
   expect(getJadeTracking).toHaveBeenCalledTimes(3);
 });
+
+it("733 A5 explanation placement and wrapping", async () => {
+  getJadeTracking.mockResolvedValue(data);
+  view(); await screen.findByTestId("tracking-editor");
+  const copy = catalogs.en.jade.tracking as unknown as Record<string, string>;
+  const intro = screen.getByText(copy.intro);
+  const explanation = screen.getByText(copy.whatItSays ?? "missing explanation");
+  expect(intro.nextElementSibling).toBe(explanation);
+  expect(explanation.closest("[aria-busy], [inert]")).toBeNull();
+  expect(explanation).toHaveClass("min-w-0", "break-words");
+  expect(explanation.nextElementSibling).toBe(screen.getByTestId("tracking-editor"));
+});

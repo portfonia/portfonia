@@ -1701,7 +1701,7 @@
       "pendingShare": "{pct}% of your holdings' value is still being prepared and is not included.",
       "methods": {
         "own": "Own price history",
-        "fund_nav": "Fund NAV history, dividends reinvested",
+        "fund_nav": "Fund net asset value (NAV) history, dividends reinvested",
         "proxy": "Represented by {proxy_name} ({proxy_symbol})",
         "head_proxy": "Own history from {own_first_date}; before that {proxy_name} ({proxy_symbol}) × beta {beta}",
         "cash": "Cash: constant in its own currency, moves only with FX",
@@ -1716,8 +1716,8 @@
       "ownHistoryUnavailable": "(no price history of its own)",
       "betaFallback": "(beta set to 1: under 60 days of own history)",
       "volatility": "Volatility: own {own_vol}, filled period {proxy_segment_vol}. The fill does not reproduce this holding's own swings.",
-      "sources": "Prices: Yahoo Finance daily adjusted closes. Fund NAV: Eastmoney. FX: the same daily rates as Portfolio Overview. Sample days: NYSE trading days; other markets keep their previous close on their holidays.",
-      "method": "Each holding's value today is rolled back along its own total-return history, converted to {currency} at each day's FX rate. The holdings are summed without rebalancing. Annualized volatility is the standard deviation of daily returns × √252.",
+      "sources": "Prices: Yahoo Finance daily adjusted closes. Fund NAV: Eastmoney. Exchange rates: the same daily rates as Portfolio Overview. Sample days: NYSE trading days; other markets keep their previous close on their holidays.",
+      "method": "Each holding's value today is rolled back along its own total-return history, converted to {currency} at each day's exchange rate. The holdings are summed without rebalancing. Annualized volatility is the standard deviation of daily returns × √252.",
       "limitations": "Hindsight: the holdings you have today are often ones that did well in the past, so the replay can look better than what a portfolio chosen at the start of the span would have done. Proxies follow an index ETF, not the holding itself. The replay describes the past and is not a forecast.",
       "metrics": {
         "cumulative_return": "Cumulative return",
@@ -1737,11 +1737,13 @@
         "3Y": "3Y",
         "5Y": "5Y"
       },
-      "annualizedShortNote": "Annualized from this span's data. Annualizing a period shorter than a year magnifies its swings."
+      "annualizedShortNote": "Annualized from this span's data. Annualizing a period shorter than a year magnifies its swings.",
+      "whatItSays": "What it shows: how the value of today's holdings would have risen and fallen over the span, in percent from the start. The benchmark line is an index fund over the same days, for comparison. Cumulative return is the total change over the span; annualized return converts it to a yearly rate; annualized volatility is how widely daily returns swung, on a yearly scale; maximum drawdown is the largest fall from a high to a later low. ETF (exchange-traded fund): a fund listed on an exchange that tracks an index; holdings without enough price history of their own are represented by one. Beta: how strongly a holding has moved with that ETF; 1.2 means about 1.2% for each 1% move of the ETF.",
+      "rangeHelp": "1M, 3M, 6M: one, three, six months. YTD: year to date. 1Y, 3Y, 5Y: one, three, five years."
     },
     "tailRisk": {
       "title": "Tail risk (VaR / CVaR)",
-      "intro": "VaR is the loss line that most days or months in the replay stayed within at the chosen confidence level; it is not the largest possible loss. CVaR is the average loss on the days or months beyond that line. Both come from the five-year replay of the holdings you have today.",
+      "intro": "VaR (Value at Risk) is the loss line that most days or months in the replay stayed within at the chosen confidence level; it is not the largest possible loss. CVaR (Conditional Value at Risk, also called Expected Shortfall) is the average loss on the days or months beyond that line. Both come from the five-year replay of the holdings you have today.",
       "levelLabel": "Confidence",
       "levels": {
         "95": "95%",
@@ -1773,7 +1775,9 @@
       "normalLine": "If returns followed a normal distribution with the replay's own mean and volatility, {level}% VaR would be {dayVar} (1 day) and {monthVar} (1 month), and CVaR {dayCvar} and {monthCvar}. The gap from the figures above shows how far the replay's tails differ from a normal distribution.",
       "referenceText": "The reference line takes the volatility level that the Overview Risk indicator treats as beyond your questionnaire answers (risk appetite, horizon and objective) and converts it into a loss at this confidence level, assuming a normal distribution with zero mean. It is a point of comparison, not a judgement, and it is not a normal-distribution version of your VaR: the VaR above uses the replay's actual distribution.",
       "limitations": "The figures reflect only what happened inside the five-year replay; events outside it are not included. The replay uses the holdings you have today, so hindsight applies. This describes the past and is not a forecast.",
-      "loadError": "Tail risk could not be loaded. Try again later."
+      "loadError": "Tail risk could not be loaded. Try again later.",
+      "whatItSays": "How to read it: at 95%, a one-day VaR of 2.0% means that on about 95 of every 100 days in the replay the portfolio lost less than 2.0%. On the other 5 days it lost more, and CVaR is their average loss. The one-month column does the same for periods of 21 trading days. The benchmark rows show the same figures for the selected index, so you can see whether your holdings' bad days were deeper or shallower.",
+      "readChart": "The chart counts how many days fell into each band of daily return, losses on the left. The marked lines are the one-day VaR, CVaR and, if you completed the questionnaire, the reference line. A long, thin left tail means rare but deep losses."
     },
     "stress": {
       "title": "Historical stress scenarios",
@@ -1818,7 +1822,6 @@
       },
       "chartNote": "Both lines start from 0% at the S&P 500 peak.",
       "contributionsTitle": "Contribution to the peak-to-trough return, by asset class",
-      "contributionsNote": "The bars add up to the portfolio's peak-to-trough return, up to rounding.",
       "proxyUnderstates": "Holdings represented by an index ETF lose their own swings, so these scenarios may understate their losses.",
       "model": "Calculation model",
       "sampleText": "{count} daily returns from {first} to {end}.",
@@ -1833,7 +1836,9 @@
       "substituteFor": "{symbol} stands in for {primary}, which has no data in this window.",
       "priceIndexTag": "Price index, dividends excluded.",
       "substituteMethod": "Where the usual index ETF has no prices on the peak and trough dates, the first listed substitute that has them is used. Betas are estimated against the usual ETF on the five-year replay and applied to the substitute.",
-      "fredFxNote": "Exchange rates in this window are US Federal Reserve H.10 daily rates. MOP is derived from its peg to the Hong Kong dollar (1 HKD = 1.03 MOP); CNH, which began trading in 2010, uses the onshore CNY rate."
+      "fredFxNote": "Exchange rates in this window are US Federal Reserve H.10 daily rates. MOP is derived from its peg to the Hong Kong dollar (1 HKD = 1.03 MOP); CNH, which began trading in 2010, uses the onshore CNY rate.",
+      "whatItSays": "How to read it: \"Peak to trough\" is how much this portfolio would have gained or lost between the S&P 500's high and its low in that episode. \"Largest drawdown in the window\" is the deepest fall of the portfolio itself inside the window, which can happen on different dates. The chart runs from six months before the peak to six months after the trough, with 0% at the peak.",
+      "readBars": "Each bar is one asset class's share of the peak-to-trough return. A bar to the left of the center line pulled the portfolio down; to the right, it added to it. A bar's size reflects both how much that asset class moved and how much of the portfolio it was, so a small holding that fell sharply can still have a short bar. Bar lengths are relative to the largest bar. The figures add up to the portfolio's peak-to-trough return, up to rounding."
     },
     "style": {
       "title": "Style exposure",
@@ -1873,7 +1878,9 @@
         "DBC": "Broad commodities",
         "VNQ": "US real estate (REITs)",
         "BIL": "Cash and short-term bills (USD)"
-      }
+      },
+      "whatItSays": "What it says: which mix of broad market styles would have moved most like your portfolio over the last three months. It is a statistical resemblance, not what you actually own. It helps you see whether holdings that look different were in fact moving to the same few styles.",
+      "readBars": "Reading the bars: each bar is that style's weight in the mix. Weights are zero or more and add up to 100%. For example, \"US large-cap growth 60%\" means your portfolio's ups and downs looked most like a mix holding 60% in US large-cap growth stocks. A style is listed when your portfolio or the benchmark gives it a weight above 0%, so a row can show 0% in one column. The benchmark column shows the same breakdown for the selected index. R² (R-squared) is the share of your portfolio's movement that the mix explains: 1.00 is all of it, 0.50 is half. Unexplained volatility is the size of the remaining movement on a yearly scale, which comes from what is specific to your holdings. REITs (real estate investment trusts) are listed companies that own income-producing property."
     },
     "tracking": {
       "title": "Tracking against your reference",
@@ -1936,7 +1943,8 @@
         "VNQ": "US real estate (REITs)",
         "XLE": "US energy",
         "CASH": "Cash ({currency}, held constant)"
-      }
+      },
+      "whatItSays": "What it says: how differently your holdings moved from a reference portfolio you define, such as 60% US stocks and 40% US bonds. Excess return is the gap in total return between the two; the chart shows how that gap built up, above zero when your portfolio was ahead and below zero when it was behind. Tracking error measures how unevenly the gap moved, whichever side ended ahead: low means your portfolio moved closely with the reference, high means it often moved differently. As a rough guide, 5% means the yearly gap typically varied by about 5 percentage points. REITs (real estate investment trusts) are listed companies that own income-producing property."
     }
   },
   "pricingPlans": {

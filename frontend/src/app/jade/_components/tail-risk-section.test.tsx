@@ -1,3 +1,4 @@
+import { catalogs } from "@/locales";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/app/_components/locale-provider";
@@ -112,4 +113,26 @@ it("375px dark component classes wrap the table toggle and histogram", async () 
   const table=screen.getByTestId("tail-table");expect(table).toHaveClass("grid-cols-3","text-xs","sm:text-sm");
   for (const cell of table.querySelectorAll(".contents > *")) expect(cell).toHaveClass("min-w-0","break-words");
   expect(screen.getByTestId("tail-histogram")).toHaveClass("h-48","w-full","min-w-0");
+});
+
+it("733 A2 explanation placement and wrapping", async () => {
+  getJadeTailRisk.mockResolvedValue(data);
+  await view(); await screen.findByTestId("bar-chart");
+  const copy = catalogs.en.jade.tailRisk as unknown as Record<string, string>;
+  const intro = screen.getByText(copy.intro);
+  const explanation = screen.getByText(copy.whatItSays ?? "missing explanation");
+  expect(intro.nextElementSibling).toBe(explanation);
+  expect(explanation.closest("[aria-busy], [inert]")).toBeNull();
+  expect(explanation).toHaveClass("min-w-0", "break-words");
+  expect(screen.getByTestId("tail-histogram").previousElementSibling).toBe(screen.getByText(copy.readChart ?? "missing chart guide"));
+  expect(screen.getByText(copy.readChart)).toHaveClass("min-w-0", "break-words");
+  expect(intro.textContent).toBe(copy.intro);
+});
+
+it.each(["pending", "insufficient", "no_holdings"])("733 A2 non-ok %s omits histogram guide", async status => {
+  getJadeTailRisk.mockResolvedValue({ ...data, status, levels: [], histogram: [] });
+  await view(); await waitFor(() => expect(screen.queryByTestId("calculating-overlay")).not.toBeInTheDocument());
+  const copy = catalogs.en.jade.tailRisk as unknown as Record<string, string>;
+  expect(screen.getByText(copy.intro).nextElementSibling).toBe(screen.getByText(copy.whatItSays ?? "missing explanation"));
+  expect(screen.queryByText(copy.readChart ?? "missing chart guide")).not.toBeInTheDocument();
 });

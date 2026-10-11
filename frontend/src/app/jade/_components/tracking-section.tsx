@@ -114,6 +114,7 @@ export function TrackingSection({ settings }: { settings: Settings | null }) {
     <CardHeader><CardTitle>{t("title")}</CardTitle></CardHeader>
     <CardContent className="flex min-w-0 flex-col gap-4 px-4 text-sm">
       <p>{t("intro")}</p>
+      <p className="min-w-0 break-words">{t("whatItSays")}</p>
       {rows && <div data-testid="tracking-editor" className="flex min-w-0 flex-col gap-3">
         <h3 className="font-medium">{t("editor.title")}</h3>
         {!reference?.saved && <p>{t("editor.example")}</p>}

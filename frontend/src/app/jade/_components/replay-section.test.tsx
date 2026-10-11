@@ -1,3 +1,4 @@
+import { catalogs } from "@/locales";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/app/_components/locale-provider";
@@ -79,7 +80,7 @@ it("A8 D6.7 D6.8 full initial layout and static method text under overlay", asyn
   expect(grid.textContent?.match(/—/g)).toHaveLength(12);
   expect(container.querySelector("details summary")).toHaveTextContent("Data and method");
   expect(screen.getByText(/^Prices: Yahoo Finance/)).toBeInTheDocument();
-  expect(screen.getByText(/converted to USD at each day's FX rate/)).toBeInTheDocument();
+  expect(screen.getByText(/converted to USD at each day's exchange rate/)).toBeInTheDocument();
   expect(screen.getByText(/^Hindsight:/)).toBeInTheDocument();
   const overlay = screen.getByTestId("calculating-overlay");
   expect(overlay).toHaveTextContent("Calculating…");
@@ -152,4 +153,45 @@ it.each([
   getJadeReplay.mockResolvedValue({ ...data, holdings: [{ ...data.holdings[0], method: "excluded", weight: null, excluded_reason: "watch_only" }] });
   render(<LocaleProvider routeLocale={locale}><ReplaySection /></LocaleProvider>);
   expect(await screen.findByText(text)).toBeInTheDocument();
+});
+
+it("733 A1 explanation placement and wrapping", async () => {
+  getJadeReplay.mockResolvedValue(data);
+  view(); await screen.findByText(/^Recent listing/);
+  const copy = catalogs.en.jade.replay as unknown as Record<string, string>;
+  const intro = screen.getByText(copy.intro);
+  const explanation = screen.getByText(copy.whatItSays ?? "missing explanation");
+  expect(intro.nextElementSibling).toBe(explanation);
+  expect(explanation.closest("[aria-busy], [inert]")).toBeNull();
+  expect(explanation).toHaveClass("min-w-0", "break-words");
+  const group = screen.getByRole("radiogroup", { name: "Span" });
+  const help = screen.getByText(copy.rangeHelp ?? "missing range help");
+  expect(group.nextElementSibling).toBe(help);
+  expect(help).toHaveClass("text-xs", "text-muted-foreground", "min-w-0", "break-words");
+});
+
+it.each(["request", "response"])("733 A1 pending %s keeps explanation readable and span guide present", async pending => {
+  if (pending === "request") getJadeReplay.mockImplementation(() => new Promise(() => {}));
+  else getJadeReplay.mockResolvedValue({ ...data, status: "pending", points: [], metrics: { portfolio: null, benchmark: null } });
+  view();
+  if (pending === "response") await screen.findByText(/Price history for your holdings is being prepared/);
+  const copy = catalogs.en.jade.replay as unknown as Record<string, string>;
+  const explanation = screen.getByText(copy.whatItSays ?? "missing explanation");
+  expect(screen.getByText(copy.intro).nextElementSibling).toBe(explanation);
+  expect(explanation.closest("[aria-busy], [inert]")).toBeNull();
+  expect(screen.getByRole("radiogroup", { name: "Span" }).nextElementSibling).toBe(screen.getByText(copy.rangeHelp ?? "missing range help"));
+});
+it("733 A6 desktop details start closed and summary toggles both ways", async () => {
+  const media = { matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() };
+  vi.stubGlobal("matchMedia", vi.fn(() => media));
+  getJadeReplay.mockResolvedValue(data);
+  const { container } = view(); await screen.findByText(/^Recent listing/);
+  const details = container.querySelector("details")!;
+  expect(details).not.toHaveAttribute("open");
+  fireEvent.click(details.querySelector("summary")!);
+  await waitFor(() => expect(details).toHaveAttribute("open"));
+  fireEvent.click(details.querySelector("summary")!);
+  await waitFor(() => expect(details).not.toHaveAttribute("open"));
+  expect(media.addEventListener).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
 });
