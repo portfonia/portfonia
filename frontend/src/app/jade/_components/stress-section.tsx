@@ -1,12 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CalculatingOverlay } from "@/components/calculating-overlay";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useLocale } from "@/app/_components/locale-provider";
+import { useLocale, useLocalizedHref } from "@/app/_components/locale-provider";
 import type { BaseCurrency } from "@/app/portfolio/_components/currencies";
 import { formatMoney } from "@/app/portfolio/_components/portfolio-helpers";
 import { formatShortDate, formatTickPct } from "@/app/portfolio/performance/_components/performance-format";
@@ -27,6 +28,8 @@ export function StressSection({ settings }: { settings: Settings | null }) {
   const common = useTranslations("common");
   const portfolio = useTranslations("portfolio");
   const { locale } = useLocale();
+  const href = useLocalizedHref();
+  const jade = useTranslations("jade");
   const [data, setData] = useState<JadeStress | null>(null);
   const [pending, setPending] = useState(true);
   const [error, setError] = useState(false);
@@ -87,6 +90,7 @@ export function StressSection({ settings }: { settings: Settings | null }) {
     <CardContent className="flex min-w-0 flex-col gap-4 px-4 text-sm">
       <p>{t("intro")}</p>
       <p className="min-w-0 break-words">{t("whatItSays")}</p>
+      <Link className="underline" href={href("/guides/jade-stress")}>{jade("guideLink")}</Link>
       <CalculatingOverlay active={pending} label={common("calculating")}>
         <div className="flex min-w-0 flex-col gap-4">
           <div role="radiogroup" aria-label={t("scenarioLabel")} className="flex flex-wrap items-center gap-1">

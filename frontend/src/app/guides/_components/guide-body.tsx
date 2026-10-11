@@ -307,7 +307,7 @@ export function GuideBody({ kind, example }: {
     </div>
     <nav className="mt-12 flex flex-wrap gap-4 border-t border-foreground/10 pt-6 text-sm text-foreground/60">
       <Link href={href('/pricing')} className="underline">{t('common.pricingLink')}</Link>
-      <Link href={href(kind === 'replay' ? '/guides/jade-var' : '/guides/jade-replay')} className="underline">{t(kind === 'replay' ? 'common.varLink' : 'common.replayLink')}</Link>
+      <Link href={href("/guides")} className="underline">{t("common.guidesLink")}</Link>
     </nav>
     <LanguageLinks />
   </main>;

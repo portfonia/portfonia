@@ -7,7 +7,7 @@ import { useTranslations } from "next-intl";
 
 import type { Messages } from "@/locales";
 
-const JADE_GUIDE_FEATURES: Record<number, string> = { 1: "/guides/jade-replay", 2: "/guides/jade-var" };
+const JADE_GUIDE_FEATURES: Record<number, string> = { 1: "/guides/jade-replay", 2: "/guides/jade-var", 3: "/guides/jade-stress", 4: "/guides/jade-style", 5: "/guides/jade-tracking" };
 
 export function PlanComparison() {
   const t = useTranslations("pricingPlans");

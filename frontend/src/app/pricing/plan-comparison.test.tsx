@@ -228,17 +228,20 @@ it("A5 comparison renders the credit footnote", () => {
   expect(within(comparison()).getByText(expected.en.pricingPlans.footnote)).toBeInTheDocument();
 });
 
-it.each(["en", "es", "zh-Hans", "zh-Hant"] as const)("A6 %s comparison contains no buttons and exactly two Jade guide links", locale => {
+it.each(["en", "es", "zh-Hans", "zh-Hant"] as const)("A6 %s comparison contains no buttons and exactly five Jade guide links", locale => {
   renderPricing(locale);
   const block = screen.getByRole("region", { name: catalogs[locale].pricingPlans.heading });
   expect(block.querySelectorAll("button")).toHaveLength(0);
   const links = Array.from(block.querySelectorAll("a"));
-  expect(links).toHaveLength(2);
+  expect(links).toHaveLength(5);
   const jade = block.querySelector('[data-plan="jade"]');
   for (const link of links) expect(jade).toContainElement(link);
   expect(links.map(link => link.getAttribute("href"))).toEqual([
     localizedPath("/guides/jade-replay", locale),
     localizedPath("/guides/jade-var", locale),
+    localizedPath("/guides/jade-stress", locale),
+    localizedPath("/guides/jade-style", locale),
+    localizedPath("/guides/jade-tracking", locale),
   ]);
 });
 

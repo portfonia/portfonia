@@ -8,6 +8,7 @@ export const SEO_PAGES = {
   home: "/", about: "/about", pricing: "/pricing", waitlist: "/waitlist",
   privacy: "/privacy", terms: "/terms", refund: "/refund",
   guideReplay: "/guides/jade-replay", guideVar: "/guides/jade-var",
+  guides: "/guides", guideStress: "/guides/jade-stress", guideStyle: "/guides/jade-style", guideTracking: "/guides/jade-tracking",
 } as const;
 export type SeoPageKey = keyof typeof SEO_PAGES;
 // Shared segment-cache keys require dynamic pages, staleTimes.dynamic = 0, and no cacheComponents/PPR to avoid cross-locale reuse.

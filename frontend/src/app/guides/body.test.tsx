@@ -33,7 +33,7 @@ it.each(locales)("737 A6 %s server-readable sections figures tables and bottom l
     for (const n of doc.querySelectorAll("caption,figcaption"))
       expect(n.textContent).toContain(copy.common.exampleLabel);
     expect(doc.querySelector('nav a[href="' + localizedPath('/pricing', locale) + '"]')).not.toBeNull();
-    expect(doc.querySelector('nav a[href="' + localizedPath(kind === 'replay' ? '/guides/jade-var' : '/guides/jade-replay', locale) + '"]')).not.toBeNull();
+    expect(doc.querySelector('nav a[href="' + localizedPath('/guides', locale) + '"]')).not.toBeNull();
     if (locale === "en") {
       expect(doc.querySelector("caption")?.textContent).toContain("60% SPY + 40% AGG");
     }
