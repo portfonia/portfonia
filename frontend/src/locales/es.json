@@ -1613,6 +1613,14 @@
       "refund": {
         "title": "Política de reembolsos — Portfonia",
         "description": "Cómo funcionan los reembolsos de créditos de servicio prepagados de Portfonia."
+      },
+      "guideReplay": {
+        "title": "Guía de simulación histórica de posiciones — Portfonia",
+        "description": "Cómo la simulación histórica mide rendimiento, volatilidad y caída máxima, con un ejemplo fijo y explicaciones públicas."
+      },
+      "guideVar": {
+        "title": "Guía de riesgo de cola (VaR / CVaR) — Portfonia",
+        "description": "Cómo funcionan VaR, CVaR, ventanas mensuales y la referencia del cuestionario, con un ejemplo fijo."
       }
     },
     "ogImageAlt": "Portfonia: carga de posiciones y seguimiento de mercado y macro, resumidos en las secciones de un informe de ejemplo",
@@ -1674,7 +1682,7 @@
   },
   "jade": {
     "title": "Jade",
-    "intro": "Jade reúne herramientas de riesgo de cartera para inversores a largo plazo. Parte de sus posiciones actuales y cada resultado indica los datos utilizados y el cálculo. Incluye todo el plan Advanced; puede elegir cualquier calendario de resúmenes y cambiarlo cuando quiera. Las herramientas se añaden a esta página una a una.",
+    "intro": "Jade reúne herramientas de riesgo de cartera para inversores a largo plazo. Parte de sus posiciones actuales y cada resultado indica los datos utilizados y el cálculo. Incluye todo el plan Advanced; puede elegir cualquier calendario de resúmenes y cambiarlo cuando quiera.",
     "price": "9.99 créditos al mes",
     "subscribe": "Suscribirse a Jade",
     "cadenceError": "No se pudo cambiar el calendario de resúmenes. Inténtelo de nuevo.",
@@ -1947,6 +1955,12 @@
         "CASH": "Efectivo ({currency}, constante)"
       },
       "whatItSays": "Qué indica: cuánto difieren los movimientos de sus posiciones de una referencia definida por usted, como 60% de acciones de EE. UU. y 40% de bonos de EE. UU. El exceso de rendimiento es la diferencia entre sus rendimientos totales; la curva muestra cómo se acumuló, por encima de cero cuando su cartera iba por delante y por debajo cuando iba detrás. El error de seguimiento mide la irregularidad de la diferencia, independientemente de quién termine por delante: bajo indica movimientos cercanos, alto indica diferencias frecuentes. Como orientación aproximada, 5% significa que la diferencia anual varió normalmente unos 5 puntos porcentuales. Los REIT (fideicomisos de inversión inmobiliaria) son empresas cotizadas propietarias de inmuebles que generan ingresos."
+    },
+    "guideLink": "Leer la guía",
+    "guidesLead": "Las guías públicas explican cómo funcionan la simulación histórica de posiciones y el riesgo de cola.",
+    "guideLinks": {
+      "replay": "Simulación histórica de posiciones",
+      "var": "Riesgo de cola"
     }
   },
   "pricingPlans": {
@@ -1996,5 +2010,144 @@
       }
     ],
     "footnote": "1 crédito = US$1."
+  },
+  "guides": {
+    "common": {
+      "exampleLabel": "Cartera de ejemplo, no una recomendación",
+      "portfolio": "{spyStart} SPY + {aggStart} AGG",
+      "pricingLink": "Precios",
+      "replayLink": "Guía de simulación histórica de posiciones",
+      "varLink": "Guía de riesgo de cola",
+      "window": "{portfolio}. Del {start} al {end}. {exampleLabel}.",
+      "replayCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. Rendimiento acumulado: {cumulative}, frente a {spyCumulative} para SPY. La caída máxima fue {drawdown}, del {peak} al {trough}.",
+      "varCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. El VaR de un día al 95% es {dayVar}, el CVaR es {dayCvar} y la referencia es {referenceDay}. La referencia punteada parte de una respuesta conservadora hipotética al cuestionario.",
+      "normalCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. Simulación histórica y modelo normal con los mismos rendimientos diarios.",
+      "day": "1 día",
+      "month": "1 mes",
+      "metric": "Métrica",
+      "level": "Confianza",
+      "historical": "Simulación histórica",
+      "normal": "Modelo normal",
+      "frequency": "Días",
+      "return": "Rendimiento diario",
+      "peak": "Máximo previo a la caída",
+      "trough": "Mínimo de la caída",
+      "reference": "Referencia del cuestionario",
+      "tailRow": "{series} {confidence} {metric}",
+      "referenceValue": "{confidence}: {value}",
+      "dateRange": "{start} – {end}",
+      "histogramCounts": "Conteos por banda de rendimiento: {bins}.",
+      "histogramBin": "{lower} – {upper}: {count}"
+    },
+    "replay": {
+      "title": "Simulación histórica de posiciones: cómo leer el recorrido",
+      "intro": "El método se hace visible con un ejemplo fijo de historial real de SPY y AGG. La cartera de ejemplo solo ilustra el cálculo. {exampleLabel}.",
+      "sections": {
+        "s1": {
+          "heading": "Qué responde la simulación",
+          "p1": "La simulación parte de sus posiciones actuales y lleva sus cantidades hacia atrás durante un período elegido de hasta cinco años. Pregunta cómo habría variado ese mismo conjunto al cambiar los precios. Es un recorrido hipotético, no un registro de los resultados pasados de su cuenta. Los activos que llegaron después a su cuenta aparecen durante toda la simulación cuando existe historial o un sustituto declarado. El punto inicial es la ventana elegida, no la fecha en que comenzó su cuenta."
+        },
+        "s2": {
+          "heading": "El recorrido del ejemplo",
+          "p1": "El ejemplo utiliza historial real de SPY y AGG, con {spyStart} asignado a SPY y {aggStart} a AGG al inicio. Las cantidades permanecen constantes. SPY aparece por separado como referencia. Ambas curvas miden el cambio desde su valor inicial, por lo que sus alturas se comparan sin diferencias de importe inicial. Las marcas verticales sitúan el máximo y el mínimo de la caída máxima del ejemplo. Señalan una caída dentro de la ventana, que no necesariamente empieza el primer día ni termina el último."
+        },
+        "s3": {
+          "heading": "Qué significa cada métrica",
+          "p1": "El rendimiento acumulado es el cambio total entre el primer valor y el último. Aquí es {cumulative}, frente a {spyCumulative} para SPY. Resume todo el recorrido en una comparación de extremos; no describe su estabilidad ni sus variaciones.",
+          "p2": "El rendimiento anualizado convierte ese cambio en una tasa anual constante sobre los días calendario reales. La tasa del ejemplo es {annualized} y la de SPY es {spyAnnualized}. Es una conversión de resultados históricos, no una tasa prometida para otro año.",
+          "p3": "La volatilidad anualizada describe cuánto variaron los rendimientos diarios, expresado a escala anual. Es {volatility} para el ejemplo y {spyVolatility} para SPY. Cuenta variaciones en ambas direcciones, por lo que difiere de una medida de pérdidas exclusivamente.",
+          "p4": "La caída máxima mide la caída más profunda desde un máximo hasta un mínimo posterior, no la pérdida desde el inicio. El ejemplo cayó {drawdown} del {peak} al {trough}. La caída máxima de SPY fue {spyDrawdown}; la tabla muestra sus propias fechas de máximo y mínimo.",
+          "p5": "El peor día identifica el rendimiento diario más negativo. En el ejemplo fue {worstDay} el {worstDate}; para SPY fue {spyWorstDay} ese mismo día. Es un día observado, no una estimación de la mayor pérdida futura posible.",
+          "p6": "El peor mes compara valores al cierre de cada mes calendario y usa el primer valor como base del primer mes. El peor mes del ejemplo fue {worstMonthLabel}, con {worstMonth}; SPY tuvo {spyWorstMonth} ese mes. Un mes calendario difiere de una ventana móvil de días de negociación."
+        },
+        "s4": {
+          "heading": "Cantidades constantes, pesos cambiantes",
+          "p1": "Sin rebalanceo, la cantidad de unidades permanece constante mientras cambia la proporción de valor de cada activo. En este ejemplo, SPY comienza en {spyStart} y termina en {endSpyWeight}. La composición final difiere de la inicial aunque ninguna cantidad cambió. La simulación no modela sus operaciones, aportes ni retiros. Una cartera reajustada repetidamente a sus pesos iniciales recorrería otra trayectoria, porque las cantidades cambiarían durante el período."
+        },
+        "s5": {
+          "heading": "Rendimiento total y distribuciones",
+          "p1": "El rendimiento total incluye las distribuciones además de los cambios de precio. Los dividendos se tratan como reinvertidos, en lugar de retirarse de la serie como efectivo. El ejemplo usa cierres ajustados. Para fondos, la herramienta usa el valor liquidativo (NAV), el valor por unidad del fondo, con distribuciones reinvertidas. Esto difiere de un gráfico de precios: una distribución puede bajar el precio cotizado sin representar la misma pérdida de valor total. Describe el cálculo, no sus decisiones reales sobre distribuciones."
+        },
+        "s6": {
+          "heading": "Sustitutos e historial anterior a la cotización",
+          "p1": "Un fondo cotizado (ETF) es un fondo que cotiza en bolsa y sigue un índice. Una posición sin historial propio utilizable se representa con un ETF de índice elegido por mercado o clase de activo. El efectivo permanece constante en su propia moneda. Antes de una cotización posterior, la herramienta completa el historial con el ETF de su mercado, ajustado por beta: una medida de cuánto se movió la posición con ese ETF. Beta es 1 cuando hay menos de 60 muestras. La tarjeta declara cada método y la proporción aproximada, con un aviso adicional al 66%."
+        },
+        "s7": {
+          "heading": "Por qué los períodos cortos amplifican las cifras anualizadas",
+          "p1": "La anualización extiende una observación corta a una tasa anual. Del {monthStart} al {end}, el ejemplo tuvo {monthCumulative}; ese cambio se anualiza a {monthAnnualized}. La cifra anual mayor es una conversión matemática, no crecimiento adicional observado. Un período corto contiene menos episodios de mercado y un evento puede ocupar gran parte de él. En un período de un mes, la tarjeta oculta el peor mes y conserva las demás métricas y la explicación del período corto."
+        },
+        "s8": {
+          "heading": "La perspectiva retrospectiva de sus posiciones actuales",
+          "p1": "Sus posiciones actuales a menudo se eligieron en parte por su desempeño. Al simularlas en años anteriores aparece una perspectiva retrospectiva: el conjunto era conocido al final, aunque no lo fuera al principio. Los activos que ya no están en su cuenta quedan fuera. La simulación describe un recorrido pasado del conjunto actual; no reconstruye todas las decisiones de su cuenta ni pronostica lo que ocurre después."
+        },
+        "s9": {
+          "heading": "La moneda a lo largo del tiempo",
+          "p1": "La herramienta convierte los valores a la moneda de visualización con el tipo de cambio histórico de cada día. La trayectoria en moneda local y en moneda de visualización pueden diferir porque también cambió el tipo de cambio. Por eso, el efectivo puede variar en la moneda de visualización mientras permanece constante en su propia moneda. La tabla y el gráfico usan la misma base monetaria durante todo el período, tanto para la cartera como para la referencia."
+        },
+        "s10": {
+          "heading": "Referencias",
+          "p1": "Jorion, P., Value at Risk: The New Benchmark for Managing Financial Risk, historical simulation chapter."
+        }
+      }
+    },
+    "var": {
+      "title": "Riesgo de cola: cómo leer VaR y CVaR",
+      "intro": "Un límite de pérdida y una media de cola responden preguntas distintas. Este ejemplo fijo de historial real de SPY y AGG solo ilustra el cálculo. {exampleLabel}.",
+      "sections": {
+        "s1": {
+          "heading": "La pregunta detrás del riesgo de cola",
+          "p1": "El riesgo de cola pregunta aproximadamente cuánto podría costar un mal día o mes y cuál fue la profundidad media de los peores días o meses. El valor en riesgo (VaR, Value at Risk) marca un límite de pérdida con un nivel de confianza elegido. El valor en riesgo condicional (CVaR, Conditional Value at Risk), también llamado pérdida esperada, describe la pérdida media en esa cola. Ambas medidas proceden de la misma simulación de sus posiciones actuales. Describen una distribución de cambios históricos, no un pronóstico para el próximo día o mes.",
+          "p2": "Cómo leerlo: al 95%, el VaR diario del ejemplo es {dayVar}. En unos 95 de cada 100 días de la simulación la cartera perdió menos de {dayVar}. Los otros 5 días perdió más, y CVaR ({dayCvar}) es su pérdida media."
+        },
+        "s2": {
+          "heading": "La distribución de rendimientos diarios",
+          "p1": "Cada barra cuenta los días de una banda de rendimiento diario. Las pérdidas están a la izquierda y las ganancias a la derecha; el ancho es 0.005. El ejemplo tiene {dailyCount} rendimientos diarios. Las líneas de VaR y CVaR corresponden a la cola de un día al 95%. La línea punteada es una referencia distinta del cuestionario, basada en una respuesta conservadora hipotética. La altura describe frecuencia y la distancia hacia la izquierda describe profundidad de pérdida. Una barra pequeña y distante a la izquierda puede representar una observación rara pero profunda."
+        },
+        "s3": {
+          "heading": "Un día y un mes",
+          "p1": "La tabla expresa pérdidas como porcentajes, con importes del ejemplo sobre una cartera hipotética de USD 100,000. Las filas de SPY ofrecen el mismo cálculo histórico para la referencia, solo en porcentajes. Cada nivel de confianza tiene sus propios valores de referencia. Las columnas de un día y un mes proceden de conjuntos distintos de rendimientos; la cifra mensual describe una ventana completa de negociación, no un resultado diario repetido durante un mes."
+        },
+        "s4": {
+          "heading": "VaR no es la mayor pérdida posible",
+          "p1": "El VaR de un día al 95% es {dayVar}, pero el peor día observado perdió {worstLoss} el {worstDate}. Ese día ya es más profundo que el límite de VaR dentro del propio historial del ejemplo. VaR no es, por tanto, la mayor pérdida posible. Separa la mayoría de observaciones de una cola menor y deja abierta la magnitud de sus pérdidas. Los eventos ausentes de la ventana no aparecen en sus observaciones históricas."
+        },
+        "s5": {
+          "heading": "Por qué CVaR aparece junto a VaR",
+          "p1": "CVaR promedia las pérdidas de la cola seleccionada; al 95% para un día es {dayCvar}. El cálculo histórico ordena los rendimientos, redondea hacia arriba el número de observaciones de la cola y usa la pérdida del límite para VaR y la media de esa cola para CVaR. Ambos aparecen juntos porque el límite por sí solo no describe la profundidad de las observaciones que lo superan. Pérdida esperada es otro nombre para esta media de cola, no una predicción de la próxima pérdida."
+        },
+        "s6": {
+          "heading": "Qué dejan los niveles de confianza en la cola",
+          "p1": "Al 95%, la cola diaria tiene {dailyK95} observaciones. Al 99%, tiene solo {dailyK99} de {dailyCount}. La cola más estrecha se basa en menos observaciones aunque ambos niveles usan el mismo historial. Por eso, un día de pérdida profunda puede influir más en su media. El producto muestra 99% solo con al menos 500 rendimientos diarios. Este requisito describe disponibilidad de datos, sin juzgar el nivel de confianza ni la pérdida resultante."
+        },
+        "s7": {
+          "heading": "Ventanas mensuales superpuestas",
+          "p1": "El horizonte mensual usa rendimientos reales superpuestos de 21 días de negociación. Aquí hay {monthCount} ventanas, pero solo unos {independentMonths} meses sin superposición. Las ventanas adyacentes comparten la mayoría de sus días y no son muestras independientes. La herramienta no multiplica la cifra diaria por la raíz cuadrada de 21. Ese atajo supone días independientes e idénticamente distribuidos; el cálculo mensual histórico conserva los cambios observados durante cada ventana completa."
+        },
+        "s8": {
+          "heading": "Simulación histórica y modelo normal",
+          "p1": "La simulación histórica utiliza directamente los rendimientos observados. El modelo normal ajusta una distribución en forma de campana a su media y desviación estándar muestral. Al 95%, los VaR de un día son próximos: {dayVar} histórico y {normal95} normal. Al 99%, difieren: {dayVar99} y {normal99}. Hubo {fatCount} días por debajo de la media menos tres desviaciones estándar, frente a {normalExpected} esperados con una distribución normal. La tabla también compara CVaR. El producto presenta el modelo normal solo como una comparación de una línea dentro de los detalles del cálculo."
+        },
+        "s9": {
+          "heading": "Qué pueden ocultar los sustitutos",
+          "p1": "Un fondo cotizado (ETF) sigue un índice y combina muchos activos. Cuando representa una posición individual sin historial utilizable, su trayectoria suele ser más suave que la de esa posición. El historial sustituido puede subestimar las pérdidas de cola. La tarjeta muestra un aviso siempre que alguna proporción sustituida sea positiva. El historial propio de SPY y AGG del ejemplo ilustra el método; no elimina esta limitación para otras posiciones."
+        },
+        "s10": {
+          "heading": "La referencia del cuestionario",
+          "p1": "La referencia parte del umbral de volatilidad anualizada «superior» del Riesgo del Resumen: 20%, 30% o 40% para respuestas conservadoras, equilibradas o agresivas. Un horizonte corto o el objetivo de preservar capital lo desplaza 5 puntos porcentuales hacia abajo, con un mínimo de 20%. Convierte esa volatilidad en pérdida diaria y mensual suponiendo distribución normal de media cero. VaR histórico usa la distribución real, por lo que las bases difieren. Es solo una comparación, sin juicio de «dentro» o «fuera»; lo aceptable difiere entre personas y a lo largo del tiempo. Aparece como fila de la tabla y línea punteada del histograma diario; queda ausente si no hay respuestas al cuestionario."
+        },
+        "s11": {
+          "heading": "Por qué no hay prueba retrospectiva con los mismos datos",
+          "p1": "Por construcción, VaR histórico se supera en aproximadamente cinco por ciento de los días usados para estimar su límite al 95%. Contar de nuevo esas mismas observaciones no aporta información independiente sobre datos nuevos. Una prueba móvil fuera de muestra estimaría con una ventana y mediría observaciones posteriores. Esa prueba no se ofrece actualmente; esta guía no presenta un conteo de superaciones dentro de muestra como validación."
+        },
+        "s12": {
+          "heading": "La ventana limita la imagen",
+          "p1": "Los resultados describen solo la ventana de simulación de cinco años y sus posiciones actuales. Los eventos fuera de la ventana están ausentes y el conjunto actual introduce perspectiva retrospectiva en fechas anteriores. Las medidas no describen todos los eventos posibles ni su historial real de operaciones. Una cola histórica resume las observaciones disponibles para este cálculo, con sus supuestos declarados de sustitutos y moneda; no constituye una descripción completa de las pérdidas futuras."
+        },
+        "s13": {
+          "heading": "Referencias",
+          "p1": "J.P. Morgan/Reuters, RiskMetrics — Technical Document (1996). Artzner, Delbaen, Eber & Heath, Coherent Measures of Risk, Mathematical Finance 9(3), 1999. Rockafellar & Uryasev, Optimization of Conditional Value-at-Risk, Journal of Risk 2(3), 2000. Acerbi & Tasche, On the Coherence of Expected Shortfall, Journal of Banking & Finance 26(7), 2002."
+        }
+      }
+    }
   }
 }

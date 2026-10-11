@@ -6,3 +6,8 @@
 
 - [API reference](https://portfonia.com/agent.md): Authentication, endpoints, response schemas, limits and data handling.
 - [Human guide and token settings](https://portfonia.com/agent): Getting started and personal token management.
+
+## Guides
+
+- [Holdings replay guide](https://portfonia.com/guides/jade-replay): Unchanged quantities, total return, metrics, proxies and historical currency conversion through a fixed example.
+- [Tail risk (VaR / CVaR) guide](https://portfonia.com/guides/jade-var): Historical loss boundaries, tail averages, overlapping monthly windows and the questionnaire reference through a fixed example.

@@ -589,3 +589,40 @@ shared calculating status without chart or API imports. Navigation is immediate
 once the visible link's boundary prefetch completes; an earlier tap shows the
 fallback as soon as its payload arrives. Phone checks remain owner validation
 after deployment.
+
+## Guide pages (issue #737)
+
+`/guides/jade-replay` and `/guides/jade-var` are public, outside login and
+subscription access, in English, Spanish, Simplified Chinese and Traditional
+Chinese. The locale prefixes, canonical URLs, fourteen language alternates,
+existing OG images and LanguageLinks use the shared SEO registry. Both English
+URLs are listed in `frontend/public/llms.txt`; all eight localized URLs are in
+the 36-entry sitemap.
+
+The fixed example starts at 60% SPY and 40% AGG, with unchanged quantities and
+no rebalancing, alongside SPY. Its 1255 paired adjusted-close rows cover
+2021-10-11 through 2026-10-09. The source is the owner-authorized read-only
+2026-10-11 export of the shared Jade price cache, with SHA-256
+`4b96242b56b08eebf8e79de764d6517c02e7e0d505e746e0384786f872588cd4`.
+Only the generated `guides/_data/spy-agg-closes.ts` is committed; neither the
+export nor a generator is stored in the repository.
+
+Server pages call the pure `guides/_lib/example.ts` calculation, mirroring
+production replay metrics, calendar spans, historical tail counts, actual
+overlapping 21-trading-day returns, normal comparisons and questionnaire
+reference formulas. Client bodies receive computed serializable props, not
+raw prices. Captions and real HTML tables repeat the chart figures for readers
+and crawlers without JavaScript. Figures and tables carry a localized example
+disclaimer. Percentages, dates and amounts use locale formatting and ICU
+values; the normal expected tail count alone displays one decimal.
+
+Guide links appear after each paid card explanation outside its calculating overlay,
+in the Jade intro for every signed-in visitor, and on the replay/tail-risk
+features in the Pricing Jade column. Guides end with Pricing, the other guide
+and LanguageLinks. The outdated Jade-intro final sentence is removed.
+The replay guide has one table and the tail-risk guide has two; responsive
+charts and wrapping fixed-layout tables support 375px layouts in both themes.
+The tools, backend, questionnaire, proxies, robots, OG routes and root layout
+are unchanged. There is no guide index, data refresh or backtesting mechanism.
+Owner acceptance of the Spanish and Chinese copy precedes any review or merge;
+merge and deployment require separate authorization.

@@ -5,6 +5,7 @@ import { LegalDocument } from "@/app/_components/legal-document";
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import { catalogs, type Locale } from "@/locales";
 import PricingPage from "./page";
+import { localizedPath } from "@/lib/seo";
 
 // Exact Design D2/D5 and owner-approved copy; Unicode escapes keep this test English-only.
 const expected = {
@@ -227,9 +228,18 @@ it("A5 comparison renders the credit footnote", () => {
   expect(within(comparison()).getByText(expected.en.pricingPlans.footnote)).toBeInTheDocument();
 });
 
-it("A6 comparison contains no links or buttons", () => {
-  renderPricing();
-  expect(comparison().querySelectorAll("a, button")).toHaveLength(0);
+it.each(["en", "es", "zh-Hans", "zh-Hant"] as const)("A6 %s comparison contains no buttons and exactly two Jade guide links", locale => {
+  renderPricing(locale);
+  const block = screen.getByRole("region", { name: catalogs[locale].pricingPlans.heading });
+  expect(block.querySelectorAll("button")).toHaveLength(0);
+  const links = Array.from(block.querySelectorAll("a"));
+  expect(links).toHaveLength(2);
+  const jade = block.querySelector('[data-plan="jade"]');
+  for (const link of links) expect(jade).toContainElement(link);
+  expect(links.map(link => link.getAttribute("href"))).toEqual([
+    localizedPath("/guides/jade-replay", locale),
+    localizedPath("/guides/jade-var", locale),
+  ]);
 });
 
 it("A7 cards stack below the three-column medium breakpoint", () => {

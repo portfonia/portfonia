@@ -1,11 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CalculatingOverlay } from "@/components/calculating-overlay";
 import { ReplayRangeTabs } from "./replay-range-tabs";
-import { useLocale } from "@/app/_components/locale-provider";
+import { useLocale, useLocalizedHref } from "@/app/_components/locale-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CurrencySwitcher } from "@/app/portfolio/_components/currency-switcher";
 import type { BaseCurrency } from "@/app/portfolio/_components/currencies";
@@ -25,6 +26,8 @@ export function ReplaySection({ onSettled }: { onSettled?: (currency: BaseCurren
   const tCommon = useTranslations("common");
   const portfolio = useTranslations("portfolio");
   const { locale } = useLocale();
+  const href = useLocalizedHref();
+  const jade = useTranslations("jade");
   const [data, setData] = useState<JadeReplay | null>(null);
   const [currency, setCurrency] = useState<BaseCurrency>("USD");
   const [benchmark, setBenchmark] = useState<BenchmarkCode>("sp500");
@@ -73,6 +76,7 @@ export function ReplaySection({ onSettled }: { onSettled?: (currency: BaseCurren
     <CardContent className="flex min-w-0 flex-col gap-4 px-4 text-sm">
       <p>{t("intro")}</p>
       <p className="min-w-0 break-words">{t("whatItSays")}</p>
+      <Link className="underline" href={href("/guides/jade-replay")}>{jade("guideLink")}</Link>
       <CalculatingOverlay active={pending} label={tCommon("calculating")}>
       <div className="flex min-w-0 flex-col gap-4">
       <div data-testid="replay-settings" className="flex min-w-0 flex-wrap gap-3">
