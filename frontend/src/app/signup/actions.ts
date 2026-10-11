@@ -22,6 +22,7 @@ function resolveLocale(formData: FormData) {
 // Chinese keeps the existing zh code; Traditional Chinese retains zh-Hant.
 const UI_LOCALE_TO_BACKEND_LOCALE: Record<Locale, "en" | "zh" | "zh-Hant"> = {
   en: "en",
+  es: "en",
   "zh-Hans": "zh",
   "zh-Hant": "zh-Hant",
 };

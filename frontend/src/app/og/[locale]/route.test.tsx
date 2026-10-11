@@ -26,7 +26,7 @@ function strings(node: ReactNode): string[] {
 beforeEach(() => vi.clearAllMocks());
 it("prerenders exactly three locale images and rejects unknown locales", async () => {
   expect(dynamic).toBe("force-static"); expect(dynamicParams).toBe(false);
-  expect(generateStaticParams()).toEqual([{ locale: "en" }, { locale: "zh-Hans" }, { locale: "zh-Hant" }]);
+  expect(generateStaticParams()).toEqual([{ locale: "en" }, { locale: "es" }, { locale: "zh-Hans" }, { locale: "zh-Hant" }]);
   expect((await GET(new Request("https://portfonia.com/og/invalid"), { params: Promise.resolve({ locale: "invalid" }) })).status).toBe(404);
   expect(loadOgFonts).not.toHaveBeenCalled();
 });
@@ -65,4 +65,10 @@ it.each(["en", "zh-Hans", "zh-Hant"] as Locale[])("keeps the %s input column 356
   const columns = findInputColumn(captured.element).filter(style => style.justifyContent === "center");
   expect(columns).toHaveLength(1);
   expect(columns[0].width).toBe(356);
+});
+
+it("acceptance_08 Spanish OG is static and has the agreed locale code", async () => {
+  const { OG_LOCALE } = await import("@/lib/seo");
+  expect(generateStaticParams()).toContainEqual({ locale: "es" });
+  expect(OG_LOCALE.es).toBe("es_LA");
 });

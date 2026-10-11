@@ -478,7 +478,8 @@ header and the Holdings "current holdings" action row wrap.
 
 ## Public SEO pages and locale URLs
 
-Issue #702 adds English (unprefixed), `/zh-Hans`, and `/zh-Hant` versions of
+Issues #702 and #735 provide English (unprefixed), `/es`, `/zh-Hans`, and
+`/zh-Hant` versions of
 `/`, `/about`, `/pricing`, `/waitlist`, `/privacy`, `/terms`, and `/refund`.
 `lib/seo.ts` defines this exact page set, canonical `https://portfonia.com`,
 URL helpers, protected prefixes, language alternates, and metadata builders.
@@ -487,11 +488,11 @@ the root layout and SEO pages use it to resolve the proxy locale header.
 
 Proxy removes client-supplied locale headers on every request and constructs
 forwarded headers after session refresh, retaining refreshed request cookies.
-It sets `en` on unprefixed SEO paths, Chinese on prefixed paths, and no locale
+It sets `en` on unprefixed SEO paths, the URL locale on prefixed paths, and no locale
 header on other unprefixed paths. All header mutations precede response
 construction, including RSC flight and waitlist server-action requests.
-Proxy rewrites Chinese SEO URLs to the unprefixed route and forwards
-`x-portfonia-locale`. Chinese unknown paths also forward that header without
+Proxy rewrites prefixed SEO URLs to the unprefixed route and forwards
+`x-portfonia-locale`. Prefixed unknown paths also forward that header without
 rewriting or redirecting. Both branches preserve refreshed session cookies
 and the cache-prevention headers supplied by Supabase. Only `/holdings`,
 `/portfolio`, `/profile`, `/questionnaire`, `/reports`, `/welcome`, and their
@@ -503,7 +504,7 @@ Malformed escapes remain unprotected for Next to handle. The existing `/api/` be
 The async root layout renders the URL locale in `<html lang>` and initializes
 `LocaleProvider` with it. Reading headers makes page rendering dynamic.
 Unprefixed SEO pages always display English without reading or overwriting
-a stored Chinese preference. Chinese route mounts persist their locale.
+a stored Chinese preference. Prefixed route mounts persist their locale.
 App/auth pages retain #209's English-first storage restore.
 Public-page links preserve locale. A visible, server-rendered `LanguageLinks`
 row ends all seven SEO pages; its current locale is unlinked and marked
@@ -518,11 +519,11 @@ The document-language effect depends on both locale and route locale. The
 shared segment-cache keys remain safe while pages render dynamically with
 `staleTimes.dynamic = 0` and without `cacheComponents`/PPR.
 
-Each SEO page emits catalog title/description, absolute canonical and ten
-language alternates (`en`, `zh-Hans`, `zh-CN`, `zh-SG`, `zh`, `zh-Hant`, `zh-TW`, `zh-HK`, `zh-MO`,
+Each SEO page emits catalog title/description, absolute canonical and fourteen
+language alternates (`en`, `es`, `es-419`, `es-US`, `es-MX`, `zh-Hans`, `zh-CN`, `zh-SG`, `zh`, `zh-Hant`, `zh-TW`, `zh-HK`, `zh-MO`,
 `x-default`), complete Open Graph metadata and a large-image Twitter card.
 `robots.ts` allows public URLs, disallows protected routes, `/api/` and `/agent/revoke` and names the
-sitemap. `sitemap.ts` lists 21 localized URLs with the same alternates and no
+sitemap. `sitemap.ts` lists 28 localized URLs with the same alternates and no
 invented modification dates. The six auth-flow pages remain crawlable but
 export shared `NOINDEX_METADATA` (`index: false`, `follow: true`), with no
 canonical/hreflang and no sitemap entries. The home page contains WebSite,
@@ -530,7 +531,7 @@ Organization and
 SoftwareApplication JSON-LD, with `<` escaped as literal `\u003c`, without
 prices, ratings or reviews.
 
-`/og/en`, `/og/zh-Hans` and `/og/zh-Hant` are static 1200x630 PNG route outputs.
+`/og/en`, `/og/es`, `/og/zh-Hans` and `/og/zh-Hant` are static 1200x630 PNG route outputs.
 Issue #706 shows holdings ingestion and market/macro tracking inputs, a gold
 brace, and sample briefing sections with confidence labels from existing
 catalog fields, never user data. At build time the font loader makes three
@@ -538,10 +539,10 @@ Google Fonts glyph-subset requests per locale (sans 400/600, serif 400) with
 Next's bundled OG legacy User-Agent, accepts only OpenType/TrueType CSS sources, and fails on
 unsupported formats or failed requests. The home preview shows that locale's
 image with localized alt text above the unchanged HTML sample report.
-The home performance sample uses real 2026 S&P 500 and CSI 300 paths with an
+The home performance sample uses real 2026 S&P 500 and Nasdaq Composite paths with an
 illustrative portfolio line; the data is fixed in the source.
 `/about` draws its five sections solely from facts already in the English
-catalog; all new text is translated in the three catalogs.
+catalog; all new text is translated in the four catalogs.
 
 Caddy redirects `www.portfonia.com` permanently to the apex, preserving path
 and query. A host-only session on `www` requires a fresh apex sign-in.
@@ -551,6 +552,13 @@ state, metadata, sitemap, content and font failures; build verifies the client/
 server boundary and emits the PNGs. No local app server is used. HTTP status
 and canonical-host behavior are verified by the owner after deployment.
 
+
+Spanish uses Latin American neutral es-419 wording and the English OG font
+families (Geist and Newsreader). Its four legal documents show an
+English-prevails notice below the update date linking to the same English
+page; English and Chinese show no notice. Spanish is UI-only: signup,
+waitlist and referrals map to English service locales. Reports, emails,
+invitation letters, export dialects and stored rows are unchanged.
 
 ## Jade page, Profile coordination and menu (issue #710)
 

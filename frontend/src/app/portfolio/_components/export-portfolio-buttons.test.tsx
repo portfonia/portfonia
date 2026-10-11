@@ -124,3 +124,14 @@ describe("ExportPortfolioButtons", () => {
     expect(screen.getByRole("button", { name: /\.md/i })).toBeDisabled();
   });
 });
+
+it("acceptance_11 Spanish UI names English as the portfolio export language", async () => {
+  exportPortfolio.mockResolvedValue({ blob: new Blob(["data"]), filename: "portfolio.md" });
+  const user = userEvent.setup();
+  render(<LocaleProvider routeLocale="es"><ExportPortfolioButtons baseCurrency="USD" /></LocaleProvider>);
+  await user.click(screen.getByRole("button", { name: /\.md/i }));
+  const dialog = await screen.findByRole("alertdialog");
+  expect(dialog).toHaveTextContent("Instantánea de posiciones, moneda base USD, Inglés");
+  expect(exportPortfolio).toHaveBeenCalledWith("md", "USD", "es");
+  await user.keyboard("{Escape}");
+});

@@ -712,11 +712,11 @@ it("polish_660_acceptance_3 retranslates the lock with frozen countdown values",
   const clock = vi.spyOn(Date, "now").mockReturnValue(now);
   try {
     const me: Me = { ...BASE_ME, email_verified_at: "2026-10-04T12:00:00Z", subscription: { status: "active", type: "weekly", cadence: "weekly", expires_on: "2026-11-15", cancel_pending: false, next_adjustment_at: new Date(now + 40 * 60000).toISOString() } };
-    const view = render(<NextIntlClientProvider locale="en" messages={en}><ProfilePageBody me={me} hadLoadError={false} /></NextIntlClientProvider>);
+    const view = render(<LocaleProvider routeLocale={null}><NextIntlClientProvider locale="en" messages={en}><ProfilePageBody me={me} hadLoadError={false} /></NextIntlClientProvider></LocaleProvider>);
     fireEvent.change(screen.getByRole("combobox", { name: en.profile.reportScheduleHeading }), { target: { value: "mwf" } });
     expect(screen.getByRole("alert")).toHaveTextContent(en.profile.subscriptionDailyLock.replace("{hours}", "0").replace("{minutes}", "40"));
     clock.mockReturnValue(now + 2 * 60000);
-    view.rerender(<NextIntlClientProvider locale="zh-Hans" messages={zhHans}><ProfilePageBody me={me} hadLoadError={false} /></NextIntlClientProvider>);
+    view.rerender(<LocaleProvider routeLocale={null}><NextIntlClientProvider locale="zh-Hans" messages={zhHans}><ProfilePageBody me={me} hadLoadError={false} /></NextIntlClientProvider></LocaleProvider>);
     expect(screen.getByRole("alert")).toHaveTextContent(zhHans.profile.subscriptionDailyLock.replace("{hours}", "0").replace("{minutes}", "40"));
   } finally {
     clock.mockRestore();
@@ -730,7 +730,7 @@ describe("referrals (#675)", () => {
     ["zh-Hant", zhHant],
   ])("renders the referral card in %s without rates or amounts", async (locale, messages) => {
     const { NextIntlClientProvider } = await import("next-intl");
-    render(<NextIntlClientProvider locale={locale} messages={messages}><ProfilePageBody me={BASE_ME} hadLoadError={false} /></NextIntlClientProvider>);
+    render(<LocaleProvider routeLocale={null}><NextIntlClientProvider locale={locale} messages={messages}><ProfilePageBody me={BASE_ME} hadLoadError={false} /></NextIntlClientProvider></LocaleProvider>);
     const title = await screen.findByText(messages.profile.inviteHeading);
     const card = title.closest('[data-slot="card"]');
     expect(card).not.toBeNull();
@@ -767,4 +767,21 @@ describe("referrals (#675)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
     vi.unstubAllGlobals();
   });
+});
+
+it.each([["es", "en"], ["zh-Hant", "zh-Hant"]] as const)("acceptance_10 referral posts %s as %s", async (locale, expected) => {
+  const fetchMock = vi.fn().mockResolvedValue({ status: 200, ok: true });
+  const original = global.fetch;
+  global.fetch = fetchMock;
+  try {
+    const user = userEvent.setup();
+    render(<LocaleProvider routeLocale={locale}><ProfilePageBody me={BASE_ME} hadLoadError={false} /></LocaleProvider>);
+    const input = document.querySelector<HTMLInputElement>("#referral-email");
+    if (!input) throw new Error("Referral input missing");
+    await user.type(input, "friend@example.com");
+    const form = input.closest("form");
+    if (!form) throw new Error("Referral form missing");
+    await user.click(within(form).getByRole("button"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/me/referrals", expect.objectContaining({ body: JSON.stringify({ email: "friend@example.com", locale: expected }) })));
+  } finally { global.fetch = original; }
 });

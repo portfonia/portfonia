@@ -5,7 +5,7 @@ import { loadOgFonts } from "@/lib/og-font";
 export const dynamic = "force-static";
 export const dynamicParams = false;
 export function generateStaticParams() {
-  return [{ locale: "en" }, { locale: "zh-Hans" }, { locale: "zh-Hant" }];
+  return [{ locale: "en" }, { locale: "es" }, { locale: "zh-Hans" }, { locale: "zh-Hant" }];
 }
 
 const TIER_COLORS = { established: "#5fbe8b", probable: "#dcaa4a", speculative: "#8b93a8" };

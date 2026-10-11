@@ -10,6 +10,9 @@ One locale-keyed catalog for every in-product string, read via
 
 - `en.json` — source of truth for shape. Every other locale must carry the
   exact same key paths (enforced by `locales.test.ts`).
+- `es.json` — Latin American neutral Spanish (es-419, usted register). LLM-drafted
+  and shipped without native-speaker review by owner decision (#735). UI-only:
+  reports, emails, invitation letters and exports remain English.
 - `zh-Hans.json` — Simplified Chinese. Renamed from the old `zh` locale;
   BCP-47 tag now matches `backend/config/i18n_glossary.yml`.
 - `zh-Hant.json` — Traditional Chinese, the first locale added beyond
@@ -47,8 +50,8 @@ unprefixed auth pages: locale defaults to English and is restored from
 
 Issue #702 adds locale URLs only for the seven public SEO pages: `/`,
 `/about`, `/pricing`, `/waitlist`, `/privacy`, `/terms`, and `/refund`.
-English is unprefixed; Simplified and Traditional Chinese use `/zh-Hans`
-and `/zh-Hant`. Proxy rewrites these URLs to the existing page routes and
+English is unprefixed; Spanish uses `/es`, and Simplified and Traditional
+Chinese use `/zh-Hans` and `/zh-Hant`. Proxy rewrites these URLs to the existing page routes and
 forwards `x-portfonia-locale`; the root layout and page metadata read it
 through `lib/seo-server.ts`. The provider initializes from that route locale,
 so the initial HTML and `<html lang>` match the URL. Unprefixed SEO paths
@@ -71,7 +74,7 @@ real browser URL; app/auth navigation restores the stored preference. Both
 automatic locale redirect.
 
 The new `seo`, `about`, and `notFound` namespaces provide metadata, sample
-image text, the product description, and the 404 in all three catalogs.
+image text, the product description, and the 404 in all four catalogs.
 
 ## Placeholders (ICU via next-intl)
 
@@ -162,3 +165,13 @@ treatment — see "Adding a fourth locale" below.
 
 No page or component changes — every route already reads through
 `useTranslations()` against whatever locale is selected.
+
+
+## Spanish legal translations (issue #735)
+
+The four Spanish legal documents show an English-prevails notice immediately
+below the update date, with a native link to the same unprefixed English
+page. The other three catalogs contain empty notice and link values and
+render no notice. `useLegalMessages()` exposes both fields.
+`serviceLocale()` maps Spanish to English for waitlist and referral
+submissions; signup separately maps it to the stored English report code.

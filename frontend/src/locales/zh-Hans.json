@@ -1185,6 +1185,8 @@
     "genericError": "出了点问题，请重试。"
   },
   "legal": {
+    "englishPrevailsNotice": "",
+    "englishVersionLink": "",
     "nav": {
       "terms": "服务条款",
       "privacy": "隐私政策",

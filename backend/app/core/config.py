@@ -197,7 +197,7 @@ class Settings(BaseSettings):
     # Report output language. The LLM reasons in English (higher quality), then
     # the assembled report is translated to this language at render time. "en"
     # skips translation. Ring 0 default: Simplified Chinese.
-    OUTPUT_LANG: str = "zh"
+    OUTPUT_LANG: str = "en"
 
     # Search
     TAVILY_API_KEY: SecretStr

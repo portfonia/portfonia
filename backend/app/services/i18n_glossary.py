@@ -10,9 +10,9 @@ carry non-English characters.
 Schema is locale-keyed, not tied to one target language: adding a locale is
 a config addition (a new column of human-verified translations plus an
 entry in `_OUTPUT_LANG_TO_LOCALE` below), not a schema rewrite. Only
-`zh-Hans` is populated today. `OUTPUT_LANG` (env/Settings) keeps its current
-`zh` value — this module maps it to the `zh-Hans` glossary key rather than
-requiring an env/config rename.
+`zh-Hans` is populated today. `OUTPUT_LANG` (env/Settings) defaults to `en`. The existing
+`zh` code still maps to the `zh-Hans` glossary key without requiring
+an env/config rename.
 
 `app/compliance/forbidden_vocab.py` already declares itself the single
 source of truth for compliance-scan vocabulary (hand-tuned context-aware

@@ -285,3 +285,13 @@ describe("signup action", () => {
     expect(redirect).toHaveBeenCalledWith("/login");
   });
 });
+
+it.each([["es", "en"], ["zh-Hant", "zh-Hant"]])("acceptance_10 signup posts %s as %s", async (locale, expected) => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 400 }));
+  global.fetch = fetchMock;
+  try {
+    await signup(undefined, formData({ invite_token: "token", email: "a@example.com", password: "correcthorse", tos_accepted: "on", locale }));
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body)).locale).toBe(expected);
+  } finally { global.fetch = originalFetch; }
+});

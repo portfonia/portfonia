@@ -1,0 +1,2000 @@
+{
+  "common": {
+    "brandName": "Portfonia",
+    "calculating": "Calculando…"
+  },
+  "menu": {
+    "trigger": "Comenzar",
+    "language": "Idioma",
+    "login": "Iniciar sesión",
+    "logout": "Cerrar sesión",
+    "loggingIn": "Iniciando sesión...",
+    "logoutFailed": "No se pudo cerrar la sesión. Inténtelo de nuevo.",
+    "holdings": "Posiciones",
+    "profile": "Perfil",
+    "portfolio": "Cartera",
+    "portfolioPerformance": "Rendimiento",
+    "questionnaire": "Estilo de inversión",
+    "sessionExpired": "Su sesión terminó después de {minutes} minutos de inactividad.",
+    "editHoldings": "Editar posiciones",
+    "reports": "Informes",
+    "agent": "Agente de IA",
+    "jade": "Jade"
+  },
+  "auth": {
+    "loginHeading": "Iniciar sesión",
+    "loginSubtitle": "Le damos la bienvenida de nuevo.",
+    "signupHeading": "Cree su cuenta",
+    "signupSubtitle": "Necesita un enlace de invitación válido para registrarse.",
+    "emailLabel": "Correo electrónico",
+    "passwordLabel": "Contraseña",
+    "confirmPasswordLabel": "Confirmar contraseña",
+    "passwordMismatch": "Las contraseñas no coinciden.",
+    "tosLabelPrefix": "Acepto los ",
+    "tosLabelTerms": "Términos de servicio",
+    "tosLabelAnd": " y la ",
+    "tosLabelPrivacy": "Política de privacidad",
+    "tosLabelSuffix": ".",
+    "tosRequired": "Debe aceptar los Términos de servicio y la Política de privacidad para continuar.",
+    "loginButton": "Iniciar sesión",
+    "loggingIn": "Iniciando sesión...",
+    "signupButton": "Crear cuenta",
+    "signingUp": "Creando cuenta...",
+    "missingInvite": "Este enlace no contiene el token de invitación. Pida un enlace nuevo a quien le invitó.",
+    "waitlistHint": "Portfonia está en pruebas internas. Si le interesa, puede ",
+    "waitlistLink": "inscribirse en la lista de espera",
+    "waitlistHeading": "Inscríbase en la lista de espera",
+    "waitlistSubtitle": "Deje su correo electrónico para solicitar una invitación.",
+    "waitlistSubmit": "Inscribirse",
+    "waitlistSubmitting": "Enviando...",
+    "waitlistReceived": "Hemos recibido su solicitud.",
+    "waitlistEmailRequired": "Ingrese su correo electrónico.",
+    "waitlistCaptchaRequired": "Complete el widget de verificación.",
+    "waitlistError": "No se pudo enviar su solicitud. Inténtelo de nuevo.",
+    "alreadyHaveAccount": "¿Ya tiene una cuenta?",
+    "backToLogin": "Iniciar sesión",
+    "tooManyAttempts": "Demasiados intentos. Inténtelo más tarde.",
+    "temporarilyUnavailable": "No disponible temporalmente. Inténtelo más tarde.",
+    "signinThrownError": "No se pudo iniciar sesión. Inténtelo de nuevo.",
+    "signupThrownError": "No se pudo crear la cuenta.",
+    "errorMissingCredentials": "Ingrese su correo electrónico y contraseña.",
+    "errorInvalidCredentials": "Correo electrónico o contraseña incorrectos.",
+    "errorMissingInviteToken": "Este enlace de registro no contiene el token de invitación.",
+    "errorInvalidSignupInput": "Ingrese un correo electrónico válido y una contraseña de al menos 8 caracteres.",
+    "forgotPasswordLink": "¿Olvidó su contraseña?",
+    "forgotPasswordHeading": "Restablezca su contraseña",
+    "forgotPasswordSubtitle": "Ingrese el correo electrónico de su cuenta para recibir un enlace de restablecimiento.",
+    "forgotPasswordSubmit": "Enviar enlace",
+    "forgotPasswordSubmitting": "Enviando...",
+    "forgotPasswordCaptchaRequired": "Complete el widget de verificación antes de enviar.",
+    "forgotPasswordThrownError": "No se pudo enviar el enlace. Inténtelo de nuevo.",
+    "forgotPasswordEmailSent": "Se ha enviado un enlace de restablecimiento a esa dirección.",
+    "forgotPasswordAccountNotFound": "No se encontró una cuenta con esa dirección.",
+    "resetPasswordHeading": "Elija una nueva contraseña",
+    "resetPasswordSubtitle": "Ingrese y confirme su nueva contraseña.",
+    "resetPasswordSubmit": "Actualizar contraseña",
+    "resetPasswordSubmitting": "Actualizando...",
+    "resetPasswordSuccess": "Su contraseña se ha actualizado. Redirigiendo al inicio de sesión...",
+    "resetPasswordFailed": "No se pudo actualizar su contraseña. Es posible que el enlace haya vencido; solicite uno nuevo."
+  },
+  "holdings": {
+    "pageTitle": "Posiciones",
+    "pageSubtitle": "Suba un archivo para importar sus posiciones. Revise y luego guarde.",
+    "viewPortfolioLink": "Ver resumen de la cartera",
+    "currentHeading": "Posiciones actuales",
+    "emptyState": "Aún no hay posiciones. Suba un archivo para comenzar.",
+    "exportButton": "Exportar posiciones actuales",
+    "downloadTemplate": "Descargar plantilla",
+    "uploadHeading": "Importar desde archivo",
+    "uploadHint": "Formatos: .md, .txt, .csv, .xlsx, .xls. Una hoja por archivo de Excel. Agregue .HK para símbolos de Hong Kong, .SS / .SZ para acciones A, .L para Reino Unido, .AS / .PA / .DE para Europa, .T para Japón, .KS / .KQ para Corea; los símbolos de EE. UU. no necesitan sufijo. Fondos públicos chinos: ingrese el código de 6 dígitos.",
+    "chooseFile": "Elegir archivo",
+    "uploading": "Procesando...",
+    "parseAgain": "Elegir otro archivo",
+    "uploadingProgress": {
+      "reading": "Leyendo archivo...",
+      "parsing": "Procesando con IA...",
+      "stillWorking": "Aún procesando ({seconds}s)...",
+      "slow": "Está tardando más de lo habitual ({seconds}s); el proveedor del modelo puede estar lento."
+    },
+    "previewHeading": "Posiciones procesadas",
+    "previewValidCount": "{n, plural, one {# fila lista para guardar} other {# filas listas para guardar}}",
+    "inferredNote": "El sistema infirió algunos campos; revise las filas resaltadas.",
+    "unsupportedCaptureBanner": "{n, plural, one {# posición pertenece a un mercado sin precios automáticos. Se guardará, pero los informes la marcarán como no procesada sin inventar un precio.} other {# posiciones pertenecen a mercados sin precios automáticos. Se guardarán, pero los informes las marcarán como no procesadas sin inventar precios.}}",
+    "unsupportedCaptureBadge": "Mercado no compatible",
+    "rowNotesLabel": "Posibles problemas y cómo se trataron:",
+    "summaryHeading": "Verificación por institución",
+    "summaryHint": "Calculado solo con su archivo (cantidad × costo promedio, o el valor indicado); NO se consultan precios actuales. Esta verificación del costo confirma que cada posición corresponda a la institución correcta; no es una valoración actual.",
+    "summaryColBroker": "Institución",
+    "summaryColCount": "Posiciones",
+    "summaryColCostBasis": "Base de costo",
+    "issuesHeading": "No se pudieron procesar",
+    "issuesCount": "{n, plural, one {# fila NO se guardará hasta que la corrija} other {# filas NO se guardarán hasta que las corrija}}",
+    "saving": "Guardando...",
+    "skipOnboarding": "Omitir por ahora",
+    "cancelButton": "Cancelar",
+    "confirmTitle": "¿Descartar las filas no procesadas?",
+    "confirmBody": "{n, plural, one {# fila no se pudo procesar y se descartará de forma permanente. Esta es su última oportunidad de recuperarla. Para conservarla, descargue el archivo, corrija la fila y vuelva a subirlo.} other {# filas no se pudieron procesar y se descartarán de forma permanente. Esta es su última oportunidad de recuperarlas. Para conservarlas, descargue el archivo, corrija las filas y vuelva a subirlo.}}",
+    "confirmKeep": "Volver y corregir",
+    "confirmDiscard": "Descartar y guardar",
+    "colName": "Nombre",
+    "colTicker": "Símbolo",
+    "colFundCode": "Código de fondo",
+    "colCurrency": "Moneda",
+    "colShares": "Cantidad",
+    "colAvgCost": "Costo promedio",
+    "colCurrentValue": "Valor actual",
+    "colPricingMode": "Valoración",
+    "colAssetType": "Tipo",
+    "colBroker": "Corredor",
+    "colWatchTier": "Nivel de seguimiento",
+    "colRaw": "Texto original",
+    "colReason": "Motivo",
+    "errorUploadFailed": "No se pudo subir el archivo",
+    "errorSaveFailed": "No se pudo guardar",
+    "errorLoadFailed": "No se pudieron cargar las posiciones",
+    "editPageTitle": "Editar posiciones",
+    "editPageSubtitle": "Arrastre para ordenar. Haga clic en una fila para editarla. Agregue o elimine posiciones aquí.",
+    "newPageTitle": "Agregar posición",
+    "newPageSubtitle": "Ingrese una posición. No se utiliza el procesador de archivos.",
+    "editPageTitleForm": "Editar posición",
+    "editPageSubtitleForm": "Actualice esta posición y guarde.",
+    "addHolding": "Agregar posición",
+    "editHoldings": "Editar posiciones",
+    "editGroups": "Editar grupos",
+    "groupsPageTitle": "Editar grupos",
+    "groupsPageSubtitle": "Reasigne el grupo y la cuenta de cada posición. Los cambios se guardan al pasar a otro campo o hacer clic fuera.",
+    "backToHoldingsEdit": "Volver a editar posiciones",
+    "colGroup": "Grupo",
+    "colAccount": "Cuenta",
+    "appendButton": "Agregar a las posiciones",
+    "replaceAllButton": "Reemplazar todas las posiciones",
+    "modeAppendLabel": "Agregar",
+    "modeReplaceLabel": "Reemplazar",
+    "appendHint": "Agregar coloca estas filas después de sus posiciones actuales. Un símbolo y corredor duplicados generan un segundo lote.",
+    "replaceHint": "Reemplazar elimina todas sus posiciones actuales y conserva solo las que suba. Recibirá una confirmación final con el número de filas procesadas antes de eliminar nada.",
+    "replaceConfirmTitle": "¿Reemplazar todas las posiciones?",
+    "replaceConfirmBody": "Esto elimina todas sus posiciones actuales e inserta solo las filas siguientes. Aún no hay copia previa ni opción de deshacer. Exporte sus posiciones actuales primero si puede necesitarlas.{n, plural, =0 {} one { También se descartará # fila no procesada.} other { También se descartarán # filas no procesadas.}}",
+    "replaceConfirmAction": "Reemplazar todas",
+    "onboardingBanner": "La configuración no ha terminado. Vuelva al paso de carga de posiciones para guardar u omitir.",
+    "onboardingBannerLink": "Ir a cargar posiciones",
+    "deleteConfirmTitle": "¿Eliminar esta posición?",
+    "deleteConfirmBody": "Esto elimina solo esta fila. Para recuperarla, deberá agregarla o importarla de nuevo.",
+    "deleteConfirmAction": "Eliminar",
+    "deleteButton": "Eliminar",
+    "backToEdit": "Volver a la lista de edición",
+    "saveHolding": "Guardar posición",
+    "discardTitle": "¿Descartar los cambios sin guardar?",
+    "discardBody": "Tiene cambios sin guardar. Puede salir y perderlos, o quedarse y seguir editando.",
+    "discardConfirm": "Descartar",
+    "stay": "Quedarse",
+    "reorderFailed": "No se pudo guardar el nuevo orden. Se restauró la lista.",
+    "errorDeleteFailed": "No se pudo eliminar esta posición",
+    "errorCreateFailed": "No se pudo crear esta posición",
+    "errorUpdateFailed": "No se pudo actualizar esta posición",
+    "errorNotFound": "No se encontró esa posición.",
+    "dragHandle": "Arrastrar para ordenar",
+    "sortAscending": "Orden ascendente",
+    "sortDescending": "Orden descendente",
+    "backToHoldingsList": "Volver a las posiciones",
+    "colMarket": "Mercado",
+    "fieldName": "Nombre",
+    "fieldTicker": "Símbolo",
+    "fieldFundCode": "Código de fondo",
+    "fieldCurrency": "Moneda",
+    "fieldShares": "Cantidad",
+    "fieldAvgCost": "Costo promedio",
+    "fieldCurrentValue": "Valor actual",
+    "fieldPricingMode": "Valoración",
+    "fieldAssetType": "Tipo",
+    "fieldMarket": "Mercado (bolsa de cotización)",
+    "fieldBroker": "Corredor",
+    "fieldAccount": "Cuenta",
+    "fieldPortfolio": "Grupo",
+    "fieldNotes": "Notas",
+    "fieldWatchTier": "Nivel de seguimiento",
+    "pricingAuto": "Automática (precio de mercado)",
+    "pricingManual": "Manual",
+    "assetTypeStock": "Acción",
+    "assetTypeEtf": "ETF",
+    "assetTypeFund": "Fondo",
+    "assetTypeCash": "Efectivo",
+    "assetTypeWmf": "Producto de gestión patrimonial",
+    "assetTypeOther": "Otro",
+    "marketUS": "EE. UU.",
+    "marketHK": "HK",
+    "marketAShare": "Acciones A",
+    "marketUK": "Reino Unido",
+    "marketEurope": "Europa",
+    "marketJapan": "Japón",
+    "marketKorea": "Corea",
+    "marketAuto": "Detectar a partir del símbolo",
+    "marketOther": "Otro",
+    "emptyEditState": "Aún no hay posiciones. Agregue una o importe un archivo desde la página Posiciones.",
+    "issueNotes": {
+      "unrecognized_asset_type": "Se descartó el tipo no reconocido {asset_type}. Tratamiento actual: tipo vacío. Puede elegir acción, ETF, fondo, efectivo o producto de gestión patrimonial.",
+      "currency_normalized": "La moneda se normalizó a {currency}. Tratamiento actual: se usa {currency}.",
+      "ticker_normalized_hk": "El símbolo se cambió a {ticker} para consultar precios (formato de Hong Kong de 4 dígitos). Tratamiento actual: se guarda como {ticker}.",
+      "currency_corrected": "La moneda se estableció en {currency} por el sufijo {suffix}. Tratamiento actual: se usa {currency}.",
+      "unrecognized_currency": "No se reconoce la moneda {currency}. Tratamiento actual: esta fila puede rechazarse. Use un código compatible como USD, HKD, CNY o GBP.",
+      "dropped_spurious_id": "Se eliminó el identificador {identifier} de una fila de efectivo o gestión patrimonial (estos productos no tienen símbolo público). Tratamiento actual: identificador eliminado; importe en valor actual.",
+      "cash_amount_moved": "Se trasladó el importe de cantidad a valor actual para esta fila de efectivo o gestión patrimonial. Tratamiento actual: se valora a partir del valor actual.",
+      "cleared_residual_shares": "Se borraron la cantidad y el costo promedio residuales de una fila de efectivo o gestión patrimonial. Tratamiento actual: prevalece el valor actual.",
+      "ticker_no_suffix": "No se pudo aplicar un sufijo de bolsa a {ticker} (moneda {currency}) porque no se determinó el mercado. Tratamiento actual: se guarda {ticker} sin sufijo. Indique el mercado si lo conoce (EE. UU. / HK / acciones A / Reino Unido / Europa / Japón / Corea / otro).",
+      "ticker_suffix_ambiguous": "El mercado es {market}, pero no se pudo determinar el sufijo de cotización de {ticker} (moneda {currency}); {suffixes} son válidos allí. Tratamiento actual: se guarda {ticker} sin sufijo y no se consulta su precio hasta agregarlo. Añada el sufijo correcto directamente al símbolo."
+    },
+    "watchTier": {
+      "none": "Sin seguimiento",
+      "watch": "Seguimiento",
+      "focus": "Atención",
+      "critical": "Crítico"
+    },
+    "exportDescription": "Exportación de posiciones actuales (reimportable)",
+    "templateDescription": "Plantilla para cargar posiciones"
+  },
+  "questionnaire": {
+    "pageTitle": "Estilo de inversión",
+    "pageSubtitle": "Ayuda a adaptar los hechos y enfoques que destacan sus informes. Cada pregunta tiene una respuesta predeterminada; guarde directamente si no desea cambiar nada, o vuelva a responder cuando quiera.",
+    "onboardingPageTitle": "Personalicemos sus informes",
+    "onboardingPageSubtitle": "Las respuestas predeterminadas corresponden al marco del sistema. Guarde para usarlas, u omita este paso y continúe con las posiciones.",
+    "stepOf": "Pregunta {current} de {total}",
+    "back": "Atrás",
+    "next": "Siguiente",
+    "skip": "Omitir por ahora",
+    "save": "Guardar",
+    "saving": "Guardando...",
+    "errorSaveFailed": "No se pudieron guardar sus respuestas",
+    "errorLoadFailed": "No se pudieron cargar sus respuestas guardadas",
+    "freeTextHeading": "¿Algo más que debamos saber?",
+    "freeTextHint": "Opcional. Sin formato obligatorio; escriba tanto como quiera. Se guarda y se muestra exactamente como lo escribió.",
+    "freeTextPlaceholder": "Por ejemplo, algunas posiciones son heredadas, no decisiones actuales...",
+    "dims": {
+      "asset_scale": {
+        "question": "¿Cuál es el tamaño actual de sus activos invertibles?",
+        "hint": "Solo se usa para determinar cuánto contexto asumir en los informes; no se guarda como cifra exacta ni se utiliza para calcular la distribución de activos.",
+        "options": {
+          "UNDER_100K": "Menos de $100K",
+          "100K_500K": "$100K – $500K",
+          "500K_2M": "$500K – $2M",
+          "OVER_2M": "Más de $2M"
+        }
+      },
+      "markets": {
+        "question": "¿En qué mercados invierte principalmente? (seleccione todos los que correspondan)",
+        "hint": "Indica qué noticias regionales y horarios de negociación son pertinentes para usted.",
+        "options": {
+          "US": "EE. UU.",
+          "HK": "Hong Kong",
+          "A-Share": "Acciones A",
+          "Other": "Otro"
+        },
+        "optionHints": {
+          "US": "Acciones cotizadas en EE. UU., en USD; sensibles a la política de la Reserva Federal y los datos económicos estadounidenses.",
+          "HK": "Acciones cotizadas en Hong Kong, en HKD (vinculado al USD); frecuente sede de cotización extranjera para empresas de China continental.",
+          "A-Share": "Acciones cotizadas en China continental, en RMB; sus horarios no coinciden con los mercados estadounidenses.",
+          "Other": "Cualquier mercado fuera de los tres anteriores, como Europa, Japón o Corea."
+        }
+      },
+      "style": {
+        "question": "¿Cómo describiría su estilo de inversión?",
+        "hint": "Determina el enfoque inicial de los informes (valoración o crecimiento); no es una etiqueta para calificarle.",
+        "options": {
+          "VALUE": "Valor",
+          "GROWTH": "Crecimiento",
+          "INDEX": "Índices",
+          "MIXED": "Mixto"
+        },
+        "optionHints": {
+          "VALUE": "Énfasis en valoración, dividendos y control de pérdidas.",
+          "GROWTH": "Énfasis en el potencial de crecimiento de ingresos y beneficios frente a la valoración actual.",
+          "INDEX": "Enfoque amplio con prioridad en la diversificación y menor atención a empresas individuales.",
+          "MIXED": "Sin un enfoque único; los informes combinan valor y crecimiento."
+        }
+      },
+      "horizon": {
+        "question": "¿Cuál es su período habitual de tenencia?",
+        "hint": "Determina cuánto peso recibe el movimiento de precios a corto plazo frente al contexto de varios años.",
+        "options": {
+          "SHORT": "Corto plazo (menos de 1 año)",
+          "MEDIUM": "Mediano plazo (1–3 años)",
+          "LONG": "Largo plazo (más de 3 años)"
+        }
+      },
+      "risk_appetite": {
+        "question": "¿Cómo describiría su tolerancia al riesgo?",
+        "hint": "Influye en la presentación de anomalías y volatilidad (ruido a registrar o señales a observar); nunca en consejos para actuar.",
+        "options": {
+          "CONSERVATIVE": "Conservadora",
+          "BALANCED": "Equilibrada",
+          "AGGRESSIVE": "Agresiva"
+        },
+        "optionHints": {
+          "CONSERVATIVE": "La volatilidad se destaca con mayor facilidad; menor tolerancia contextual a las caídas.",
+          "BALANCED": "Presentación neutral; opción predeterminada del sistema.",
+          "AGGRESSIVE": "Las oscilaciones a corto plazo se presentan con menor alarma; más espacio para la volatilidad como contexto."
+        }
+      },
+      "sectors_of_interest": {
+        "question": "¿Hay sectores que desea seguir especialmente? (seleccione los que correspondan, o ninguno)",
+        "hint": "Aumenta el peso de la cobertura de estos sectores aunque sus posiciones actuales no los incluyan.",
+        "options": {
+          "Technology": "Tecnología",
+          "Communication": "Comunicación",
+          "Financials": "Finanzas",
+          "Healthcare": "Salud",
+          "Consumer Discretionary": "Consumo discrecional",
+          "Consumer Staples": "Consumo básico",
+          "Energy": "Energía",
+          "Materials": "Materiales",
+          "Industrials": "Industria",
+          "Real Estate": "Bienes raíces",
+          "Utilities": "Servicios públicos",
+          "Other": "Otro"
+        },
+        "optionHints": {
+          "Technology": "Software, semiconductores y hardware; por ejemplo, fabricantes de chips y proveedores de infraestructura en la nube.",
+          "Communication": "Telecomunicaciones, medios y plataformas de internet; por ejemplo, operadores móviles, streaming y redes sociales.",
+          "Financials": "Bancos, aseguradoras, corredores y gestores de activos; por ejemplo, bancos comerciales y operadores de bolsas.",
+          "Healthcare": "Farmacéuticas, dispositivos médicos, biotecnología y servicios de salud; por ejemplo, fabricantes de medicamentos y hospitales.",
+          "Consumer Discretionary": "Gasto no esencial; por ejemplo, automóviles, lujo, restaurantes, ropa, viajes y hotelería.",
+          "Consumer Staples": "Productos esenciales; por ejemplo, alimentos, bebidas, productos del hogar y supermercados.",
+          "Energy": "Exploración de petróleo y gas, refinación y equipos y servicios energéticos.",
+          "Materials": "Químicos, metales, minería, materiales de construcción y envases; por ejemplo, productores químicos y cementeras.",
+          "Industrials": "Aeroespacial, defensa, maquinaria, transporte, construcción e ingeniería; por ejemplo, aerolíneas y ferrocarriles.",
+          "Real Estate": "Desarrolladores inmobiliarios, REIT y administración de propiedades; por ejemplo, vivienda y bienes comerciales.",
+          "Utilities": "Empresas de electricidad, gas y agua; por ejemplo, generadores y operadores de redes.",
+          "Other": "Empresas fuera de los sectores anteriores."
+        }
+      },
+      "objective": {
+        "question": "¿Cuál es su objetivo principal?",
+        "hint": "Indica qué significan las noticias favorables o desfavorables para su cartera.",
+        "options": {
+          "PRESERVATION": "Preservación del capital",
+          "GROWTH": "Crecimiento",
+          "INCOME": "Ingresos"
+        },
+        "optionHints": {
+          "PRESERVATION": "La protección frente a pérdidas y la estabilidad reciben más atención que las ganancias potenciales.",
+          "GROWTH": "El potencial de crecimiento y la expansión reciben más atención que las caídas a corto plazo.",
+          "INCOME": "Las características que generan dividendos y rendimientos reciben más atención."
+        }
+      },
+      "intel_focus": {
+        "question": "¿En qué información deben concentrarse los informes?",
+        "hint": "Elige qué categoría de noticias externas recibe más espacio en su informe.",
+        "options": {
+          "MACRO": "Señales macroeconómicas",
+          "FUNDAMENTALS": "Fundamentos de cada posición",
+          "GEOPOLITICS": "Acontecimientos geopolíticos",
+          "BALANCED": "Equilibrio entre todas las categorías"
+        },
+        "optionHints": {
+          "MACRO": "Tipos de interés, inflación, bancos centrales y datos económicos.",
+          "FUNDAMENTALS": "Resultados y noticias empresariales relacionados con sus posiciones reales.",
+          "GEOPOLITICS": "Política comercial, sanciones y acontecimientos internacionales.",
+          "BALANCED": "No se prioriza ninguna categoría."
+        }
+      }
+    }
+  },
+  "profile": {
+    "pageTitle": "Perfil",
+    "missingSetupHeading": "Termine de configurar su cuenta",
+    "missingSetupQuestionnaire": "Definir su estilo de inversión",
+    "missingSetupHoldings": "Agregar sus posiciones",
+    "accountHeading": "Cuenta",
+    "accountEmailLabel": "Correo electrónico",
+    "accountCreditsLabel": "Credits",
+    "creditPurchaseHeading": "Comprar créditos",
+    "creditPurchaseLoading": "Cargando precios…",
+    "creditPurchaseUnavailable": "Las compras no están disponibles temporalmente.",
+    "creditPackLabel": "{credits} créditos",
+    "creditBuyButton": "Comprar",
+    "creditPurchaseTerms": "Al comprar, acepta los <terms>Términos de servicio</terms> y la <refund>Política de reembolsos</refund>.",
+    "creditPurchaseOpening": "Abriendo el pago…",
+    "creditPurchaseOpenFailed": "No se abrió el pago. Inténtelo de nuevo.",
+    "creditPurchasePending": "Pago recibido. Agregando sus créditos; normalmente tarda menos de un minuto.",
+    "creditPurchaseCredited": "Se agregaron {credits} créditos a su saldo.",
+    "creditPurchaseDelayed": "Su pago está completo. Los créditos suelen aparecer en unos minutos; si no aparecen después de 10 minutos, contacte a info@portfonia.com.",
+    "passwordHeading": "Cambiar contraseña",
+    "changePasswordLink": "Cambiar contraseña",
+    "changePasswordPageTitle": "Cambiar contraseña",
+    "backToProfile": "Volver al perfil",
+    "currentPasswordLabel": "Contraseña actual",
+    "newPasswordLabel": "Nueva contraseña",
+    "confirmNewPasswordLabel": "Confirmar nueva contraseña",
+    "passwordMismatch": "Las nuevas contraseñas no coinciden.",
+    "passwordTooShort": "La nueva contraseña debe tener al menos 8 caracteres.",
+    "errorMissingFields": "Ingrese su contraseña actual y una nueva.",
+    "errorCaptchaRequired": "Complete el widget de verificación antes de enviar.",
+    "changePasswordButton": "Cambiar contraseña",
+    "changingPassword": "Cambiando contraseña...",
+    "passwordChangeSuccess": "Contraseña cambiada.",
+    "errorCurrentPasswordIncorrect": "La contraseña actual es incorrecta.",
+    "errorPasswordChangeFailed": "No se pudo cambiar su contraseña. Inténtelo de nuevo.",
+    "holdingsHeading": "Posiciones",
+    "holdingsNavOverview": "Resumen de cartera",
+    "holdingsNavPerformance": "Rendimiento",
+    "holdingsNavManagement": "Gestión de posiciones",
+    "holdingsNavInvestmentStyle": "Estilo de inversión",
+    "reportManagementHeading": "Gestión de informes",
+    "reportScheduleHeading": "Calendario de informes",
+    "reportScheduleOptions": {
+      "weekly": "Semanal",
+      "everyOtherDay": "Lun/Mié/Vie",
+      "daily": "Diario (Advanced)"
+    },
+    "deliveryEmailHeading": "Correo de entrega de informes",
+    "deliveryEmailFallbackNote": "No hay dirección de entrega aparte; se usa el correo de su cuenta.",
+    "deliveryEmailUnverifiedNote": "Esta dirección no está verificada.",
+    "reportLanguageLabel": "Idioma de los informes",
+    "reportLanguageError": "No se pudo actualizar el idioma de sus informes. Inténtelo de nuevo.",
+    "reportCurrencyLabel": "Moneda de los informes",
+    "reportCurrencyError": "No se pudo actualizar la moneda de sus informes. Inténtelo de nuevo.",
+    "inviteHeading": "Referir a alguien",
+    "inviteBody": "Ingrese el correo de la persona que desea referir y le enviaremos una carta de invitación cuando corresponda. Cuando se registre y suscriba por primera vez, y cada vez que después compre créditos, usted recibirá créditos como recompensa. Las reglas pueden cambiar; consulte los Términos de servicio.",
+    "deleteAccountHeading": "Eliminar cuenta",
+    "deleteAccountBody": "Cierre su cuenta y borre los datos de su cuenta.",
+    "errorLoadFailed": "No se pudo cargar su cuenta.",
+    "emailVerificationHeading": "Verificación de correo",
+    "emailVerificationBody": "Estas direcciones esperan su confirmación. Si un mensaje no se entregó, revise la dirección y vuelva a enviarlo.",
+    "emailVerificationNoRecipient": "No hay dirección receptora verificada. Los informes no se enviarán hasta verificar una dirección.",
+    "emailVerificationStatusPending": "Esperando su confirmación",
+    "emailVerificationStatusUndeliverable": "No se pudo entregar. Revise la dirección y vuelva a enviar.",
+    "emailVerificationPurposeAccount": "Correo de la cuenta",
+    "emailVerificationPurposeDelivery": "Correo de entrega de informes",
+    "emailVerificationPurpose": "Uso: {purpose}",
+    "emailVerificationResendButton": "Reenviar",
+    "emailVerificationResending": "Enviando...",
+    "emailVerificationResendTooSoon": "Demasiados reenvíos. Espere e inténtelo de nuevo.",
+    "emailVerificationResendUnavailable": "El servicio no está disponible temporalmente. Inténtelo más tarde.",
+    "emailVerificationResendFailed": "No se pudo reenviar el correo de verificación. Inténtelo de nuevo.",
+    "emailVerificationSendButton": "Enviar verificación",
+    "emailVerificationSendTooSoon": "Demasiadas solicitudes. Espere e inténtelo de nuevo.",
+    "emailVerificationSendFailed": "No se pudo enviar el correo de verificación. Inténtelo de nuevo.",
+    "subscriptionLabel": "Suscripción",
+    "subscriptionNoneOption": "Sin suscripción",
+    "subscriptionVerifyEmail": "Verifique su correo para suscribirse.",
+    "subscriptionCancel": "Cancelar suscripción",
+    "subscriptionResume": "Reanudar suscripción",
+    "subscriptionRenews": "{plan} - se renueva después de {expires_on}",
+    "subscriptionEnds": "{plan} - termina el {expires_on}",
+    "subscriptionExpired": "Su suscripción venció el {expires_on}. Recargue créditos y se reanudará el próximo día de informe.",
+    "subscriptionNone": "Sin suscripción. Las funciones y la entrega de informes pueden estar limitadas.",
+    "subscriptionTitle": {
+      "weekly": "Resumen semanal",
+      "mwf": "Resumen Lun/Mié/Vie",
+      "daily": "Resumen diario",
+      "jade": "Jade"
+    },
+    "subscriptionDescription": {
+      "weekly": "Un resumen de su cartera cada sábado.",
+      "mwf": "Un resumen de su cartera cada lunes, miércoles y viernes.",
+      "daily": "Un resumen de su cartera de lunes a viernes. Plan Advanced: incluye acceso a datos para agentes de IA.",
+      "jade": "Herramientas de riesgo de cartera, todo el plan Advanced y un calendario de resúmenes que usted elige."
+    },
+    "subscriptionFee": "Tarifa: {fee} créditos al mes.",
+    "subscriptionBalance": "Saldo actual: {balance} créditos.",
+    "subscriptionReturned": "Devuelto por la parte no utilizada de su plan actual: {returned} créditos.",
+    "subscriptionStartsToday": "El nuevo plan comienza hoy.",
+    "subscriptionBalanceAfter": "Saldo después del cambio: {balance_after} créditos.",
+    "subscriptionPaidThrough": "Pagado hasta el {expires_on}.",
+    "subscriptionFirstReport": "Su primer informe en este plan se espera el {first_report_at}.",
+    "subscriptionNeedsHoldings": "Este resumen se envía solo después de ingresar posiciones.",
+    "subscriptionDailyRule": "Puede ajustar su suscripción una vez al día.",
+    "subscriptionContinues": "Su suscripción continúa sin cargo. Pagada hasta el {expires_on}.",
+    "subscriptionTopUp": "Su saldo no es suficiente. Recargue créditos primero en la sección Cuenta.",
+    "subscriptionDismiss": "Cancelar",
+    "subscriptionConfirm": "Confirmar",
+    "subscriptionKeep": "Mantener suscripción",
+    "subscriptionConfirmCancellation": "Confirmar cancelación",
+    "subscriptionCancelBody": "Su suscripción sigue activa hasta el {expires_on}. Los resúmenes programados terminan después de esa fecha. No se devuelve nada por los días restantes.",
+    "subscriptionDailyLock": "Ya ajustó su suscripción hoy. Podrá ajustarla de nuevo en {hours}h {minutes}m.",
+    "subscriptionError": "No se pudo actualizar su suscripción. Inténtelo de nuevo.",
+    "subscriptionErrors": {
+      "daily_limit": "Ya ajustó su suscripción hoy. Podrá ajustarla de nuevo después de medianoche, hora del Este.",
+      "email_unverified": "Verifique su correo para suscribirse.",
+      "insufficient_credits": "Su saldo no es suficiente. Recargue créditos primero en la sección Cuenta.",
+      "no_change": "Su suscripción ya tiene esta configuración.",
+      "no_subscription": "No hay suscripción activa para esta operación.",
+      "jade_managed": "Su suscripción Jade se gestiona en la página Jade."
+    },
+    "deleteAccountDisclosure": "Se borrarán sus posiciones, preferencias de inversión e informes. Los registros de créditos y transacciones se conservan por motivos contables y fiscales, desvinculados de su correo salvo una huella irreversible usada solo para evitar conceder dos veces el crédito de registro.",
+    "deleteAccountSubscription": "Una suscripción activa termina inmediatamente; no se devuelve la parte no utilizada del período actual.",
+    "deleteAccountTokens": "Se revocarán todos sus tokens de API.",
+    "deleteAccountGift": "También se borrarán sus {gift_balance} créditos de regalo.",
+    "deleteAccountReregister": "Si vuelve a registrarse con el mismo correo, necesitará una nueva invitación y no recibirá otra vez el crédito de registro.",
+    "deleteAccountEmailLabel": "Escriba el correo de su cuenta para confirmar",
+    "deleteAccountContinue": "Continuar",
+    "deleteAccountPurchased": "Renuncia a {cash_balance} créditos comprados (a US$1 por crédito).",
+    "deleteAccountRefundable": "De ellos, {refundable_cash} se compraron en los últimos 120 días y aún pueden reembolsarse. Para recuperarlos, contacte a info@portfonia.com antes de eliminar su cuenta.",
+    "deleteAccountVoluntary": "Esta es mi decisión. El importe no se reembolsará y la operación no se puede deshacer.",
+    "deleteAccountSignatureLabel": "Escriba de nuevo el correo de su cuenta como firma",
+    "deleteAccountRelinquish": "Renunciar a {cash_balance} créditos comprados y eliminar cuenta",
+    "deleteAccountBalanceChanged": "Su saldo cambió. Comience de nuevo.",
+    "deleteAccountInvalidCaptcha": "La verificación venció o no es válida. Comience de nuevo.",
+    "deleteAccountFailed": "No se pudo eliminar. Nada cambió; inténtelo de nuevo.",
+    "deleteAccountIncomplete": "No se pudo completar la eliminación. Contacte a info@portfonia.com.",
+    "referralThanks": "Gracias por su referido",
+    "referralEmailRequired": "Ingrese una dirección de correo electrónico.",
+    "referralDailyLimit": "Alcanzó el límite de referidos de hoy. Inténtelo mañana.",
+    "deleteAccountNegativeBalance": "Su cuenta tiene un saldo de créditos negativo. Contacte a info@portfonia.com para eliminarla.",
+    "referralError": "No se pudo enviar su referido. Inténtelo de nuevo.",
+    "subscriptionJadeCadence": "Calendario de resúmenes: {cadence}. Puede cambiarlo en la página Jade cuando quiera.",
+    "jadeManage": "Gestionar en la página Jade",
+    "jadeScheduleNote": "El calendario de resúmenes se establece en la página Jade."
+  },
+  "portfolio": {
+    "riskPanel": {
+      "infoSymbol": "i",
+      "betaMinusOne": "β=−1",
+      "betaThree": "β=3",
+      "title": "Volatilidad histórica y riesgo",
+      "subtitle": "Instantáneas reales de posiciones · últimos 60 días bursátiles · anualizada",
+      "loading": "Cargando riesgo histórico",
+      "loadError": "No se pudo cargar el riesgo histórico. Actualice la página.",
+      "beta": "Beta",
+      "betaSubtitle": "Referencia fija: S&P 500",
+      "betaExplanation": "Sensibilidad histórica de la cartera al S&P 500 en el período observado. No predice resultados futuros.",
+      "risk": "Riesgo",
+      "riskSubtitle": "Observación de riesgo personalizada",
+      "riskExplanation": "Combina volatilidad histórica con tolerancia al riesgo, horizonte y objetivo del cuestionario.",
+      "deviation": "Desviación",
+      "deviationSubtitle": "Preferencias del cuestionario ↔ posiciones",
+      "deviationExplanation": "Compara preferencias de riesgo, estilo y mercados con la estructura de activos y mercados de las posiciones valoradas.",
+      "riskLabels": {
+        "within": "Dentro de la tolerancia",
+        "caution": "Precaución",
+        "exceeds": "Supera la tolerancia"
+      },
+      "tiers": {
+        "low": "Baja",
+        "medium": "Media",
+        "high": "Alta"
+      },
+      "states": {
+        "insufficient_sample": "Muestra insuficiente",
+        "data_quality": "Calidad de datos insuficiente para el riesgo personalizado",
+        "no_questionnaire": "Sin cuestionario enviado; evaluación personalizada no disponible",
+        "no_valued_holdings": "Sin posiciones valoradas; desviación no disponible"
+      },
+      "objectiveTier": "Nivel de volatilidad histórica: {tier}",
+      "aggressiveDirection": "Dirección agresiva +{count} nivel(es)",
+      "conservativeDirection": "Dirección conservadora {count} nivel(es)",
+      "match": "Sin desviación verificable",
+      "conservative": "Conservadora",
+      "matchShort": "Coincide",
+      "aggressive": "Agresiva",
+      "deviationSubline": "Dirección y diferencia de niveles",
+      "volatilityTitle": "Volatilidad · volatilidad histórica anualizada",
+      "benchmarkSelector": "Índice de referencia para comparar volatilidad",
+      "portfolio": "Cartera",
+      "chartDescription": "Volatilidad anualizada móvil de la cartera y {benchmark}",
+      "chartDescriptionPortfolioOnly": "Volatilidad anualizada móvil de la cartera",
+      "tooltipAsOf": "al {date}",
+      "reason": {
+        "insufficient": "Se necesitan al menos {min} días bursátiles válidos; actualmente hay {count}.",
+        "manualShare": "Las posiciones valoradas manualmente representan {share} de la cartera, por encima del límite {limit}.",
+        "noQuestionnaire": "No hay cuestionario de inversión enviado.",
+        "noValuedHoldings": "Aún no hay posiciones valoradas."
+      },
+      "insufficientSample": "Muestra insuficiente",
+      "sampleDisclosurePortfolio": "Cartera {start}–{end}: {count} rendimientos válidos · ×√252 · {currency} · TWR aproximado",
+      "sampleDisclosureBenchmark": "{benchmark} {start}–{end}: {count} rendimientos válidos",
+      "manualShare": "Proporción de valoración manual: {share}",
+      "footnote": "La volatilidad histórica mide la fluctuación de los rendimientos diarios. El crecimiento del valor registrado frente a índices en Rendimiento muestra crecimiento acumulado; son métricas diferentes y no se sustituyen entre sí. Las estadísticas históricas no predicen resultados futuros."
+    },
+    "pageTitle": "Resumen de cartera",
+    "currencyLabel": "Moneda base",
+    "asOfBanner": "Precios al {date}: último cierre propio de cada mercado, no una marca de tiempo global. Datos de fin de jornada, no en tiempo real.",
+    "asOfBannerUnavailable": "Aún no hay precios de cierre por mercado para esta vista. Datos de fin de jornada, no en tiempo real.",
+    "fxAsOfBanner": "Tipos de cambio: {list}; última tasa propia de cada moneda, no una fecha compartida.",
+    "fxAsOfEntry": "{currency} al {date}",
+    "fxAsOfEntryStale": "{currency} al {date} (más de 48 horas)",
+    "fxAsOfBannerWarning": "Tipos de cambio: {list}; una o más tasas tienen más de 48 horas. La valoración usa las últimas disponibles.",
+    "totalAssetsLabel": "Activos totales",
+    "pnlHeading": "Ganancias y pérdidas no realizadas",
+    "pnlScopeNote": "El efectivo y los productos de gestión patrimonial no tienen rendimiento propio, pero forman parte de la base de costo total siguiente y diluyen el porcentaje de rendimiento total.",
+    "pnlTotalCostBasis": "Base de costo total",
+    "pnlTotalUnrealized": "Ganancia o pérdida total no realizada",
+    "pnlTotalUnrealizedPct": "Rendimiento total no realizado",
+    "chartByMarket": "Por mercado",
+    "chartByGroup": "Por grupo",
+    "chartByCustodian": "Por custodio",
+    "chartByAccount": "Por cuenta",
+    "chartByAssetClass": "Por clase de activo",
+    "chartByCurrency": "Por moneda",
+    "chartEmpty": "Aún no hay datos.",
+    "holdingsHeading": "Posiciones",
+    "holdingsPnlNote": "El efectivo y los productos de gestión patrimonial muestran «—» en ganancias y pérdidas; no tienen base de costo.",
+    "editHoldingsButton": "Editar posiciones",
+    "holdingsEmptyState": "Aún no hay posiciones con precio.",
+    "colName": "Nombre",
+    "colTicker": "Símbolo",
+    "colCurrency": "Moneda",
+    "colShares": "Cantidad",
+    "colAvgCost": "Costo promedio",
+    "colMarket": "Mercado",
+    "colGroup": "Grupo",
+    "colCustodian": "Custodio",
+    "colNotes": "Notas",
+    "colMarketValue": "Valor de mercado",
+    "colUnrealizedPnl": "Ganancias y pérdidas no realizadas",
+    "colUnrealizedPnlPct": "Rendimiento no realizado",
+    "noLivePriceHeading": "Sin cotización de mercado",
+    "noLivePriceBody": "Portfonia no tiene cotizaciones para estas posiciones. Solo se muestra lo que ingresó; no se incluyen en totales ni gráficos.",
+    "loadError": "No se pudo cargar su cartera. Actualice la página.",
+    "refreshError": "No se pudo actualizar a la nueva moneda. Se muestran los últimos valores cargados.",
+    "groupUngrouped": "Sin grupo",
+    "accountOther": "Otra",
+    "sendOverviewButton": "Enviar resumen de posiciones",
+    "sendOverviewSending": "Enviando...",
+    "sendOverviewSuccess": "Resumen enviado a su correo.",
+    "sendOverviewCooldown": "Puede volver a enviarlo en {minutes} min.",
+    "sendOverviewError": "No se pudo enviar ahora; inténtelo en breve.",
+    "exportXlsxButton": "Descargar .xlsx",
+    "exportMdButton": "Descargar .md",
+    "exportError": "No se pudo descargar ahora; inténtelo en breve.",
+    "performance": {
+      "pageTitle": "Rendimiento",
+      "pageSubtitle": "Valor de mercado desde el inicio del registro diario, comparado con índices de referencia. La línea de su cartera refleja solo instantáneas reales; el historial de una cartera nueva comienza corto y crece, sin reconstruirse.",
+      "overviewLink": "Resumen de cartera",
+      "viewPerformanceLink": "Ver rendimiento",
+      "rangeLabel": "Período",
+      "rangeOneM": "1 mes",
+      "rangeSixM": "6 meses",
+      "rangeYtd": "Año en curso",
+      "rangeOneY": "1 año",
+      "rangeFiveY": "5 años",
+      "rangeAll": "Todo",
+      "benchmarkLabel": "Índices de referencia",
+      "filterMarketLabel": "Mercados",
+      "filterGroupLabel": "Grupos",
+      "filterBrokerLabel": "Custodios",
+      "filterAccountLabel": "Cuentas",
+      "twrLabel": "Método de rendimiento",
+      "twrOn": "TWR aproximado",
+      "twrOff": "Valor de mercado",
+      "resetFilters": "Restablecer filtros",
+      "selectionAll": "Todo",
+      "selectionCount": "{count} seleccionados",
+      "benchmarkNames": {
+        "sp500": "S&P 500",
+        "dow30": "Dow 30",
+        "nasdaq": "Nasdaq Composite",
+        "csi300": "CSI 300"
+      },
+      "metricsTitle": "Resumen del período",
+      "metricsScope": "Cubre el período realmente registrado dentro del rango elegido, no todo su historial de inversión.",
+      "metricValueLabel": "Valor al final del período",
+      "metricChangeLabel": "Cambio del valor de mercado",
+      "metricTwrPctLabel": "TWR aproximado desde {date}",
+      "metricRawPctLabel": "Cambio respecto al inicio",
+      "metricDisclosureTwr": "La cifra monetaria es el cambio bruto del valor de mercado; el porcentaje es el rendimiento ponderado por tiempo aproximado, que elimina el efecto de los flujos de efectivo inferidos. Son medidas distintas; el porcentaje no es la variación monetaria expresada como tasa. Este TWR es una aproximación al cierre: los flujos se infieren de diferencias entre instantáneas diarias, no de transacciones verificadas.",
+      "metricDisclosureRaw": "Ambas cifras describen el cambio del valor de mercado de la cartera; ninguna elimina el efecto de depósitos o retiros. Para excluir flujos inferidos, seleccione TWR aproximado.",
+      "chartTitle": "Crecimiento del valor registrado frente a índices",
+      "trackingSinceNote": "Cartera registrada desde {date}; no se reconstruye el historial anterior.",
+      "approxBadgeLabel": "Datos aproximados",
+      "qualityFlag": {
+        "approx_backfill": "Contiene puntos históricos completados de forma aproximada.",
+        "approx_fx": "Algunos puntos usaron tipos de cambio alternativos."
+      },
+      "chartPortfolioLabel": "Cartera",
+      "benchmarkNoUsableHistory": "{name} no tiene historial utilizable en este período.",
+      "comparisonBaselineOnly": "{name}: primera instantánea registrada; el cambio comienza en 0%.",
+      "comparisonAnchorUnavailable": "No se puede valorar {name} en el primer día registrado de la cartera; no es comparable.",
+      "comparisonIncompleteWindow": "Falta una valoración de {name} en un día registrado de la cartera; no es comparable.",
+      "comparisonOwnBaseline": "Base propia {date}; no comparable con la cartera.",
+      "indexHistoryRelativeTo": "El historial del índice toma {date} como base; el registro de la cartera comienza aquí.",
+      "tooltipCloseAsOf": "Cierre al {date}",
+      "tooltipFxAsOf": "{pair} al {date}",
+      "tooltipCarried": "Fuente arrastrada; no es un cierre del mismo día.",
+      "loading": "Cargando datos de rendimiento…",
+      "loadError": "No se pudieron cargar los datos de rendimiento.",
+      "refreshError": "No se pudo actualizar la selección. Se muestran los últimos datos cargados.",
+      "retry": "Reintentar",
+      "summaryLoadError": "No se pudieron cargar los detalles de la cartera para los filtros.",
+      "emptyTitle": "Aún no hay historial de cartera en este período",
+      "emptyBody": "La línea de cartera aparece cuando comienzan las instantáneas diarias de sus posiciones; solo registros reales, nunca historial reconstruido. Los índices permanecen visibles como contexto.",
+      "filteredEmptyTitle": "No hay coincidencias con los filtros en este período",
+      "filteredEmptyBody": "Ninguna instantánea coincide con los filtros actuales. Los índices permanecen como contexto. Amplíe el período o borre los filtros.",
+      "chartNoData": "Sin datos para el período y los filtros elegidos.",
+      "chartDescriptionTracked": "El cambio de cartera se mide desde la primera instantánea real del período. Los índices conservan su historial disponible; cuando ese día se puede valorar, se usa un cero común al inicio de la cartera para comparar.",
+      "chartDescriptionBenchmarksOnly": "Sin historial de cartera para comparar en este período; los índices se normalizan con sus propios datos del rango elegido.",
+      "allocationTitle": "Historial de distribución por clase de activo",
+      "allocationDescription": "Proporción del valor de mercado clasificado y valorado por clase de activo para el período y los filtros elegidos. Los cambios pueden proceder de precios, divisas, clasificación o actualizaciones registradas de cantidad; no son un registro de operaciones.",
+      "allocationIncompleteBanner": "Algunas fechas tienen una posición coincidente sin valor o clasificación utilizable; se excluye del área apilada y no se muestra como ganancia.",
+      "allocationGapTooltip": "Sin posiciones clasificadas y valoradas este día.",
+      "allocationIncompleteTooltip": "{n, plural, one {# posición excluida (sin valor o clasificación utilizable)} other {# posiciones excluidas (sin valor o clasificación utilizable)}}",
+      "monthlyTitle": "Rendimiento mensual",
+      "monthlyDescription": "Rendimiento ponderado por tiempo aproximado de la cartera cada mes, comparado con un índice. Siempre usa el TWR aproximado al cierre, sin depender del selector anterior.",
+      "monthlyBenchmarkLabel": "Comparar con",
+      "monthlyPortfolioLabel": "Cartera (TWR aproximado)",
+      "monthlyApproxNote": "Este mes incluye datos aproximados o precios alternativos.",
+      "monthlyPartialReason": {
+        "range_start": "Mes parcial: el período elegido empieza a mitad del mes.",
+        "tracking_start": "Mes parcial: el registro de la cartera empezó a mitad del mes.",
+        "month_to_date": "Mes en curso: hasta la última instantánea registrada, no todo el mes calendario."
+      },
+      "benchmarkUnavailable": {
+        "missing_price": "Sin precio del índice para esta fecha.",
+        "stale_price": "Precio del índice demasiado antiguo para esta fecha.",
+        "invalid_price": "Precio del índice no válido para esta fecha.",
+        "missing_fx": "Sin tipo de cambio para esta fecha.",
+        "stale_fx": "Tipo de cambio demasiado antiguo para esta fecha.",
+        "invalid_fx": "Tipo de cambio no válido para esta fecha."
+      }
+    },
+    "assetClasses": {
+      "STOCK": "Acción individual",
+      "EQUITY_US_BROAD": "Renta variable amplia de EE. UU.",
+      "EQUITY_US_TECH": "Renta variable tecnológica de EE. UU.",
+      "EQUITY_DM": "Renta variable de mercados desarrollados",
+      "EQUITY_CN": "Renta variable de China",
+      "EQUITY_EM": "Renta variable de mercados emergentes",
+      "EQUITY_BROAD": "Renta variable global amplia",
+      "REIT": "REIT",
+      "PRECIOUS_METALS": "Metales preciosos",
+      "ENERGY": "Energía",
+      "COMMODITY": "Materias primas",
+      "BOND_FUND": "Fondo de bonos",
+      "CASH_EQUIV": "Efectivo y equivalentes"
+    },
+    "exportDescription": "Instantánea de posiciones, moneda base {currency}, {language}",
+    "sendOverviewConfirmTitle": "¿Enviar resumen de posiciones?",
+    "sendOverviewConfirmBody": "Se enviará un resumen de posiciones en {currency} a su dirección de entrega de informes.",
+    "sendOverviewConfirmAction": "Enviar",
+    "sendOverviewCancel": "Cancelar"
+  },
+  "home": {
+    "hero": {
+      "eyebrow": "Servicio público limitado",
+      "titleLine1": "Lo que merece atención",
+      "titleAccent": "entre sus posiciones.",
+      "tagline": "Información pertinente, profunda y amplia, a su lado durante el ciclo mientras su criterio se fortalece.",
+      "sub": "Portfonia es una herramienta de software diseñada para acompañarle a lo largo de los ciclos del mercado. Sigue noticias, macroeconomía y novedades empresariales, y las relaciona sistemáticamente con cada posición que ingresa; profundidad y amplitud cercanas a lo que le importa. Los ciclos suben y bajan; la información confiable debe estar disponible durante años. Por eso existimos.",
+      "ctaPrimary": "Comenzar",
+      "ctaSecondary": "Ver cómo funciona"
+    },
+    "how": {
+      "heading": "Cómo funciona",
+      "tag": "Tres componentes",
+      "cards": [
+        {
+          "title": "Carga de posiciones",
+          "body": "Suba un CSV o una hoja de cálculo con sus posiciones. Un modelo de lenguaje lo normaliza en registros estructurados, sin volver a ingresarlos a mano.",
+          "tags": [
+            "CSV",
+            "Markdown",
+            "Excel"
+          ]
+        },
+        {
+          "title": "Seguimiento de mercado y macro",
+          "body": "Consulta diaria de precios, divisas y noticias macro seleccionadas de fuentes reconocidas; principalmente en inglés y en chino cuando el instrumento lo requiere.",
+          "tags": [
+            "Precios",
+            "Divisas",
+            "Noticias macro"
+          ]
+        },
+        {
+          "title": "Resúmenes personalizados",
+          "body": "Lun / Mié / Vie, vinculados a sus posiciones reales: anomalías de precios, situación técnica y calendario futuro de eventos macro y resultados.",
+          "tags": [
+            "Entrega por correo"
+          ]
+        }
+      ],
+      "confidenceLead": "Cada afirmación causal incluye una etiqueta de confianza",
+      "confidenceBody": "Incertidumbre calibrada, visible en lugar de oculta.",
+      "tiers": {
+        "established": "Established",
+        "probable": "Probable",
+        "speculative": "Speculative"
+      }
+    },
+    "preview": {
+      "heading": "Cómo es un resumen real",
+      "tag": "Informe real anonimizado",
+      "badge": "Anonimizado a partir de un informe real; posiciones y cifras de ejemplo",
+      "footnote": "La frecuencia de los resúmenes depende de su plan.",
+      "snapshotTitle": "Instantánea de cartera",
+      "totalLine": "Valor total: $1,000,000 (fecha de cambio: 2026-08-21)",
+      "holdingsColumns": [
+        "Posición",
+        "Moneda",
+        "Valor",
+        "Peso",
+        "Custodio",
+        "Clase de activo"
+      ],
+      "holdingsRows": [
+        [
+          "TSMC (TSM)",
+          "USD",
+          "209,000",
+          "20.9%",
+          "Custodio A",
+          "Acciones"
+        ],
+        [
+          "Microsoft (MSFT)",
+          "USD",
+          "80,000",
+          "8.0%",
+          "Custodio A",
+          "Acciones"
+        ],
+        [
+          "Alphabet (GOOGL)",
+          "USD",
+          "69,000",
+          "6.9%",
+          "Custodio A",
+          "Acciones"
+        ],
+        [
+          "**Custodio A subtotal**",
+          "USD",
+          "**358,000**",
+          "**35.8%**",
+          "",
+          ""
+        ],
+        [
+          "QQQ (QQQ)",
+          "USD",
+          "160,000",
+          "16.0%",
+          "Custodio B",
+          "ETF tecnológico de EE. UU."
+        ],
+        [
+          "VOO (VOO)",
+          "USD",
+          "131,000",
+          "13.1%",
+          "Custodio B",
+          "ETF amplio de EE. UU."
+        ],
+        [
+          "BOXX (BOXX)",
+          "USD",
+          "48,000",
+          "4.8%",
+          "Custodio B",
+          "Fondo de bonos"
+        ],
+        [
+          "Efectivo",
+          "USD",
+          "2,000",
+          "0.2%",
+          "Custodio B",
+          "Equivalente de efectivo"
+        ],
+        [
+          "**Custodio B subtotal**",
+          "USD",
+          "**341,000**",
+          "**34.1%**",
+          "",
+          ""
+        ],
+        [
+          "Tencent (0700.HK)",
+          "HKD",
+          "546,000",
+          "7.0%",
+          "Custodio C",
+          "Acciones"
+        ],
+        [
+          "BYD (1211.HK)",
+          "HKD",
+          "413,400",
+          "5.3%",
+          "Custodio C",
+          "Acciones"
+        ],
+        [
+          "**Custodio C subtotal** (convertido a USD)",
+          "USD",
+          "**123,000**",
+          "**12.3%**",
+          "",
+          ""
+        ],
+        [
+          "ETF de oro (518880.SS)",
+          "CNH",
+          "14,300",
+          "0.2%",
+          "Custodio D",
+          "Metales preciosos"
+        ],
+        [
+          "ETF CSI 300 (510300.SS)",
+          "CNH",
+          "7,150",
+          "0.1%",
+          "Custodio D",
+          "Renta variable de China"
+        ],
+        [
+          "Efectivo",
+          "CNH",
+          "42,900",
+          "0.6%",
+          "Custodio D",
+          "Equivalente de efectivo"
+        ],
+        [
+          "**Custodio D subtotal** (convertido a USD)",
+          "USD",
+          "**9,000**",
+          "**0.9%**",
+          "",
+          ""
+        ],
+        [
+          "Efectivo USD y divisas",
+          "USD",
+          "169,000",
+          "16.9%",
+          "Custodio E",
+          "Equivalente de efectivo"
+        ]
+      ],
+      "distributionLines": [
+        "**Por mercado:** EE. UU. 86.8%, HK 12.3%, acciones A y CNH 0.9%",
+        "**Por moneda:** USD 86.8%, HKD 12.3%, CNH 0.9%",
+        "**Por clase de activo:** Acciones 48.1%, ETF tecnológico de EE. UU. 16.0%, ETF amplio de EE. UU. 13.1%, Fondos de bonos 4.8%, Metales preciosos 0.2%, Renta variable de China 0.1%, Equivalentes de efectivo 17.7%",
+        "**Tipos de cambio usados:** HKD 7.80, CNH 7.15 frente al USD"
+      ],
+      "macroTitle": "Eventos macroeconómicos",
+      "macroBody": "Los mercados reajustaron la trayectoria de política tras unas actas del FOMC que mostraron un comité dividido. La transmisión a esta cartera pasa por la duración de la renta variable: las empresas de crecimiento de larga duración (TSMC, Microsoft, Alphabet) y los ETF amplios son sensibles a cambios en las expectativas de tipos incorporadas en la curva de rendimientos. No se activó ninguna anomalía de precio en esta ventana que confirmara un reajuste en una posición concreta; esta dirección es exposición estructural a observar, no un evento observado. [Probable]",
+      "calendarTitle": "Calendario próximo",
+      "calendarNote": "Eventos programados de EE. UU. en los próximos días y las posiciones relacionadas. Solo hechos del calendario, no pronósticos.",
+      "calendarColumns": [
+        "Fecha",
+        "Evento",
+        "Posiciones relacionadas",
+        "Qué observar"
+      ],
+      "calendarRows": [
+        [
+          "08-27",
+          "Solicitudes de desempleo",
+          "—",
+          "Impulso del mercado laboral; implicaciones para los tipos"
+        ],
+        [
+          "08-29",
+          "Índice de precios PCE subyacente",
+          "TSMC, MSFT, GOOGL +2",
+          "Inflación frente al consenso; implicaciones para los tipos"
+        ],
+        [
+          "09-02",
+          "PMI manufacturero ISM",
+          "—",
+          "Impulso del sector industrial"
+        ]
+      ],
+      "analysisTitle": "Contexto de posiciones",
+      "analysisHeading": "TSMC: 20.9% de la cartera, la mayor posición individual",
+      "analysisBody": "TSMC destaca este período por su peso desproporcionado y su exposición a varias temáticas macro a la vez, no por un evento específico de la empresa. … No se observó ninguna anomalía en esta ventana que confirmara que el mercado reaccionó a la temática de política monetaria.",
+      "radarTitle": "Exposición y precios",
+      "concentrationBody": "Las tres mayores posiciones suman 50.0% del valor de la cartera, justo en el umbral de seguimiento del 50%. La mayor clase de activo (acciones) alcanza 48.1%, ligeramente por debajo. TSMC domina la concentración individual con 20.9%; los dos ETF amplios diversifican dentro de las acciones estadounidenses, a la vez que elevan la correlación con su política monetaria.",
+      "anomalyColumns": [
+        "Posición",
+        "Cambio neto",
+        "Mayor movimiento (fecha)",
+        "Cierre anterior",
+        "Apertura (brecha %)",
+        "Rango intradiario",
+        "Cierre",
+        "Activador"
+      ],
+      "anomalyRows": [
+        [
+          "QQQ (QQQ)",
+          "+2.4%",
+          "+1.8% (08-25)",
+          "562.10",
+          "564.20 (+0.4%)",
+          "561.4–574.8",
+          "573.90",
+          "single_day"
+        ],
+        [
+          "TSMC (TSM)",
+          "+3.1%",
+          "+2.2% (08-24)",
+          "198.40",
+          "197.90 (-0.3%)",
+          "196.5–204.1",
+          "203.85",
+          "single_day"
+        ]
+      ],
+      "anomalyBullets": [
+        "QQQ: +2.4% en la ventana; la subida de +1.8% en un día no tuvo un catalizador específico del fondo identificable en la investigación del período; la atribución sigue abierta [Speculative].",
+        "TSMC: +3.1% en la ventana; coincidió con noticias activas de semiconductores de IA, pero la investigación no confirmó un impulsor específico de TSMC [Probable]."
+      ],
+      "technicalColumns": [
+        "Posición",
+        "Frente al promedio de 50 días",
+        "Frente al promedio de 200 días",
+        "Posición en rango de 52 semanas",
+        "Volatilidad de 20 días (anual.)"
+      ],
+      "technicalRows": [
+        [
+          "TSMC (TSM)",
+          "-2.5%",
+          "+16.0%",
+          "75%",
+          "+45.3%"
+        ],
+        [
+          "Microsoft (MSFT)",
+          "+20.9%",
+          "+12.9%",
+          "73%",
+          "+61.1%"
+        ],
+        [
+          "Alphabet (GOOGL)",
+          "+1.4%",
+          "+10.7%",
+          "81%",
+          "+50.9%"
+        ],
+        [
+          "QQQ (QQQ)",
+          "+0.5%",
+          "+11.2%",
+          "86%",
+          "+26.5%"
+        ],
+        [
+          "VOO (VOO)",
+          "+3.3%",
+          "+10.2%",
+          "99%",
+          "+14.4%"
+        ]
+      ],
+      "technicalNote": "Posición en rango: 0% = mínimo de 52 semanas, 100% = máximo. Describe dónde está el precio; no es una señal."
+    },
+    "audience": {
+      "heading": "Para quienes invierten a lo largo del ciclo",
+      "paragraphs": [
+        "Portfonia es una herramienta para quienes permanecen durante el ciclo. Leer a fondo tendencias, ciclos y fundamentos lleva tiempo y requiere información estrechamente relacionada con sus posiciones, entregada de forma continua y confiable.",
+        "Nuestro trabajo es reunir noticias, eventos macro y novedades empresariales dispersos, y relacionarlos sistemáticamente con cada una de sus posiciones. Así obtiene profundidad y amplitud adecuadas a las empresas que sigue, para ver dónde se encuentra un activo, qué cambia a su alrededor y qué señales merecen atención. El criterio sigue siendo suyo. Procuramos que se base en información sólida.",
+        "Los ciclos del mercado suben y bajan. Portfonia mantiene el flujo de información durante todos ellos."
+      ]
+    },
+    "boundary": {
+      "heading": "Fuera de alcance, por decisión",
+      "body": "Portfonia es una herramienta de software, no un servicio de asesoría. El límite se aplica mediante código en plantillas e instrucciones, sin dejarlo al criterio del modelo.",
+      "items": [
+        "Nunca se utiliza lenguaje de comprar, vender, mantener, reducir, aumentar o precios objetivo.",
+        "Sin ejecución de operaciones ni integraciones con corredores más allá de la carga de datos.",
+        "Sin cálculos fiscales, de ganancias de capital o de resultados del historial de operaciones.",
+        "Sin opciones, futuros ni derivados.",
+        "Sin alertas de umbrales de precio; las aplicaciones de los corredores ya las ofrecen.",
+        "Sin funciones sociales ni para compartir; las posiciones son datos sensibles."
+      ]
+    },
+    "faq": {
+      "heading": "Preguntas frecuentes",
+      "tag": "Antes de preguntar",
+      "items": [
+        {
+          "q": "¿Es asesoría de inversión?",
+          "a": "No. Portfonia es una herramienta de software que recopila acontecimientos de mercados públicos y los relaciona con las posiciones que usted ingresa. Consulte «Fuera de alcance, por decisión»."
+        },
+        {
+          "q": "¿Están seguros los datos de mis posiciones?",
+          "a": "Sí. Sus posiciones se cifran de forma robusta en reposo, a nivel de campo en nuestra base de datos. Las llamadas de IA rechazan por defecto la recopilación de datos para entrenamiento y cada llamada ve solo lo necesario para el informe, nunca toda la cartera indiscriminadamente."
+        },
+        {
+          "q": "¿Qué mercados y posiciones admite?",
+          "a": "Actualmente, acciones de EE. UU., Hong Kong, acciones A, fondos públicos chinos, efectivo y divisas. Se prevé ampliar la cobertura."
+        },
+        {
+          "q": "¿Cuánto cuesta?",
+          "a": "Los planes comienzan en 0.99 créditos al mes por un resumen semanal, 1.99 por resúmenes lunes / miércoles / viernes, 2.49 por el plan diario Advanced con acceso a datos para agentes de IA, y 9.99 por Jade, que suma herramientas de riesgo de cartera a todo lo incluido en Advanced. Los créditos se venden en paquetes de US$10 y US$20; consulte Precios."
+        }
+      ]
+    },
+    "status": "Servicio público limitado. Portfonia relaciona información pública del mercado con las posiciones que ingresa. Contenido generado por IA, solo informativo; no constituye asesoría de inversión.",
+    "footer": {
+      "stack1": "Next.js · FastAPI · Celery · PostgreSQL",
+      "stack2": "Proveedores de modelos intercambiables mediante OpenRouter"
+    },
+    "productPreviews": {
+      "riskHeading": "Riesgo de cartera",
+      "riskBody": "Cifras de ejemplo, no sus posiciones. Volatilidad histórica de la misma cartera ilustrativa, Beta frente al S&P 500 y relación con un cuestionario personal.",
+      "riskCtaHeading": "Llegar lejos requiere equilibrar oportunidad y riesgo",
+      "riskCtaBody": "La oportunidad determina la velocidad; el riesgo determina la estabilidad. Ambos se refuerzan y se limitan, y ambos son necesarios. Aquí puede ver cuánto fluctúa su cartera, cómo acompaña al mercado y cuánto se aleja de su tolerancia declarada.",
+      "portfolioHeading": "Resumen de cartera",
+      "portfolioBody": "Cifras de ejemplo, no sus posiciones. Una cartera ilustrativa agrupada por mercado, clase de activo y grupo.",
+      "performanceHeading": "Rendimiento de cartera",
+      "performanceBody": "Una ilustración estática del año en curso. La línea de cartera aparece junto al S&P 500 y CSI 300, seguida del historial de distribución y del rendimiento mensual frente a un índice.",
+      "metricLabel": "Rendimiento de cartera",
+      "metricValue": "+16.58%",
+      "yearToDate": "Año en curso",
+      "chartMarket": "Mercado",
+      "chartAssetClass": "Clase de activo",
+      "chartGroup": "Grupo de cartera",
+      "ctaHeading": "Su cartera merece una visión más completa",
+      "ctaBody": "De la estructura de cartera al rendimiento anual, observe los cambios en un solo lugar.",
+      "markets": {
+        "us": "EE. UU.",
+        "hk": "Hong Kong",
+        "cn": "China",
+        "other": "Otro"
+      },
+      "assetClasses": {
+        "stock": "Acciones",
+        "usBroadEtf": "ETF amplio de EE. UU.",
+        "usTechEtf": "ETF tecnológico de EE. UU.",
+        "bondFund": "Fondo de bonos",
+        "other": "Otro"
+      },
+      "groups": {
+        "longTerm": "Posiciones a largo plazo",
+        "retirement": "Cuenta de jubilación",
+        "opportunity": "Cartera de oportunidades"
+      }
+    }
+  },
+  "welcome": {
+    "greeting": "Le damos la bienvenida, {email}.",
+    "withHoldings": "Sus posiciones están guardadas.",
+    "withoutHoldings": "Las secciones relativas a posiciones permanecen vacías hasta que las guarde.",
+    "deliveryVerified": "Los informes se enviarán a {deliveryEmail}.",
+    "deliveryUnverified": "Los informes no se enviarán hasta verificar {deliveryEmail}.",
+    "errorLoadFailed": "No se pudo cargar su cuenta.",
+    "subscriptionPlans": "Portfonia envía resúmenes programados a suscriptores. Hay cuatro planes: semanal (0.99 créditos al mes), Lun/Mié/Vie (1.99), diario Advanced (2.49, días laborables y acceso a datos para agentes de IA) y Jade (9.99, herramientas de riesgo de cartera, todo lo incluido en Advanced y un calendario de resúmenes que usted elige). Suscríbase a Jade en la página Jade.",
+    "subscriptionRequirements": "Hasta suscribirse, no se envían resúmenes programados y algunas funciones pueden no estar disponibles. Necesita un correo verificado para suscribirse.",
+    "choosePlan": "Elegir un plan"
+  },
+  "emailVerification": {
+    "heading": "Verifique su correo",
+    "subtitle": "Confirme que {email} debe recibir correos de Portfonia.",
+    "confirmButton": "Confirmar",
+    "confirming": "Confirmando...",
+    "successMessage": "{email} ya está verificado.",
+    "invalidOrExpired": "Este enlace de verificación no es válido o ha vencido.",
+    "genericError": "Ocurrió un problema. Inténtelo de nuevo."
+  },
+  "unsubscribe": {
+    "heading": "Cancelar entrega por correo",
+    "subtitle": "¿Cancelar la entrega a {email}? Esta dirección dejará de recibir informes hasta que se verifique de nuevo. Si no queda ninguna dirección verificada, la suscripción continúa hasta el final del período pagado, no se devuelve nada y luego se cancela. Verificar de nuevo una dirección no la reanuda; debe reanudarla en su Perfil.",
+    "confirmButton": "Confirmar cancelación",
+    "confirming": "Cancelando...",
+    "successBody": "Se canceló la entrega a {email}. Las otras direcciones verificadas de esta cuenta no se ven afectadas.",
+    "setAddressLink": "Haga clic aquí para establecer otra dirección receptora.",
+    "invalidOrExpired": "Este enlace de cancelación no es válido o ha vencido.",
+    "genericError": "Ocurrió un problema. Inténtelo de nuevo."
+  },
+  "legal": {
+    "englishPrevailsNotice": "Esta traducción se ofrece solo como referencia. En caso de discrepancia, prevalece la versión en inglés.",
+    "englishVersionLink": "Ver la versión en inglés",
+    "nav": {
+      "terms": "Términos de servicio",
+      "privacy": "Política de privacidad",
+      "pricing": "Precios",
+      "refund": "Política de reembolsos",
+      "buyCredits": "Comprar créditos"
+    },
+    "resellerNotice": "Nuestro proceso de pedidos se realiza mediante nuestro revendedor en línea Paddle.com. Paddle.com es el comerciante registrado para todos nuestros pedidos. Paddle atiende todas las consultas de servicio al cliente y gestiona las devoluciones.",
+    "terms": {
+      "title": "Términos de servicio",
+      "lastUpdated": "Última actualización: 2026-10-08",
+      "intro": "Estos Términos de servicio rigen su uso de Portfonia. Léalos junto con nuestra Política de privacidad y Política de reembolsos.",
+      "sections": [
+        {
+          "heading": "1. Aceptación de los términos",
+          "body": [
+            "«Portfonia» y «nosotros» se refieren al operador del servicio Portfonia. Al crear una cuenta o usar Portfonia («el Servicio»), acepta estos Términos de servicio. Si no los acepta, no utilice el Servicio."
+          ]
+        },
+        {
+          "heading": "2. Qué es Portfonia y qué no es",
+          "body": [
+            "Portfonia es una herramienta de software. Presenta acontecimientos de los mercados, su relación con las posiciones que usted ingresa y señales que pueden merecer su propia atención adicional.",
+            "Portfonia no es un asesor de inversiones, corredor de valores ni planificador financiero, y nada en el Servicio constituye asesoría de inversión, legal o fiscal. El Servicio no indica qué comprar, vender o mantener, ni genera recomendaciones de operaciones, precios objetivo o calificaciones de ningún tipo. Las decisiones sobre su dinero le corresponden exclusivamente; consulte a un profesional autorizado antes de actuar basándose en lo que lea aquí."
+          ]
+        },
+        {
+          "heading": "3. Elegibilidad y cuentas",
+          "body": [
+            "Debe tener capacidad para celebrar un contrato vinculante para usar el Servicio. Usted es responsable de mantener confidenciales sus credenciales y de toda actividad en su cuenta.",
+            "El Servicio se ofrece como servicio público limitado: el registro puede limitarse a personas de la lista de espera o con invitación, y las funciones pueden cambiar durante su desarrollo."
+          ]
+        },
+        {
+          "heading": "4. Pagos y créditos",
+          "body": [
+            "Los planes de pago se facturan en créditos de servicio prepagados. Los créditos se venden en paquetes en dólares estadounidenses (1 crédito = US$1 al comprar); los planes y paquetes actuales figuran en Precios.",
+            "La tarifa de su plan se descuenta de su saldo al inicio de cada período mensual, primero de los créditos de cortesía. Si cambia de plan, la parte no utilizada de la tarifa del mes actual se devuelve proporcionalmente a su saldo y el nuevo plan comienza ese día. Si cancela, el plan permanece activo hasta el final del período ya pagado y no se devuelve nada.",
+            "Puede ajustar su suscripción (suscribirse, cambiar de plan, cancelar o reanudar) una vez al día, hora del Este.",
+            "Cambiar el calendario de resúmenes de Jade en su página no es un ajuste de suscripción y no tiene límite. La suscripción, cancelación y reanudación de Jade se realizan en su página; para pasar a otro plan, cancele Jade y suscríbase al nuevo después de finalizar el período de Jade.",
+            "Si cancela la entrega de informes a una dirección y no queda ninguna dirección verificada, su suscripción se considera cancelada: sigue activa hasta el final del período pagado, no se devuelve nada y no se reanuda al verificar otra vez una dirección.",
+            "Los recordatorios de saldo y avisos de vencimiento se envían solo a una dirección verificada.",
+            "Los créditos no vencen. Solo pueden utilizarse para suscripciones de Portfonia, no son transferibles y no tienen valor en efectivo salvo lo dispuesto en la Política de reembolsos.",
+            "Referidos. Si una persona referida por usted se une a Portfonia y después se suscribe o compra créditos, puede recibir créditos como recompensa. Portfonia determina y puede cambiar su importe en cualquier momento. Una recompensa ligada a una compra se revierte si esa compra se reembolsa, incluso si su saldo queda negativo. Portfonia puede retener o revertir recompensas obtenidas mediante uso indebido del programa.",
+            "{resellerNotice} Su compra también está sujeta a los Términos del comprador de {merchantOfRecord}."
+          ]
+        },
+        {
+          "heading": "5. Los datos de sus posiciones",
+          "body": [
+            "Usted es responsable de la exactitud de los datos de posiciones, cuentas y preferencias de inversión que suba o ingrese. Portfonia procesa lo que usted proporciona; no verifica sus posiciones de forma independiente con custodios o corredores.",
+            "Usted conserva la propiedad de los datos de sus posiciones. Concede a Portfonia una licencia limitada para procesarlos exclusivamente para generar informes de su cuenta, según la Política de privacidad."
+          ]
+        },
+        {
+          "heading": "6. Uso aceptable",
+          "body": [
+            "Acepta no hacer uso indebido del Servicio, incluyendo intentar acceder a datos de otro usuario, interferir con su funcionamiento o construir un producto competidor a partir de sus resultados.",
+            "Los tokens de API permiten que el software que elija lea sus datos. Manténgalos secretos; usted es responsable de los agentes a los que entregue un token. Portfonia aplica los límites descritos en Agente de IA y puede revocar tokens para proteger su cuenta o el servicio."
+          ]
+        },
+        {
+          "heading": "7. Propiedad intelectual",
+          "body": [
+            "Portfonia y su contenido original, funciones y funcionalidad son propiedad de Portfonia. Puede usar personalmente los informes generados para su cuenta; no tienen licencia para redistribuirlos como fuente de datos o producto de terceros."
+          ]
+        },
+        {
+          "heading": "8. Exenciones de garantía",
+          "body": [
+            "El Servicio se ofrece «tal cual» y «según disponibilidad», sin garantías expresas ni implícitas, incluidas exactitud, oportunidad o idoneidad para un fin concreto. Los datos de mercado, noticias e informes generados pueden llegar tarde, estar incompletos o ser incorrectos. Ningún contenido generado debe ser su única base para una decisión financiera."
+          ]
+        },
+        {
+          "heading": "9. Limitación de responsabilidad",
+          "body": [
+            "En la máxima medida permitida por la ley, Portfonia no responde por daños indirectos, incidentales o consecuentes, ni por pérdidas financieras derivadas del uso del Servicio o de confiar en él. Estos Términos no limitan responsabilidades que la legislación aplicable no permita limitar."
+          ]
+        },
+        {
+          "heading": "10. Terminación",
+          "body": [
+            "Puede dejar de usar el Servicio y solicitar la eliminación de su cuenta y datos en cualquier momento. Portfonia puede suspender o terminar cuentas que incumplan estos Términos. Los reembolsos al terminar se rigen por la Política de reembolsos."
+          ]
+        },
+        {
+          "heading": "11. Cambios en estos términos",
+          "body": [
+            "Portfonia puede actualizar estos Términos conforme evolucione el Servicio. Los cambios sustanciales aparecerán en esta página con una fecha actualizada; continuar usándolo después de un cambio implica aceptarlo."
+          ]
+        },
+        {
+          "heading": "12. Ley aplicable y controversias",
+          "body": [
+            "Estos Términos se rigen por las leyes del lugar donde esté establecido el operador de Portfonia, sin aplicar principios de conflicto de leyes. Esto no le priva de las protecciones obligatorias al consumidor del país donde vive.",
+            "Si surge una controversia, contacte primero a info@portfonia.com para intentar resolverla informalmente y de buena fe."
+          ]
+        },
+        {
+          "heading": "13. Contacto",
+          "body": [
+            "Puede enviar preguntas sobre estos Términos a info@portfonia.com."
+          ]
+        }
+      ]
+    },
+    "privacy": {
+      "title": "Política de privacidad",
+      "lastUpdated": "Última actualización: 2026-10-08",
+      "intro": "Su privacidad nos importa. Esta política explica qué recopilamos, por qué y cómo lo protegemos.",
+      "sections": [
+        {
+          "heading": "1. Resumen",
+          "body": [
+            "Esta Política de privacidad explica qué información recopila Portfonia, cómo la usa y qué opciones tiene usted. Cubre la aplicación web y los informes que le envía por correo."
+          ]
+        },
+        {
+          "heading": "2. Información que recopilamos",
+          "body": [
+            "Datos de cuenta: su correo electrónico y credenciales de autenticación, gestionados por nuestro proveedor de autenticación.",
+            "Datos de posiciones e inversión: posiciones, corredores o custodios y cantidades que suba, además de sus respuestas al cuestionario de estilo de inversión.",
+            "Datos de uso: información básica de sesión y actividad necesaria para operar el Servicio de forma segura, como horas de inicio de sesión y aplicación de límites de inactividad.",
+            "Datos de pago y créditos: {merchantOfRecord} procesa las compras como comerciante registrado. {merchantOfRecord} recopila sus datos de pago y facturación bajo su propio aviso de privacidad; recibimos registros como identificador de pedido, importe, moneda, país y correo usado al pagar, pero nunca el número completo de su tarjeta. También registramos su saldo y cada crédito agregado o utilizado."
+          ]
+        },
+        {
+          "heading": "3. Cómo usamos su información",
+          "body": [
+            "Usamos sus datos exclusivamente para generar y entregar informes de su cartera y para operar, proteger y mejorar el Servicio. No vendemos sus datos ni usamos sus posiciones para desarrollar o mejorar productos de terceros.",
+            "Usamos los registros de pagos y créditos para proporcionar su plan, procesar reembolsos y cumplir obligaciones contables y fiscales."
+          ]
+        },
+        {
+          "heading": "4. Almacenamiento y seguridad",
+          "body": [
+            "Los datos de posiciones están cifrados en reposo. El acceso a los sistemas de producción está restringido y las acciones administrativas se registran.",
+            "Ningún sistema es perfectamente seguro y no podemos garantizar seguridad absoluta, pero proteger sus datos es un requisito prioritario de ingeniería."
+          ]
+        },
+        {
+          "heading": "5. Procesamiento por terceros",
+          "body": [
+            "Generar un informe implica enviar partes de sus datos a proveedores de grandes modelos de lenguaje para redactarlo. Por defecto, cada llamada se configura para excluir el uso de sus datos en el entrenamiento del proveedor.",
+            "Una excepción limitada, aprobada por el propietario, se aplica a dos pasos concretos no analíticos: generar consultas de búsqueda de mercados públicos y traducir un informe terminado al idioma de visualización. Se dirigen a la API propia de un único proveedor identificado, sin la exclusión de entrenamiento anterior, porque es la única vía para ese modelo de bajo costo. Sus condiciones estándar permiten usar datos enviados para mejorar modelos; se acepta ese riesgo solo para esos dos pasos y no existe un acuerdo de no entrenamiento que lo respalde. La ruta está fijada sin alternativa automática a otro proveedor si no está disponible. La traducción sí procesa texto derivado de sus posiciones porque traduce el informe terminado; la generación de consultas no, pues usa solo temáticas públicas de mercado y macroeconomía.",
+            "{merchantOfRecord} procesa los pagos como comerciante registrado y gestiona su información de pago bajo su propio aviso de privacidad."
+          ]
+        },
+        {
+          "heading": "6. Conservación de datos",
+          "body": [
+            "Conservamos sus datos de cuenta y posiciones mientras su cuenta esté activa. Algunos registros operativos, como metadatos de carga, se eliminan automáticamente tras un breve período. Puede solicitar la eliminación de su cuenta en cualquier momento (consulte «Sus derechos»).",
+            "Al eliminar su cuenta se borran posiciones, preferencias de inversión, informes, API tokens, inscripción en lista de espera y otros datos personales. Los registros de créditos y transacciones se conservan por motivos contables y fiscales, desvinculados de su correo salvo una huella irreversible usada solo para evitar conceder dos veces el crédito de registro."
+          ]
+        },
+        {
+          "heading": "7. Acceso de agentes de IA",
+          "body": [
+            "Si crea un token de API, almacenamos su hash irreversible, nombre y fechas de creación, vencimiento y último uso. Cada solicitud registra hora, token, endpoint y fechas solicitadas, resultado, IP y User-Agent del solicitante. Conservamos estos registros 90 días para proteger su cuenta y detectar uso indebido. Cuando se leen instantáneas de posiciones por API, le enviamos un aviso por correo como máximo una vez al día, con un enlace que revoca todos sus tokens. Los datos de la API se entregan al agente que usted elige; usted controla cómo los almacena o usa ese agente."
+          ]
+        },
+        {
+          "heading": "8. Sus derechos",
+          "body": [
+            "Puede revisar y actualizar sus posiciones y perfil directamente en el Servicio. Puede eliminar su cuenta en Perfil o solicitarlo contactándonos; se eliminan posiciones, preferencias de inversión y cuenta de autenticación según lo descrito en Conservación de datos."
+          ]
+        },
+        {
+          "heading": "9. Cookies y sesiones",
+          "body": [
+            "Usamos cookies de sesión para mantener su sesión y cerrarla automáticamente tras un período de inactividad. No usamos cookies publicitarias o de seguimiento de terceros."
+          ]
+        },
+        {
+          "heading": "10. Privacidad de menores",
+          "body": [
+            "El Servicio no está dirigido a menores de 18 años ni conocemos usos por ellos. No recopilamos deliberadamente datos de menores."
+          ]
+        },
+        {
+          "heading": "11. Ley aplicable",
+          "body": [
+            "Tratamos los datos personales conforme a la legislación de protección de datos aplicable, incluida la de su país de residencia cuando corresponda."
+          ]
+        },
+        {
+          "heading": "12. Cambios en esta política",
+          "body": [
+            "Podemos actualizar esta Política de privacidad conforme evolucione el Servicio. Los cambios sustanciales aparecerán aquí con una fecha actualizada."
+          ]
+        },
+        {
+          "heading": "13. Contacto",
+          "body": [
+            "Puede enviar preguntas sobre esta política o solicitudes sobre sus datos a info@portfonia.com."
+          ]
+        }
+      ]
+    },
+    "pricing": {
+      "title": "Precios",
+      "lastUpdated": "Última actualización: 2026-10-11",
+      "intro": "Portfonia es una herramienta de software. Usted elige un plan de resúmenes y lo paga con créditos de servicio prepagados.",
+      "sections": [
+        {
+          "heading": "1. Planes",
+          "body": [
+            "Resumen semanal: 0.99 créditos al mes. Un correo personalizado por semana, vinculado a las posiciones que ingresó.",
+            "Resumen Lun / Mié / Vie: 1.99 créditos al mes. Tres correos personalizados por semana (lunes, miércoles y viernes).",
+            "Resumen diario (Advanced): 2.49 créditos al mes. Un correo personalizado cada día de lunes a viernes, incluidos festivos bursátiles.",
+            "Jade: 9.99 créditos al mes. Incluye todo el plan Advanced. Elija resúmenes semanales, Lun / Mié / Vie o diarios y cambie el calendario cuando quiera en Jade. Incluye cinco herramientas de riesgo: simulación histórica de posiciones, riesgo de cola (VaR / CVaR), escenarios de estrés histórico, exposición por estilo y seguimiento frente a su referencia.",
+            "Semanal y Lun / Mié / Vie solo difieren en frecuencia. Diario es el plan Advanced. Diario y Jade permiten que su agente de IA lea instantáneas diarias e información relacionada con posiciones. El historial de informes está disponible para agentes en todos los planes."
+          ]
+        },
+        {
+          "heading": "2. Incluido en todos los planes",
+          "body": [
+            "Carga de posiciones desde CSV, Excel o Markdown, con edición por fila.",
+            "Resumen de cartera: distribución, rendimiento frente a índices y vistas de volatilidad y riesgo históricos.",
+            "Resúmenes de anomalías de precios, situación técnica, noticias macro y empresariales relacionadas con sus posiciones y calendario próximo de eventos macro y resultados, con una etiqueta de confianza en cada afirmación causal.",
+            "Resúmenes en inglés o chino."
+          ]
+        },
+        {
+          "heading": "3. Créditos",
+          "body": [
+            "Los créditos se venden en paquetes: US$10 por 10 créditos o US$20 por 20. Los precios están en dólares estadounidenses; los impuestos sobre ventas o IVA se calculan al pagar.",
+            "Son créditos de servicio prepagados, utilizables solo para suscripciones de Portfonia. No son transferibles y no tienen valor en efectivo salvo lo previsto en la Política de reembolsos."
+          ]
+        },
+        {
+          "heading": "4. Cómo funciona la facturación",
+          "body": [
+            "La tarifa de su plan se descuenta de su saldo al inicio de cada período mensual. Se usan primero créditos de cortesía y después los comprados.",
+            "Si su saldo no cubre la tarifa del próximo mes, enviamos un recordatorio anticipado. Si sigue siendo insuficiente al renovar, el plan se detiene y sus funciones dejan de estar disponibles; actualmente se detienen los resúmenes programados.",
+            "Si cambia de plan, la parte no utilizada de la tarifa del mes actual se devuelve proporcionalmente a su saldo y el nuevo plan comienza ese día. Si cancela, el plan permanece activo hasta el final del período pagado y no se devuelve nada.",
+            "Los créditos no vencen."
+          ]
+        },
+        {
+          "heading": "5. Reembolsos",
+          "body": [
+            "Los créditos comprados sin usar pueden reembolsarse dentro de los 120 días posteriores a la compra. Consulte la Política de reembolsos."
+          ]
+        },
+        {
+          "heading": "6. Procesamiento de pagos",
+          "body": [
+            "{resellerNotice}"
+          ]
+        },
+        {
+          "heading": "7. No constituye asesoría de inversión",
+          "body": [
+            "Portfonia es una herramienta de software. No ofrece asesoría de inversión, legal o fiscal, ni indica qué comprar, vender o mantener."
+          ]
+        }
+      ]
+    },
+    "refund": {
+      "title": "Política de reembolsos",
+      "lastUpdated": "Última actualización: 2026-09-30",
+      "intro": "Esta política explica cuándo pueden reembolsarse los créditos comprados para Portfonia.",
+      "sections": [
+        {
+          "heading": "1. Créditos reembolsables",
+          "body": [
+            "Los créditos comprados mediante el proceso de pago que no se hayan utilizado pueden reembolsarse dentro de los 120 días posteriores a la compra. El reembolso se limita al importe pagado por esa compra y se devuelve al método de pago original."
+          ]
+        },
+        {
+          "heading": "2. Créditos no reembolsables",
+          "body": [
+            "Los créditos de cortesía, promocionales y por referidos no son reembolsables.",
+            "Los créditos ya aplicados a un período de facturación no se reembolsan a su método de pago. Al cambiar de plan, la parte no utilizada de la tarifa del mes actual se devuelve proporcionalmente a su saldo. Al cancelar, no se devuelve nada por los días restantes.",
+            "Después de 120 días de la compra, sus créditos ya no pueden reembolsarse. No vencen y siguen utilizables para su suscripción."
+          ]
+        },
+        {
+          "heading": "3. Derechos legales",
+          "body": [
+            "Esta política no limita ningún derecho de desistimiento o reembolso conforme a los Términos del comprador de {merchantOfRecord} o a la legislación de protección al consumidor de su país."
+          ]
+        },
+        {
+          "heading": "4. Cómo solicitar un reembolso",
+          "body": [
+            "Escriba a info@portfonia.com desde el correo de su cuenta o contacte a {merchantOfRecord} mediante el enlace de su recibo. {merchantOfRecord} procesa los reembolsos aprobados; en tarjetas suelen aparecer en 3–5 días hábiles."
+          ]
+        },
+        {
+          "heading": "5. Procesamiento de pagos",
+          "body": [
+            "{resellerNotice}"
+          ]
+        },
+        {
+          "heading": "6. Naturaleza de los créditos",
+          "body": [
+            "Los créditos son créditos de servicio prepagados, utilizables solo para suscripciones de Portfonia. No son transferibles y no tienen valor en efectivo salvo lo dispuesto en esta política."
+          ]
+        }
+      ]
+    }
+  },
+  "reports": {
+    "title": "Informes",
+    "category": "Categoría",
+    "sort": "Orden",
+    "newest": "Más recientes primero",
+    "oldest": "Más antiguos primero",
+    "dateFrom": "Desde (ET)",
+    "dateTo": "Hasta (ET)",
+    "previous": "Anterior",
+    "next": "Siguiente",
+    "page": "Página {page} de {pages}",
+    "empty": "Aún no hay informes",
+    "emptyFiltered": "Sin informes en este período",
+    "underReview": "En revisión",
+    "generating": "Generando",
+    "downloadMd": "Descargar Markdown",
+    "print": "Imprimir / Guardar como PDF",
+    "loadError": "No se pudieron cargar sus informes. Actualice la página.",
+    "types": {
+      "everyOtherDay": "Lun/Mié/Vie",
+      "weekly": "Semanal",
+      "manual": "Manual",
+      "report": "Informe",
+      "daily": "Diario"
+    },
+    "downloadDescription": "Resumen de posiciones del {date}"
+  },
+  "agent": {
+    "title": "Agente de IA",
+    "intro": "Su agente de IA puede leer informes de Portfonia, instantáneas diarias completas e información mediante un token personal de API. El acceso es de solo lectura.",
+    "limitsTitle": "Límites de acceso y avisos",
+    "limits": "Los límites se comparten entre todos sus tokens: 20 solicitudes por endpoint por hora. Más de 10 en un minuto bloquean el acceso 15 minutos. Una solicitud rechazada devuelve Retry-After para indicar cuándo reintentar.",
+    "quiet": "Las solicitudes se pausan desde cinco minutos antes de la hora programada de una tarea pesada hasta cinco minutos después de terminar, incluidas la recopilación de información y los resúmenes programados.",
+    "notice": "Cuando se leen sus instantáneas por API, enviamos un aviso como máximo una vez al día, hora del Este. Si no solicitó el acceso, su enlace revoca inmediatamente todos sus tokens sin inicio de sesión ni confirmación.",
+    "signIn": "Inicie sesión",
+    "signInNote": "para gestionar sus tokens de API.",
+    "settingsTitle": "Configuración de tokens",
+    "tokenRule": "Puede tener hasta 5 tokens activos. Los no utilizados durante 60 días vencen automáticamente.",
+    "name": "Nombre del token",
+    "expiry": "Fecha de vencimiento (opcional)",
+    "expiryNote": "Deje vacío para no fijar vencimiento. La fecha debe ser posterior a hoy, hora del Este; el acceso vence a las 23:59:59 ET del día elegido.",
+    "create": "Crear token",
+    "tokenLimit": "Ya tiene 5 tokens activos. Revoque uno antes de crear otro.",
+    "error": "No se pudo completar la solicitud. Inténtelo de nuevo.",
+    "copyError": "No se pudo copiar. Seleccione y copie el token manualmente.",
+    "showOnce": "Copie este token ahora y manténgalo secreto. No se mostrará de nuevo.",
+    "copy": "Copiar token",
+    "copied": "Copiado",
+    "hide": "Ocultar token",
+    "loading": "Cargando tokens…",
+    "empty": "No tiene tokens.",
+    "revoke": "Revocar",
+    "created": "Creado",
+    "lastUsed": "Último uso",
+    "expires": "Vence",
+    "never": "Nunca",
+    "noExpiry": "Sin fecha de vencimiento",
+    "revokeTitle": "¿Revocar token?",
+    "revokeBody": "El token «{name}» dejará de funcionar inmediatamente.",
+    "cancel": "Cancelar",
+    "confirmRevoke": "Confirmar revocación",
+    "statuses": {
+      "active": "Activo",
+      "expired": "Vencido",
+      "expired_unused": "Vencido tras 60 días sin uso"
+    },
+    "revokePage": {
+      "pending": "Revocando acceso por tokens de API…",
+      "success": "Se ha revocado todo el acceso por tokens de API de su cuenta.",
+      "failure": "Este enlace no es válido o ha vencido. Inicie sesión y gestione sus tokens en Agente de IA."
+    },
+    "docs": {
+      "gettingStartedTitle": "Primeros pasos",
+      "gettingStarted": "Cree un token a continuación y entregue a su agente el token y https://portfonia.com/llms.txt. Inicie sesión para gestionarlos.",
+      "endpointsTitle": "Endpoints",
+      "reports": "Informes: todos los planes. Indique fechas inicial y final inclusivas, hora del Este. Devuelve hasta los 5 informes disponibles más recientes del rango, con Markdown, total_in_range y truncated.",
+      "snapshots": "Instantáneas de posiciones: plan Advanced o Jade. Indique fechas inicial y final inclusivas, hora del Este, para un máximo de 30 días.",
+      "intel": "Información: plan Advanced o Jade. Indique una fecha, hora del Este, de los últimos 7 días, incluido hoy. Devuelve titulares y cuerpos aceptados relacionados con sus posiciones, además de artículos macro para las temáticas de su último informe disponible en esa fecha o antes. Sin enlaces a fuentes."
+    }
+  },
+  "downloadConfirm": {
+    "title": "¿Descargar este archivo?",
+    "fileName": "Archivo",
+    "fileSize": "Tamaño",
+    "confirm": "Descargar",
+    "cancel": "Cancelar",
+    "languages": {
+      "en": "Inglés",
+      "zh": "Chino simplificado",
+      "zh-Hant": "Chino tradicional"
+    }
+  },
+  "seo": {
+    "pages": {
+      "home": {
+        "title": "Portfonia — Resúmenes diarios de sus posiciones en varios corredores",
+        "description": "Consolide posiciones de distintos corredores y mercados de EE. UU., Hong Kong, acciones A de China y otros, y reciba un resumen diario de noticias y novedades macro relacionadas con cada posición."
+      },
+      "about": {
+        "title": "Acerca de Portfonia",
+        "description": "Portfonia sigue noticias, macroeconomía y novedades empresariales y las relaciona con sus posiciones de distintos corredores y mercados. Solo información, no asesoría de inversión."
+      },
+      "pricing": {
+        "title": "Precios — Portfonia",
+        "description": "Resúmenes semanales, Lun/Mié/Vie o diarios de lunes a viernes y herramientas de riesgo Jade, con créditos prepagados desde US$10. Créditos comprados sin usar reembolsables en 120 días."
+      },
+      "waitlist": {
+        "title": "Lista de espera — Portfonia",
+        "description": "Solicite una invitación a Portfonia, un servicio de resúmenes que relaciona noticias de mercado y novedades macro con sus posiciones en varios corredores."
+      },
+      "privacy": {
+        "title": "Política de privacidad — Portfonia",
+        "description": "Cómo Portfonia recopila, cifra, usa y elimina sus datos de cuenta y posiciones."
+      },
+      "terms": {
+        "title": "Términos de servicio — Portfonia",
+        "description": "Condiciones de uso de Portfonia, un servicio de información para sus posiciones. No ofrece asesoría de inversión."
+      },
+      "refund": {
+        "title": "Política de reembolsos — Portfonia",
+        "description": "Cómo funcionan los reembolsos de créditos de servicio prepagados de Portfonia."
+      }
+    },
+    "ogImageAlt": "Portfonia: carga de posiciones y seguimiento de mercado y macro, resumidos en las secciones de un informe de ejemplo",
+    "og": {
+      "headline": "Lo que merece atención en sus posiciones.",
+      "sampleTitle": "Resumen de ejemplo",
+      "markets": [
+        "EE. UU.",
+        "HK",
+        "Acciones A"
+      ]
+    }
+  },
+  "about": {
+    "title": "Acerca de Portfonia",
+    "intro": "Noticias, eventos macro y novedades empresariales relacionados con las posiciones que ingresa.",
+    "sections": [
+      {
+        "heading": "Qué es Portfonia",
+        "body": [
+          "Portfonia es una herramienta de software que sigue noticias, eventos macro y novedades empresariales y los relaciona sistemáticamente con las posiciones que ingresa."
+        ]
+      },
+      {
+        "heading": "Para quién es",
+        "body": [
+          "Para quienes tienen posiciones en varios corredores y mercados: EE. UU., Hong Kong, acciones A de China, Reino Unido, Europa, Japón y Corea."
+        ]
+      },
+      {
+        "heading": "Qué cubre un resumen",
+        "body": [
+          "Suba posiciones desde CSV, Excel o Markdown y edite filas individuales. Consulte distribución de cartera, rendimiento frente a índices, volatilidad y riesgo históricos.",
+          "Los resúmenes cubren anomalías de precios, situación técnica, noticias macro y empresariales relacionadas con sus posiciones y calendario de eventos macro y resultados. Cada afirmación causal tiene una etiqueta de confianza."
+        ]
+      },
+      {
+        "heading": "Qué no es",
+        "body": [
+          "Portfonia es un servicio de información. No ofrece asesoría de inversión ni instrucciones de operación, no ejecuta operaciones ni calcula impuestos."
+        ]
+      },
+      {
+        "heading": "Idiomas",
+        "body": [
+          "Los resúmenes y el sitio están disponibles en inglés, chino simplificado y chino tradicional."
+        ]
+      }
+    ],
+    "cta": {
+      "waitlist": "Inscribirse en la lista de espera",
+      "pricing": "Ver precios"
+    }
+  },
+  "notFound": {
+    "title": "Página no encontrada",
+    "body": "La página que busca no existe.",
+    "homeLink": "Volver al inicio"
+  },
+  "jade": {
+    "title": "Jade",
+    "intro": "Jade reúne herramientas de riesgo de cartera para inversores a largo plazo. Parte de sus posiciones actuales y cada resultado indica los datos utilizados y el cálculo. Incluye todo el plan Advanced; puede elegir cualquier calendario de resúmenes y cambiarlo cuando quiera. Las herramientas se añaden a esta página una a una.",
+    "price": "9.99 créditos al mes",
+    "subscribe": "Suscribirse a Jade",
+    "cadenceError": "No se pudo cambiar el calendario de resúmenes. Inténtelo de nuevo.",
+    "cadenceNote": "Cambiar el calendario no cambia la tarifa.",
+    "replay": {
+      "title": "Simulación histórica de posiciones",
+      "intro": "Simula sus posiciones actuales durante el período que elija, hasta cinco años, como si las hubiera mantenido sin cambios. Incluye dividendos reinvertidos. Es una simulación hipotética, no sus resultados pasados reales.",
+      "loadError": "No se pudo cargar la simulación. Inténtelo más tarde.",
+      "pending": "Se está preparando el historial de precios de sus posiciones. Se actualiza una vez al día tras el cierre de EE. UU.",
+      "noHoldings": "Agregue posiciones para ver una simulación.",
+      "insufficient": "Aún no hay historial suficiente para simular.",
+      "benchmarkLabel": "Índice de referencia",
+      "portfolioLabel": "Cartera",
+      "benchmarkUnavailable": "Los datos del índice aún no están disponibles.",
+      "dataAndMethod": "Datos y método",
+      "window": "Ventana: {start}–{end}. Muestras: {count}.",
+      "skippedDays": "Días omitidos: {count}.",
+      "coverage": {
+        "own": "{pct}% de historial propio",
+        "proxy": "{pct}% representado por ETF de índice",
+        "head_proxy": "{pct}% de historial propio con ETF antes de cotizar",
+        "cash": "{pct}% de efectivo",
+        "cash_assumed": "{pct}% tratado como efectivo"
+      },
+      "dataQuality": "Al menos 66% del valor de esta cartera es aproximado al inicio de la ventana. Téngalo en cuenta al leer los resultados.",
+      "pendingShare": "El historial de {pct}% del valor de sus posiciones sigue preparándose y no se incluye.",
+      "methods": {
+        "own": "Historial de precios propio",
+        "fund_nav": "Historial del valor liquidativo (NAV) del fondo, dividendos reinvertidos",
+        "proxy": "Representado por {proxy_name} ({proxy_symbol})",
+        "head_proxy": "Historial propio desde {own_first_date}; antes, {proxy_name} ({proxy_symbol}) × beta {beta}",
+        "cash": "Efectivo: constante en su moneda, varía solo por divisas",
+        "cash_assumed": "Tratado como efectivo"
+      },
+      "excluded": {
+        "pending": "No incluido: en preparación",
+        "unvalued": "No incluido: sin valoración actual",
+        "watch_only": "Solo seguimiento (cantidad 0); no incluido",
+        "data_unavailable": "No incluido: datos del índice no disponibles"
+      },
+      "ownHistoryUnavailable": "(sin historial de precios propio)",
+      "betaFallback": "(beta fijada en 1: menos de 60 días de historial propio)",
+      "volatility": "Volatilidad: propia {own_vol}, período completado {proxy_segment_vol}. La aproximación no reproduce las fluctuaciones propias de esta posición.",
+      "sources": "Precios: cierres diarios ajustados de Yahoo Finance. Valor liquidativo: Eastmoney. Divisas: mismas tasas diarias que Resumen de cartera. Días de muestra: días bursátiles NYSE; otros mercados conservan su cierre previo durante sus festivos.",
+      "method": "El valor actual de cada posición se retrocede según su historial de rendimiento total y se convierte a {currency} con el cambio de cada día. Las posiciones se suman sin rebalanceo. La volatilidad anualizada es la desviación estándar de los rendimientos diarios × √252.",
+      "limitations": "Sesgo retrospectivo: sus posiciones actuales suelen haber rendido bien antes; la simulación puede parecer mejor que una cartera elegida al comienzo del período. Las aproximaciones siguen un ETF de índice, no la posición misma. Describe el pasado y no es un pronóstico.",
+      "metrics": {
+        "cumulative_return": "Rendimiento acumulado",
+        "annualized_return": "Rendimiento anualizado",
+        "annualized_vol": "Volatilidad anualizada",
+        "max_drawdown": "Caída máxima",
+        "worst_day": "Peor día",
+        "worst_month": "Peor mes"
+      },
+      "rangeLabel": "Período",
+      "ranges": {
+        "1M": "1 mes",
+        "3M": "3 meses",
+        "6M": "6 meses",
+        "YTD": "Año en curso",
+        "1Y": "1 año",
+        "3Y": "3 años",
+        "5Y": "5 años"
+      },
+      "annualizedShortNote": "Anualizado a partir de los datos del período. Anualizar menos de un año amplifica sus fluctuaciones.",
+      "whatItSays": "Qué muestra: cómo habría subido y bajado el valor de sus posiciones actuales durante el período, en porcentaje desde el inicio. La referencia es un fondo de índice en los mismos días. El rendimiento acumulado es el cambio total; el anualizado lo convierte a una tasa anual; la volatilidad anualizada mide la amplitud de las fluctuaciones diarias a escala anual; la caída máxima es la mayor bajada de un máximo a un mínimo posterior. Un ETF (fondo cotizado) sigue un índice y representa posiciones sin suficiente historial propio. Beta mide cuánto se movió una posición con ese ETF: 1.2 significa aproximadamente 1.2% por cada movimiento de 1% del ETF.",
+      "rangeHelp": "1M, 3M, 6M: uno, tres y seis meses. YTD: año en curso. 1Y, 3Y, 5Y: uno, tres y cinco años."
+    },
+    "tailRisk": {
+      "title": "Riesgo de cola (VaR / CVaR)",
+      "intro": "VaR (valor en riesgo, Value at Risk) es el límite de pérdida dentro del cual quedaron la mayoría de días o meses de la simulación al nivel de confianza elegido; no es la mayor pérdida posible. CVaR (valor en riesgo condicional, Conditional Value at Risk, también llamado pérdida esperada) es la pérdida media de los días o meses que superan ese límite. Ambos se basan en la simulación de cinco años de sus posiciones actuales.",
+      "levelLabel": "Confianza",
+      "levels": {
+        "95": "95%",
+        "99": "99%"
+      },
+      "columns": {
+        "day": "1 día",
+        "month": "1 mes"
+      },
+      "rows": {
+        "var": "VaR",
+        "cvar": "CVaR",
+        "benchmarkVar": "VaR de {benchmark}",
+        "benchmarkCvar": "CVaR de {benchmark}",
+        "reference": "Línea de referencia del cuestionario"
+      },
+      "noQuestionnaire": "Complete el cuestionario de inversión para mostrar la referencia.",
+      "questionnaireLink": "Ir al cuestionario",
+      "insufficient99": "El 99% necesita al menos 500 rendimientos diarios; esta simulación tiene {count}.",
+      "legend": {
+        "var": "VaR (1 día)",
+        "cvar": "CVaR (1 día)",
+        "reference": "Referencia (1 día)"
+      },
+      "proxyUnderstates": "Las posiciones representadas por un ETF de índice pierden sus fluctuaciones propias; VaR y CVaR pueden subestimar pérdidas extremas.",
+      "model": "Modelo de cálculo",
+      "window": "Simulación de cinco años del {start} al {end}: {count} rendimientos diarios y {windows} ventanas superpuestas de 21 días bursátiles (aproximadamente {independent} sin superposición).",
+      "methodText": "Simulación histórica. Con n rendimientos y confianza c, la cola contiene k = n × (1 − c) observaciones, redondeado hacia arriba. VaR es la k-ésima peor pérdida y CVaR la media de las k peores. Las cifras mensuales usan rendimientos reales de 21 días bursátiles en ventanas superpuestas, no cifras diarias escaladas; las ventanas vecinas comparten la mayoría de sus días. Los importes aplican los porcentajes al valor actual de las posiciones incluidas, en {currency}.",
+      "normalLine": "Si los rendimientos siguieran una distribución normal con la media y volatilidad de la simulación, el VaR al {level}% sería {dayVar} (1 día) y {monthVar} (1 mes), y el CVaR {dayCvar} y {monthCvar}. La diferencia respecto a las cifras anteriores muestra cuánto difieren las colas de una distribución normal.",
+      "referenceText": "La referencia toma el nivel de volatilidad que el indicador de Riesgo del Resumen considera superior a sus respuestas (tolerancia al riesgo, horizonte y objetivo) y lo convierte en pérdida al nivel de confianza elegido, suponiendo distribución normal con media cero. Es una comparación, no un juicio, ni una versión normal de su VaR: el VaR anterior usa la distribución real de la simulación.",
+      "limitations": "Las cifras reflejan solo lo ocurrido en la simulación de cinco años; no incluyen eventos fuera de ella. Usa sus posiciones actuales y presenta sesgo retrospectivo. Describe el pasado y no es un pronóstico.",
+      "loadError": "No se pudo cargar el riesgo de cola. Inténtelo más tarde.",
+      "whatItSays": "Cómo leerlo: al 95%, un VaR diario de 2.0% significa que en unos 95 de cada 100 días de la simulación la cartera perdió menos de 2.0%. Los otros 5 días perdió más, y CVaR es su pérdida media. La columna mensual hace lo mismo para períodos de 21 días bursátiles. Las filas del índice muestran las mismas cifras para comparar la profundidad de los días malos de sus posiciones.",
+      "readChart": "El gráfico cuenta los días en cada intervalo de rendimiento diario; las pérdidas están a la izquierda. Las líneas marcan VaR y CVaR diarios y, si completó el cuestionario, la referencia. Una cola izquierda larga y delgada indica pérdidas poco frecuentes pero profundas."
+    },
+    "stress": {
+      "title": "Escenarios de estrés histórico",
+      "intro": "Aplica crisis pasadas a sus posiciones actuales, con los pesos de hoy al inicio de cada escenario. Muestra cómo se habría movido esta cartera en esos episodios. Simula el pasado y no es un pronóstico.",
+      "scenarioLabel": "Escenario",
+      "scenarios": {
+        "covid_2020": {
+          "name": "Crisis de COVID de 2020",
+          "description": "Confinamientos y escasez de liquidez; uno de los mercados bajistas más rápidos en la historia del S&P 500."
+        },
+        "rates_2022": {
+          "name": "Subidas de tipos de 2022",
+          "description": "Alta inflación y rápidas subidas de tipos de los bancos centrales; acciones y bonos cayeron juntos."
+        },
+        "tariffs_2025": {
+          "name": "Crisis arancelaria de 2025",
+          "description": "Nuevos aranceles amplios de EE. UU. y la caída del mercado en la primavera de 2025."
+        },
+        "dotcom_2000": {
+          "name": "Crisis puntocom de 2000–2002",
+          "description": "Fin del auge tecnológico de finales de los noventa; el S&P 500 cayó durante dos años y medio."
+        },
+        "gfc_2008": {
+          "name": "Crisis financiera de 2008",
+          "description": "Colapso de vivienda y crédito de EE. UU. y quiebra de grandes instituciones financieras."
+        }
+      },
+      "windowText": "Ventana del {start} al {end}. Máximo de cierre del S&P 500 {peak}, mínimo de cierre {trough}.",
+      "columns": {
+        "portfolio": "Su cartera",
+        "benchmark": "{benchmark}"
+      },
+      "rows": {
+        "shock": "De máximo a mínimo",
+        "maxDrawdown": "Mayor caída de la ventana"
+      },
+      "drawdownDates": "Del {peak} al {trough}",
+      "legend": {
+        "portfolio": "Cartera",
+        "peak": "Máximo del S&P 500 ({date})",
+        "trough": "Mínimo del S&P 500 ({date})"
+      },
+      "chartNote": "Ambas líneas parten de 0% en el máximo del S&P 500.",
+      "contributionsTitle": "Contribución al rendimiento de máximo a mínimo, por clase de activo",
+      "proxyUnderstates": "Las posiciones representadas por ETF de índice pierden sus fluctuaciones propias; estos escenarios pueden subestimar sus pérdidas.",
+      "model": "Modelo de cálculo",
+      "sampleText": "{count} rendimientos diarios del {first} al {end}.",
+      "methodText": "Al inicio de cada ventana, cada posición toma su proporción del valor actual; la mezcla varía después con los precios, sin rebalanceo. Los precios son de rendimiento total (dividendos reinvertidos), salvo los índices de precios indicados, que excluyen dividendos; todos se convierten a {currency} con el cambio diario. Una posición sin historial propio al inicio sigue su ETF representativo, escalado por una beta estimada en la simulación de cinco años, hasta comenzar su historial. Los importes aplican los porcentajes al valor actual de las posiciones incluidas.",
+      "laterListing": "{proxy} escalado por beta {beta} ({samples} muestras) durante toda la ventana; sin historial propio en ella.",
+      "limitations": "Las fechas siguen al S&P 500; una cartera centrada en otros mercados puede haber caído en otras fechas, según muestra la mayor caída. Se usan posiciones actuales y existe sesgo retrospectivo. Simula el pasado y no es un pronóstico.",
+      "loadError": "No se pudieron cargar los escenarios de estrés. Inténtelo más tarde.",
+      "approxShare": "Aproximadamente {pct}% del valor de esta cartera en este escenario es aproximado (índices representativos, sustitutos o supuestos de efectivo).",
+      "substitutes": "Cuando el ETF habitual no tiene datos en esta ventana se usa un sustituto: {list}.",
+      "substituteItem": "{primary} → {symbol} ({name})",
+      "priceIndex": "{symbols}: índices de precios sin dividendos; el rendimiento de esas partes se subestima aproximadamente en la rentabilidad por dividendos durante la ventana.",
+      "substituteFor": "{symbol} sustituye a {primary}, que no tiene datos en esta ventana.",
+      "priceIndexTag": "Índice de precios, sin dividendos.",
+      "substituteMethod": "Cuando el ETF habitual no tiene precios en las fechas máxima y mínima, se usa el primer sustituto de la lista que los tenga. Las betas se estiman frente al ETF habitual en la simulación de cinco años y se aplican al sustituto.",
+      "fredFxNote": "Los cambios de esta ventana son tasas diarias H.10 de la Reserva Federal. MOP se deriva de su vínculo al dólar de Hong Kong (1 HKD = 1.03 MOP); CNH, que empezó a cotizar en 2010, usa el tipo nacional CNY.",
+      "whatItSays": "Cómo leerlo: «De máximo a mínimo» es cuánto habría ganado o perdido esta cartera entre el máximo y el mínimo del S&P 500 en ese episodio. «Mayor caída de la ventana» es la bajada más profunda de la propia cartera durante el período, que puede ocurrir en otras fechas. La curva va desde seis meses antes del máximo hasta seis meses después del mínimo, con 0% en el máximo.",
+      "readBars": "Cada barra es la contribución de una clase de activo al rendimiento de máximo a mínimo. A la izquierda de la línea central resta a la cartera; a la derecha suma. Su tamaño refleja tanto el movimiento de la clase como su peso: una posición pequeña que caiga mucho puede tener una barra corta. Las longitudes son relativas a la mayor barra. Las cifras suman el rendimiento de máximo a mínimo de la cartera, salvo redondeo."
+    },
+    "style": {
+      "title": "Exposición por estilo",
+      "intro": "Descompone los movimientos de los últimos tres meses de su cartera en estilos y clases de activos reconocibles, y muestra cuánto movimiento no explica esa mezcla.",
+      "columns": {
+        "style": "Estilo",
+        "portfolio": "Su cartera"
+      },
+      "rows": {
+        "rSquared": "Proporción del movimiento explicada (R²)",
+        "residualVol": "Volatilidad no explicada (anualizada)"
+      },
+      "lowFit": "R² es {r2}, inferior a 0.60: estos estilos explican poco del movimiento de la cartera; la mezcla solo la describe de forma aproximada.",
+      "sampleNote": "Basado en unos tres meses de datos ({count} rendimientos superpuestos de tres días); un solo evento puede dominar el resultado.",
+      "proxyFit": "Algunas posiciones siguen ETF de índices. Estos se parecen a los estilos anteriores y elevan mecánicamente el ajuste.",
+      "insufficient": "Hay menos de {min} rendimientos de tres días ({count}); no se muestra la mezcla.",
+      "legend": {
+        "portfolio": "Su cartera",
+        "styleMix": "Mezcla de estilos"
+      },
+      "model": "Modelo de cálculo",
+      "windowText": "Ventana {start} – {end}; {count} rendimientos superpuestos de tres días.",
+      "methodText": "Los precios son de rendimiento total (dividendos reinvertidos), convertidos a {currency} con el cambio de cada día. Cada muestra es el rendimiento de tres días bursátiles calculado diariamente, por lo que se superponen; esto alinea mercados que cierran a distintas horas. Los pesos minimizan la diferencia con los rendimientos de la cartera (mínimos cuadrados), son no negativos y suman uno (análisis de estilo basado en rendimientos de Sharpe). R² es uno menos la varianza de la parte no explicada dividida por la varianza del rendimiento de cartera; puede ser negativo si ninguna mezcla la sigue. La volatilidad no explicada es la desviación estándar de esa parte, escalada por √(252/3).",
+      "limitations": "Los pesos son un equivalente estadístico, no las posiciones mismas. La ventana está fijada en tres meses y no sigue el período de simulación; describe el pasado, no el futuro. Las muestras superpuestas no son independientes y la muestra efectiva es menor que el número mostrado.",
+      "loadError": "No se pudo cargar la exposición por estilo.",
+      "labels": {
+        "IWF": "Gran capitalización de crecimiento de EE. UU.",
+        "IWD": "Gran capitalización de valor de EE. UU.",
+        "IWM": "Pequeña capitalización de EE. UU.",
+        "EFA": "Mercados desarrollados excepto EE. UU.",
+        "EEM": "Mercados emergentes",
+        "2800_HK": "Acciones de Hong Kong",
+        "510300_SS": "Acciones A de China (CSI 300)",
+        "AGG": "Bonos agregados de EE. UU.",
+        "TLT": "Bonos del Tesoro de EE. UU. a largo plazo",
+        "GLD": "Oro",
+        "DBC": "Materias primas amplias",
+        "VNQ": "Bienes raíces de EE. UU. (REIT)",
+        "BIL": "Efectivo y letras a corto plazo (USD)"
+      },
+      "whatItSays": "Qué indica: qué mezcla de estilos amplios se habría movido de forma más parecida a su cartera en los últimos tres meses. Es semejanza estadística, no sus posiciones reales. Ayuda a ver si posiciones que parecen distintas se movían según los mismos pocos estilos.",
+      "readBars": "Cómo leer las barras: cada una es el peso de ese estilo en la mezcla. Los pesos son no negativos y suman 100%. Por ejemplo, «Gran capitalización de crecimiento de EE. UU. 60%» significa que los movimientos de su cartera se parecieron más a una mezcla con 60% de esas acciones. Un estilo aparece si la cartera o el índice le dan un peso mayor que 0%, por lo que una columna puede mostrar 0%. La columna del índice presenta el mismo desglose. R² (coeficiente de determinación) es la proporción del movimiento de cartera explicada: 1.00 es todo, 0.50 es la mitad. La volatilidad no explicada es el tamaño del movimiento restante a escala anual, derivado de lo específico de sus posiciones. Los REIT (fideicomisos de inversión inmobiliaria) son empresas cotizadas propietarias de inmuebles que generan ingresos."
+    },
+    "tracking": {
+      "title": "Seguimiento frente a su referencia",
+      "intro": "Compara las posiciones actuales, simuladas en el período anterior, con una cartera de referencia definida por usted: cuánto se separaron y con qué irregularidad.",
+      "editor": {
+        "title": "Su cartera de referencia",
+        "example": "Referencia de ejemplo, sin guardar. Cámbiela y guarde para usar la suya.",
+        "component": "Componente",
+        "weight": "Peso (%)",
+        "add": "Agregar componente",
+        "remove": "Eliminar",
+        "total": "Total: {total}%",
+        "invalid": "Use pesos enteros de 1 a 100 que sumen exactamente 100%, sin repetir componentes.",
+        "save": "Guardar referencia",
+        "saving": "Guardando…",
+        "saveError": "No se pudo guardar la referencia."
+      },
+      "referenceLabel": "Referencia: {composition}",
+      "rows": {
+        "portfolio": "Su cartera (acumulado)",
+        "reference": "Referencia (acumulado)",
+        "excess": "Exceso de rendimiento (acumulado)",
+        "annualizedExcess": "Exceso de rendimiento (anualizado)",
+        "trackingError": "Error de seguimiento (anualizado)"
+      },
+      "legend": {
+        "excess": "Exceso de rendimiento frente a la referencia"
+      },
+      "teInsufficient": "El error de seguimiento necesita al menos {min} rendimientos de cinco días; este período tiene {count}.",
+      "proxyNote": "Algunas posiciones siguen ETF de índices. Se mueven como referencias basadas en índices y pueden subestimar el error de seguimiento.",
+      "referencePending": "Se está preparando el historial de precios de la referencia. Se actualiza una vez al día tras el cierre de EE. UU.",
+      "referenceUnavailable": "No se puede calcular la referencia en este período porque falta historial de precios de uno de sus componentes.",
+      "model": "Modelo de cálculo",
+      "windowText": "Ventana {start} – {end}; {count} rendimientos superpuestos de cinco días.",
+      "methodText": "Los precios son de rendimiento total (dividendos reinvertidos), convertidos a {currency} con el cambio diario; el efectivo permanece constante en {currency}. La referencia se rebalancea a sus pesos cada día y su rendimiento diario es la suma ponderada de los componentes. El exceso es el rendimiento acumulado de cartera menos el de referencia; el exceso anualizado es la diferencia de ambos rendimientos anualizados. El error de seguimiento es la desviación estándar de la diferencia de sus rendimientos de cinco días, calculada diariamente y escalada por √(252/5). Los rendimientos de cinco días alinean mercados que cierran a distintas horas; los diarios añadirían diferencias debidas solo a horarios de cierre.",
+      "limitations": "Usted elige la referencia; los resultados describen la diferencia, no si es adecuada para usted. Las muestras superpuestas de cinco días no son independientes y la muestra efectiva es menor, especialmente en períodos cortos. Su cartera simula posiciones actuales sin rebalanceo; la referencia se rebalancea diariamente. Describe el pasado y no es un pronóstico.",
+      "loadError": "No se pudo cargar el seguimiento.",
+      "labels": {
+        "SPY": "Gran capitalización de EE. UU. (S&P 500)",
+        "QQQ": "Tecnología de gran capitalización de EE. UU. (Nasdaq-100)",
+        "DIA": "Grandes empresas de EE. UU. (Dow 30)",
+        "ONEQ": "Nasdaq Composite de EE. UU.",
+        "IWF": "Gran capitalización de crecimiento de EE. UU.",
+        "IWD": "Gran capitalización de valor de EE. UU.",
+        "IWM": "Pequeña capitalización de EE. UU.",
+        "ACWI": "Renta variable global",
+        "EFA": "Mercados desarrollados excepto EE. UU.",
+        "EEM": "Mercados emergentes",
+        "2800_HK": "Acciones de Hong Kong",
+        "510300_SS": "Acciones A de China (CSI 300)",
+        "ISF_L": "Acciones de Reino Unido (FTSE 100)",
+        "EXSA_DE": "Acciones europeas (STOXX Europe 600)",
+        "1306_T": "Acciones japonesas (TOPIX)",
+        "069500_KS": "Acciones coreanas (KOSPI 200)",
+        "AGG": "Bonos agregados de EE. UU.",
+        "TLT": "Bonos del Tesoro de EE. UU. a largo plazo",
+        "BIL": "Efectivo y letras a corto plazo (USD)",
+        "GLD": "Oro",
+        "DBC": "Materias primas amplias",
+        "VNQ": "Bienes raíces de EE. UU. (REIT)",
+        "XLE": "Energía de EE. UU.",
+        "CASH": "Efectivo ({currency}, constante)"
+      },
+      "whatItSays": "Qué indica: cuánto difieren los movimientos de sus posiciones de una referencia definida por usted, como 60% de acciones de EE. UU. y 40% de bonos de EE. UU. El exceso de rendimiento es la diferencia entre sus rendimientos totales; la curva muestra cómo se acumuló, por encima de cero cuando su cartera iba por delante y por debajo cuando iba detrás. El error de seguimiento mide la irregularidad de la diferencia, independientemente de quién termine por delante: bajo indica movimientos cercanos, alto indica diferencias frecuentes. Como orientación aproximada, 5% significa que la diferencia anual varió normalmente unos 5 puntos porcentuales. Los REIT (fideicomisos de inversión inmobiliaria) son empresas cotizadas propietarias de inmuebles que generan ingresos."
+    }
+  },
+  "pricingPlans": {
+    "heading": "Planes de un vistazo",
+    "plans": [
+      {
+        "name": "Briefing",
+        "prices": [
+          "Semanal — 0.99 créditos / mes",
+          "Lun / Mié / Vie — 1.99 créditos / mes"
+        ],
+        "lead": "",
+        "features": [
+          "Un resumen personalizado por correo cada sábado, o cada lunes, miércoles y viernes",
+          "Carga de posiciones desde CSV, Excel o Markdown, con edición por fila",
+          "Resumen de cartera: distribución, rendimiento frente a índices, volatilidad y riesgo",
+          "Historial de informes en la web, con descarga Markdown o PDF",
+          "Su agente de IA puede leer el historial de informes"
+        ]
+      },
+      {
+        "name": "Advanced",
+        "prices": [
+          "2.49 créditos / mes"
+        ],
+        "lead": "Todo lo incluido en Briefing, más:",
+        "features": [
+          "Un resumen cada día de lunes a viernes",
+          "Su agente de IA puede leer instantáneas diarias de posiciones",
+          "Su agente de IA puede leer información relacionada con sus posiciones"
+        ]
+      },
+      {
+        "name": "Jade",
+        "prices": [
+          "9.99 créditos / mes"
+        ],
+        "lead": "Todo lo incluido en Advanced, más:",
+        "features": [
+          "Elija resúmenes semanales, Lun / Mié / Vie o diarios y cambie cuando quiera",
+          "Simulación histórica: posiciones actuales durante hasta cinco años",
+          "Riesgo de cola (VaR / CVaR)",
+          "Escenarios de estrés histórico: cinco crisis pasadas",
+          "Exposición por estilo",
+          "Seguimiento frente a su referencia: una cartera definida por usted y su error de seguimiento"
+        ]
+      }
+    ],
+    "footnote": "1 crédito = US$1."
+  }
+}

@@ -145,6 +145,8 @@ export function useHomeMessages(): Messages["home"] {
 export function useLegalMessages(): Messages["legal"] {
   const t = useTranslations("legal");
   return {
+    englishPrevailsNotice: t.raw("englishPrevailsNotice"),
+    englishVersionLink: t.raw("englishVersionLink"),
     nav: t.raw("nav"),
     resellerNotice: t.raw("resellerNotice"),
     terms: t.raw("terms"),

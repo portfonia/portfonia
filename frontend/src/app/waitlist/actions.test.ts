@@ -57,3 +57,13 @@ describe("submitWaitlist action", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+it.each([["es", "en"], ["zh-Hant", "zh-Hant"]])("acceptance_10 waitlist posts %s as %s", async (locale, expected) => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+  global.fetch = fetchMock;
+  try {
+    await submitWaitlist(undefined, formData({ email: "a@example.com", altcha: "proof", locale }));
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body)).locale).toBe(expected);
+  } finally { global.fetch = originalFetch; }
+});

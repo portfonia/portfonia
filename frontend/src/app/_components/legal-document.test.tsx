@@ -42,3 +42,22 @@ it.each(["pricing", "privacy", "terms", "refund"] as const)("renders language ch
   expect(container.querySelector(`a[href="/zh-Hant/${doc}"]`)).not.toBeNull();
   window.history.replaceState(null, "", "/");
 });
+
+it.each(["pricing", "terms", "privacy", "refund"] as const)("acceptance_09 %s Spanish notice links to English and is absent in other locales", (doc) => {
+  const notice = "Esta traducción se ofrece solo como referencia. En caso de discrepancia, prevalece la versión en inglés.";
+  for (const locale of ["es", "en", "zh-Hans", "zh-Hant"] as const) {
+    window.history.replaceState(null, "", locale === "en" ? `/${doc}` : `/${locale}/${doc}`);
+    const { container, unmount } = render(<LocaleProvider routeLocale={locale}><LegalDocument doc={doc} /></LocaleProvider>);
+    if (locale === "es") {
+      const paragraph = screen.getByText(notice, { exact: false });
+      expect(paragraph.tagName).toBe("P");
+      expect(paragraph.previousElementSibling?.textContent).toBe(catalogs.es.legal[doc].lastUpdated);
+      expect(within(paragraph).getByRole("link", { name: "Ver la versión en inglés" })).toHaveAttribute("href", `/${doc}`);
+    } else {
+      expect(container.textContent).not.toContain(notice);
+      expect(container.querySelector('[data-english-prevails]')).toBeNull();
+    }
+    unmount();
+  }
+  window.history.replaceState(null, "", "/");
+});

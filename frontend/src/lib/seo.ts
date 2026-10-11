@@ -13,16 +13,16 @@ export type SeoPageKey = keyof typeof SEO_PAGES;
 export const ROUTE_LOCALE_HEADER = "x-portfonia-locale";
 export const PROTECTED_PATH_PREFIXES = ["/holdings", "/portfolio", "/profile", "/questionnaire", "/reports", "/welcome", "/jade"];
 export const HREFLANG: Record<Locale, string[]> = {
-  en: ["en"], "zh-Hans": ["zh-Hans", "zh-CN", "zh-SG", "zh"], "zh-Hant": ["zh-Hant", "zh-TW", "zh-HK", "zh-MO"],
+  en: ["en"], es: ["es", "es-419", "es-US", "es-MX"], "zh-Hans": ["zh-Hans", "zh-CN", "zh-SG", "zh"], "zh-Hant": ["zh-Hant", "zh-TW", "zh-HK", "zh-MO"],
 };
-export const OG_LOCALE: Record<Locale, string> = { en: "en_US", "zh-Hans": "zh_CN", "zh-Hant": "zh_TW" };
+export const OG_LOCALE: Record<Locale, string> = { en: "en_US", es: "es_LA", "zh-Hans": "zh_CN", "zh-Hant": "zh_TW" };
 
 export function localizedPath(path: string, locale: Locale): string {
   return locale === "en" ? path : `/${locale}${path === "/" ? "" : path}`;
 }
 
 export function splitLocalePrefix(pathname: string): { locale: Locale | null; path: string } {
-  for (const locale of ["zh-Hans", "zh-Hant"] as const) {
+  for (const locale of ["es", "zh-Hans", "zh-Hant"] as const) {
     if (pathname === `/${locale}`) return { locale, path: "/" };
     if (pathname.startsWith(`/${locale}/`)) return { locale, path: pathname.slice(locale.length + 1) };
   }

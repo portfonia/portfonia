@@ -13,7 +13,7 @@ required, ask the product owner before designing or implementing it.
 
 ## Documentation index
 
-- [Public SEO pages and locale URLs](docs/mechanisms/frontend-chrome.md#public-seo-pages-and-locale-urls) — issue #702: public locale URLs, metadata, sitemap, OG previews, localized 404 and canonical host; issue #706: OG input/briefing layout and corrected home performance sample. #710 adds the protected Jade page, menu texture and Profile coordination. The same mechanism document describes the shared calculating overlay (#716).
+- [Public SEO pages and locale URLs](docs/mechanisms/frontend-chrome.md#public-seo-pages-and-locale-urls) — issue #702: public locale URLs, metadata, sitemap, OG previews, localized 404 and canonical host; issue #706: OG input/briefing layout and corrected home performance sample. #710 adds the protected Jade page, menu texture and Profile coordination. The same mechanism document describes the shared calculating overlay (#716). #735 adds Spanish UI and public SEO pages with English-first defaults.
 
 - [Payments and legal copy](docs/mechanisms/payments-and-legal-copy.md#pricing-legalpricing) — #731: the public Pricing page comparison summarizes Briefing, Advanced and Jade above the authoritative document text.
 

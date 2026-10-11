@@ -21,6 +21,9 @@ it("17 privacy policy discloses fingerprint, tokens, waitlist and Profile deleti
   const expressions = [/one-way fingerprint/, /单向指纹/, /單向指紋/];
   const waitlists = [/waitlist entry/, /候补名单/, /候補名單/];
   const profiles = [/Profile page/, /\u4e2a\u4eba\u4e2d\u5fc3\u9875\u9762/, /\u500b\u4eba\u4e2d\u5fc3\u9801\u9762/];
+  expressions.splice(1, 0, /huella irreversible/);
+  waitlists.splice(1, 0, /inscripción en lista de espera/);
+  profiles.splice(1, 0, /Perfil/);
   Object.values(catalogs).forEach((catalog, i) => {
     expect(catalog.legal.privacy.sections[5].body[1]).toMatch(expressions[i]);
     expect(catalog.legal.privacy.sections[5].body[1]).toContain("API token");
