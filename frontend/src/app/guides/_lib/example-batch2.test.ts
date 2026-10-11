@@ -18,7 +18,12 @@ it("739 A1 style every Exploration weight fit curve and listed row", async () =>
   const { STYLE_BASIS_CLOSES, STYLE_FX } = await import("../_data/style-basis-closes");
   const e = styleExample();
   expect(e.start).toBe("2026-07-09");
-  expect(e.firstCnyUsdLevel).toBeCloseTo(priceOn(STYLE_BASIS_CLOSES["510300.SS"], e.start)! / priceOn(STYLE_FX.USDCNY, e.start)!, 12);
+  const close = priceOn(STYLE_BASIS_CLOSES["510300.SS"], e.start);
+  const rate = priceOn(STYLE_FX.USDCNY, e.start);
+  expect(close).not.toBeNull();
+  expect(rate).not.toBeNull();
+  if (close === null || rate === null) throw new Error("Missing CNY price or rate for the style example");
+  expect(e.firstCnyUsdLevel).toBeCloseTo(close / rate, 12);
   expect(e.firstCnyUsdLevel).toBeCloseTo(0.7226754950064055, 12);
   expect(e.points).toHaveLength(66);
   expect(e.sampleCount).toBe(63);
