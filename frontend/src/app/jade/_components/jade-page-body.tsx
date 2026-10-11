@@ -6,6 +6,8 @@ import { StressSection } from "./stress-section";
 import { TailRiskSection } from "./tail-risk-section";
 import { ReplaySection } from "./replay-section";
 import type { BaseCurrency } from "@/app/portfolio/_components/currencies";
+import Link from "next/link";
+import { useLocale, useLocalizedHref } from "@/app/_components/locale-provider";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -19,6 +21,9 @@ import { SubscriptionDialog } from "@/app/profile/_components/subscription-dialo
 export function JadePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError: boolean }) {
   const [replaySettings, setReplaySettings] = useState<{ currency: BaseCurrency; benchmark: BenchmarkCode; range: ReplayRange } | null>(null);
   const t = useTranslations("jade");
+  const href = useLocalizedHref();
+  const { locale } = useLocale();
+  const separator = { en: " ", es: " ", "zh-Hans": "", "zh-Hant": "" }[locale];
   const profile = useTranslations("profile");
   const router = useRouter();
   const subscription = useSubscription(me?.subscription);
@@ -47,7 +52,8 @@ export function JadePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError
   return <div className="flex min-w-0 flex-col gap-6">
     <SubscriptionDialog state={subscription} />
     <Card><CardHeader><h1 className="font-heading text-2xl font-medium">{t("title")}</h1></CardHeader>
-      <CardContent className="flex flex-col gap-3 px-4 text-sm"><p>{t("intro")}</p><p>{t("price")}</p></CardContent>
+      <CardContent className="flex flex-col gap-3 px-4 text-sm"><p>{t("intro")}</p><p>{t("price")}</p>
+        <p>{t("guidesLead")}{separator}<Link className="underline" href={href("/guides/jade-replay")}>{t("guideLinks.replay")}</Link>{separator}<span aria-hidden="true"> · </span><Link className="underline" href={href("/guides/jade-var")}>{t("guideLinks.var")}</Link></p></CardContent>
     </Card>
     <Card><CardHeader><CardTitle>{profile("subscriptionLabel")}</CardTitle></CardHeader>
       <CardContent className="flex flex-wrap items-center gap-3 px-4 text-sm">

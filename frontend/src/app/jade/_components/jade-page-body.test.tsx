@@ -10,6 +10,7 @@ vi.mock("./style-section", () => ({ StyleSection: () => <div data-testid="style-
 vi.mock("./stress-section", () => ({ StressSection: () => <div data-testid="stress-section" /> }));
 vi.mock("./tail-risk-section", () => ({ TailRiskSection: () => <div data-testid="tail-risk-section" /> }));
 vi.mock("./replay-section", () => ({ ReplaySection: () => <div data-testid="replay-section" /> }));
+vi.mock("@/app/_components/locale-provider", () => ({ useLocalizedHref: () => (path: string) => path, useLocale: () => ({ locale: "en" }) }));
 import type { Me } from "@/lib/api";
 import { JadePageBody } from "./jade-page-body";
 const me: Me = { email: "jade@example.com", credit_balance: "10.00", delivery_email: null, email_verified_at: "2026-10-01T12:00:00Z", delivery_email_verified_at: null, tos_accepted_at: null, has_questionnaire: true, has_holdings: false, missing: [], pending_email_verifications: [], report_language: "en", report_currency: "USD", subscription: { status: "inactive", type: null, cadence: "none", expires_on: null, cancel_pending: false, next_adjustment_at: null } };

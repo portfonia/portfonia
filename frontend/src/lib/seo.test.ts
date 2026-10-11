@@ -47,7 +47,7 @@ describe("issue #702 SEO helpers", () => {
     expect(await getRouteLocale()).toBeNull();
   });
   it("classifies every app route directory explicitly", () => {
-    const publicPaths = ["/about", "/agent", "/agent/revoke", "/forgot-password", "/login", "/pricing", "/privacy", "/refund", "/reset-password", "/signup", "/terms", "/unsubscribe", "/verify-email", "/waitlist"];
+    const publicPaths = ["/guides", "/guides/jade-replay", "/guides/jade-var", "/about", "/agent", "/agent/revoke", "/forgot-password", "/login", "/pricing", "/privacy", "/refund", "/reset-password", "/signup", "/terms", "/unsubscribe", "/verify-email", "/waitlist"];
     for (const path of routeDirectories("src/app")) {
       expect(PROTECTED_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`)) || publicPaths.includes(path), path).toBe(true);
     }
@@ -64,7 +64,7 @@ describe("issue #702 SEO helpers", () => {
 
 function routeDirectories(root: string, prefix = ""): string[] {
   return readdirSync(root, { withFileTypes: true }).flatMap((dir) => {
-    if (!dir.isDirectory() || ["_components", "api", "og"].includes(dir.name)) return [];
+    if (!dir.isDirectory() || ["_components", "_data", "_lib", "api", "og"].includes(dir.name)) return [];
     if (dir.name.startsWith("(") && dir.name.endsWith(")")) return routeDirectories(join(root, dir.name), prefix);
     const path = `${prefix}/${dir.name}`;
     return [path, ...routeDirectories(join(root, dir.name), path)];

@@ -8,7 +8,7 @@ import { Bar, BarChart, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from 
 import { CalculatingOverlay } from "@/components/calculating-overlay";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useLocale } from "@/app/_components/locale-provider";
+import { useLocale, useLocalizedHref } from "@/app/_components/locale-provider";
 import { formatMoney } from "@/app/portfolio/_components/portfolio-helpers";
 import { formatTickPct } from "@/app/portfolio/performance/_components/performance-format";
 import { PORTFOLIO_COLOR } from "@/app/portfolio/performance/_components/performance-colors";
@@ -28,6 +28,8 @@ export function TailRiskSection({ settings }: { settings: Settings | null }) {
   const common = useTranslations("common");
   const portfolio = useTranslations("portfolio");
   const { locale } = useLocale();
+  const href = useLocalizedHref();
+  const jade = useTranslations("jade");
   const [data, setData] = useState<JadeTailRisk | null>(null);
   const [pending, setPending] = useState(true);
   const [error, setError] = useState(false);
@@ -91,6 +93,7 @@ export function TailRiskSection({ settings }: { settings: Settings | null }) {
     <CardContent className="flex min-w-0 flex-col gap-4 px-4 text-sm">
       <p>{t("intro")}</p>
       <p className="min-w-0 break-words">{t("whatItSays")}</p>
+      <Link className="underline" href={href("/guides/jade-var")}>{jade("guideLink")}</Link>
       <CalculatingOverlay active={pending} label={common("calculating")}>
         <div className="flex min-w-0 flex-col gap-4">
           <div role="radiogroup" aria-label={t("levelLabel")} className="flex flex-wrap items-center gap-1">

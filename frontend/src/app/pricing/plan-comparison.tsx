@@ -1,11 +1,17 @@
 "use client";
 
+import Link from "next/link";
+import { useLocalizedHref } from "@/app/_components/locale-provider";
+
 import { useTranslations } from "next-intl";
 
 import type { Messages } from "@/locales";
 
+const JADE_GUIDE_FEATURES: Record<number, string> = { 1: "/guides/jade-replay", 2: "/guides/jade-var" };
+
 export function PlanComparison() {
   const t = useTranslations("pricingPlans");
+  const href = useLocalizedHref();
   const heading: string = t.raw("heading");
   const plans: Messages["pricingPlans"]["plans"] = t.raw("plans");
   const footnote: string = t.raw("footnote");
@@ -26,7 +32,7 @@ export function PlanComparison() {
               {plan.prices.map(price => <p key={price} className="text-sm font-medium">{price}</p>)}
               {plan.lead !== "" && <p className="text-sm text-foreground/70">{plan.lead}</p>}
               <ul className="flex list-disc flex-col gap-2 pl-5 text-sm leading-relaxed text-foreground/70">
-                {plan.features.map(feature => <li key={feature}>{feature}</li>)}
+                {plan.features.map((feature, index) => <li key={feature}>{i === 2 && JADE_GUIDE_FEATURES[index] ? <Link className="underline" href={href(JADE_GUIDE_FEATURES[index])}>{feature}</Link> : feature}</li>)}
               </ul>
             </div>
           </section>
