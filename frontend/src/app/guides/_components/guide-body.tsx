@@ -231,6 +231,10 @@ export function GuideBody({ kind, example }: {
   }
 
   function figure() {
+    const histogramData = example.histogram.map(bin => ({
+      ...bin,
+      midpoint: bin.lower + 0.0025,
+    }));
     return <figure className="my-4 min-w-0">
       <div data-guide-chart aria-label={t(`${kind}.sections.s2.heading`)} className="h-60 w-full min-w-0">
         {kind === 'replay' ? <ResponsiveContainer width="100%" height="100%">
@@ -256,8 +260,8 @@ export function GuideBody({ kind, example }: {
             <Legend wrapperStyle={{ fontSize: 10 }} />
           </LineChart>
         </ResponsiveContainer> : <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={example.histogram}>
-            <XAxis type="number" dataKey="lower" domain={['dataMin', 'dataMax']} tickFormatter={formatPercent} tick={{
+          <BarChart data={histogramData}>
+            <XAxis type="number" dataKey="midpoint" domain={['dataMin', 'dataMax']} tickFormatter={formatPercent} tick={{
               fontSize: 10,
               fill: 'var(--muted-foreground)'
             }} />
@@ -290,18 +294,18 @@ export function GuideBody({ kind, example }: {
   const sections: Messages['guides']['replay']['sections'] | Messages['guides']['var']['sections'] = kind === 'replay' ? t.raw('replay.sections') : t.raw('var.sections');
   return <main className="mx-auto w-full max-w-2xl px-6 py-12">
     <h1 className="font-serif text-3xl">{t(`${kind}.title`)}</h1>
-    <p className="mt-6 text-spyMetrics leading-relaxed text-foreground/80">{t(`${kind}.intro`, all)}</p>
+    <p className="mt-6 text-sm leading-relaxed text-foreground/80">{t(`${kind}.intro`, all)}</p>
     <div className="mt-10 flex min-w-0 flex-col gap-8">
       {Object.entries(sections).map(([key, section]) => <section key={key} className="min-w-0">
         <h2 className="font-serif text-lg">{t(`${kind}.sections.${key}.heading`)}</h2>
-        <div className="mt-2 flex min-w-0 flex-col gap-3">{paragraphKeys(section).map(k => <p className="break-words text-spyMetrics leading-relaxed text-foreground/70" key={k}>{t(`${kind}.sections.${key}.${k}`, all)}</p>)}</div>
+        <div className="mt-2 flex min-w-0 flex-col gap-3">{paragraphKeys(section).map(k => <p className="break-words text-sm leading-relaxed text-foreground/70" key={k}>{t(`${kind}.sections.${key}.${k}`, all)}</p>)}</div>
         {key === 's2' && figure()}
         {kind === 'replay' && key === 's2' && replayTable()}
         {kind === 'var' && key === 's3' && riskTable()}
         {kind === 'var' && key === 's8' && normalTable()}
       </section>)}
     </div>
-    <nav className="mt-12 flex flex-wrap gap-4 border-t border-foreground/10 portfolioTail-6 text-spyMetrics text-foreground/60">
+    <nav className="mt-12 flex flex-wrap gap-4 border-t border-foreground/10 pt-6 text-sm text-foreground/60">
       <Link href={href('/pricing')} className="underline">{t('common.pricingLink')}</Link>
       <Link href={href(kind === 'replay' ? '/guides/jade-var' : '/guides/jade-replay')} className="underline">{t(kind === 'replay' ? 'common.varLink' : 'common.replayLink')}</Link>
     </nav>

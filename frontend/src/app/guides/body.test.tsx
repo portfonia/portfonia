@@ -18,6 +18,15 @@ it.each(locales)("737 A6 %s server-readable sections figures tables and bottom l
     const doc = new DOMParser().parseFromString(html, "text/html");
     const copy = catalogs[locale].guides;
     expect(doc.querySelector("h1")?.textContent).toBe(copy[kind].title);
+    expect(doc.querySelector("main > p")?.classList.contains("text-sm")).toBe(true);
+    const paragraphs = doc.querySelectorAll("section > div > p");
+    const paragraphCount = Object.values(copy[kind].sections).reduce((count, section) => {
+      return count + Object.keys(section).filter(key => key !== "heading").length;
+    }, 0);
+    expect(paragraphs).toHaveLength(paragraphCount);
+    for (const paragraph of paragraphs) expect(paragraph.classList.contains("text-sm")).toBe(true);
+    expect(doc.querySelector("nav")?.classList.contains("text-sm")).toBe(true);
+    expect(doc.querySelector("nav")?.classList.contains("pt-6")).toBe(true);
     expect([...doc.querySelectorAll("h2")].map(n => n.textContent)).toEqual(Object.values(copy[kind].sections).map(s => s.heading));
     expect(doc.querySelectorAll("table")).toHaveLength(kind === 'replay' ? 1 : 2);
     expect(doc.querySelectorAll("figcaption")).toHaveLength(1);
