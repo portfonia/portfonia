@@ -37,10 +37,7 @@ export function ReplaySection({ onSettled }: { onSettled?: (currency: BaseCurren
     getJadeReplay(undefined, undefined, "1Y").then((result) => {
       if (alive) { setData(result); setCurrency(result.base_currency as BaseCurrency); setBenchmark(result.benchmark); setRange(result.range); settledRef.current?.(result.base_currency as BaseCurrency, result.benchmark, result.range); }
     }).catch(() => { if (alive) setError(true); }).finally(() => { if (alive) setPending(false); });
-    const media = window.matchMedia("(min-width: 640px)");
-    const update = () => setDetailsOpen(media.matches);
-    update(); media.addEventListener("change", update);
-    return () => { alive = false; media.removeEventListener("change", update); };
+    return () => { alive = false; };
   }, []);
   async function change(nextCurrency: BaseCurrency, nextBenchmark: BenchmarkCode, nextRange: ReplayRange) {
     if (pending) return;
@@ -75,10 +72,14 @@ export function ReplaySection({ onSettled }: { onSettled?: (currency: BaseCurren
     <CardHeader><CardTitle>{t("title")}</CardTitle></CardHeader>
     <CardContent className="flex min-w-0 flex-col gap-4 px-4 text-sm">
       <p>{t("intro")}</p>
+      <p className="min-w-0 break-words">{t("whatItSays")}</p>
       <CalculatingOverlay active={pending} label={tCommon("calculating")}>
       <div className="flex min-w-0 flex-col gap-4">
       <div data-testid="replay-settings" className="flex min-w-0 flex-wrap gap-3">
-        <ReplayRangeTabs value={range} disabled={pending} onChange={(next) => void change(currency, benchmark, next)} />
+        <div className="flex w-full min-w-0 flex-col gap-1">
+          <ReplayRangeTabs value={range} disabled={pending} onChange={(next) => void change(currency, benchmark, next)} />
+          <p className="min-w-0 break-words text-xs text-muted-foreground">{t("rangeHelp")}</p>
+        </div>
         <CurrencySwitcher value={currency} disabled={pending} onChange={(next) => void change(next, benchmark, range)} />
         <BenchmarkSingleSelectMenu label={t("benchmarkLabel")} value={benchmark} disabled={pending} onChange={(next) => void change(currency, next, range)} />
       </div>

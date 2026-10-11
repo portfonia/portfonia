@@ -133,7 +133,7 @@ for `ok` or `insufficient`. For `ok` short spans (1M/3M/6M/YTD), a note explains
 that annualization magnifies short-period swings. Null worst-month cells show a
 dash with no label line. No selection is persisted.
 Dashed lines mark the start of each head-proxy holding's own history. Data and
-method details default open at 640px and above, closed on mobile. The settings
+method details start closed at every width. The settings
 wrap, the chart fills the card and grid/list text wraps for 375px dark layouts.
 Replay copy is keyed under `jade.replay`, with the shared status label under
 `common.calculating`, in the three locale catalogs, with source,
@@ -575,3 +575,17 @@ variables for dark mode. Three hand-authored locale catalogs share identical
 keys and the issue's component labels. Deployment including migration, review,
 merge and phone verification require separate owner authorization; no data fill
 is needed.
+
+## Page explanations and loading (issue #733)
+
+Each of the five cards shows an always-visible explanation immediately after
+its intro, outside the calculating overlay. Replay explains the span labels
+below the span selector; tail risk explains the histogram directly above it
+for ok responses; stress explains contributions immediately after their heading
+(replacing the removed `contributionsNote`); style explains weights directly
+above the table; tracking explains the comparison above its editor. The Jade
+segment loading boundary uses the page container, localized Jade title and
+shared calculating status without chart or API imports. Navigation is immediate
+once the visible link's boundary prefetch completes; an earlier tap shows the
+fallback as soon as its payload arrives. Phone checks remain owner validation
+after deployment.

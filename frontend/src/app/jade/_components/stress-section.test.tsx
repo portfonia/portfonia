@@ -166,3 +166,21 @@ it("B15 375px five-button selector and amber notice wrap within the card", async
   expect(notice).toHaveClass("min-w-0", "break-words", "flex-col");
   expect(notice.closest(".px-4")).toHaveClass("min-w-0");
 });
+
+it("733 A3 explanation placement and wrapping", async () => {
+  getJadeStress.mockResolvedValue(data);
+  await view(); await screen.findByTestId("line-chart");
+  const copy = en.jade.stress as unknown as Record<string, string>;
+  const intro = screen.getByText(copy.intro);
+  const explanation = screen.getByText(copy.whatItSays ?? "missing explanation");
+  expect(intro.nextElementSibling).toBe(explanation);
+  expect(explanation.closest("[aria-busy], [inert]")).toBeNull();
+  expect(explanation).toHaveClass("min-w-0", "break-words");
+  const contributions = screen.getByTestId("stress-contributions");
+  const guide = screen.getByText(copy.readBars ?? "missing bars guide");
+  expect(contributions.querySelector("h3")?.nextElementSibling).toBe(guide);
+  expect(guide.nextElementSibling).toBe(contributions.querySelector("[data-contribution]"));
+  expect(guide).toHaveClass("min-w-0", "break-words");
+  expect(screen.queryByText("The bars add up to the portfolio's peak-to-trough return, up to rounding.")).not.toBeInTheDocument();
+  for (const catalog of [en, hans, hant]) expect(catalog.jade.stress).not.toHaveProperty("contributionsNote");
+});

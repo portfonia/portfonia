@@ -77,8 +77,10 @@ export function StyleSection({ settings }: { settings: Settings | null }) {
     <CardHeader><CardTitle>{t("title")}</CardTitle></CardHeader>
     <CardContent className="flex min-w-0 flex-col gap-4 px-4 text-sm">
       <p>{t("intro")}</p>
+      <p className="min-w-0 break-words">{t("whatItSays")}</p>
       <CalculatingOverlay active={pending} label={common("calculating")}>
         <div className="flex min-w-0 flex-col gap-4">
+          <p className="min-w-0 break-words">{t("readBars")}</p>
           <div data-testid="style-table" className="grid min-w-0 grid-cols-3 gap-x-2 gap-y-3 text-xs sm:text-sm">
             <span className="min-w-0 break-words">{t("columns.style")}</span><span className="min-w-0 break-words">{t("columns.portfolio")}</span><span className="min-w-0 break-words">{benchmarkLabel}</span>
             {rows.map(row => <div key={row.symbol} data-style-row={row.symbol} className="contents">

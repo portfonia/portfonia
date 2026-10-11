@@ -90,6 +90,7 @@ export function TailRiskSection({ settings }: { settings: Settings | null }) {
     <CardHeader><CardTitle>{t("title")}</CardTitle></CardHeader>
     <CardContent className="flex min-w-0 flex-col gap-4 px-4 text-sm">
       <p>{t("intro")}</p>
+      <p className="min-w-0 break-words">{t("whatItSays")}</p>
       <CalculatingOverlay active={pending} label={common("calculating")}>
         <div className="flex min-w-0 flex-col gap-4">
           <div role="radiogroup" aria-label={t("levelLabel")} className="flex flex-wrap items-center gap-1">
@@ -108,6 +109,7 @@ export function TailRiskSection({ settings }: { settings: Settings | null }) {
             </div>
           </div>
           {ok && level === 99 && !selected?.available && <p>{t("insufficient99", { count: data.sample_count })}</p>}
+          {ok && <p className="min-w-0 break-words">{t("readChart")}</p>}
           <div data-testid="tail-histogram" className="h-48 w-full min-w-0">
             {ok && <ResponsiveContainer width="100%" height="100%"><BarChart data={data.histogram.map(bin => ({ mid: (Number(bin.lower) + Number(bin.upper)) / 2, count: bin.count }))}>
               <XAxis type="number" dataKey="mid" domain={["dataMin", "dataMax"]} tickFormatter={formatTickPct} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />

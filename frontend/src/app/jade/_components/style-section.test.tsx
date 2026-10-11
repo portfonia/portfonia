@@ -98,3 +98,16 @@ it.each([
     expect(row?.children[target === "portfolio" ? 1 : 2]).toHaveTextContent(expected);
   }
 });
+
+it("733 A4 explanation placement and wrapping", async () => {
+  getJadeStyle.mockResolvedValue(data);
+  await view(); await screen.findByTestId("line-chart");
+  const copy = catalogs.en.jade.style as unknown as Record<string, string>;
+  const intro = screen.getByText(copy.intro);
+  const explanation = screen.getByText(copy.whatItSays ?? "missing explanation");
+  expect(intro.nextElementSibling).toBe(explanation);
+  expect(explanation.closest("[aria-busy], [inert]")).toBeNull();
+  expect(explanation).toHaveClass("min-w-0", "break-words");
+  expect(screen.getByTestId("style-table").previousElementSibling).toBe(screen.getByText(copy.readBars ?? "missing bars guide"));
+  expect(screen.getByText(copy.readBars)).toHaveClass("min-w-0", "break-words");
+});
