@@ -1957,7 +1957,7 @@
       "whatItSays": "Qué indica: cuánto difieren los movimientos de sus posiciones de una referencia definida por usted, como 60% de acciones de EE. UU. y 40% de bonos de EE. UU. El exceso de rendimiento es la diferencia entre sus rendimientos totales; la curva muestra cómo se acumuló, por encima de cero cuando su cartera iba por delante y por debajo cuando iba detrás. El error de seguimiento mide la irregularidad de la diferencia, independientemente de quién termine por delante: bajo indica movimientos cercanos, alto indica diferencias frecuentes. Como orientación aproximada, 5% significa que la diferencia anual varió normalmente unos 5 puntos porcentuales. Los REIT (fideicomisos de inversión inmobiliaria) son empresas cotizadas propietarias de inmuebles que generan ingresos."
     },
     "guideLink": "Leer la guía",
-    "guidesLead": "Explicaciones públicas.",
+    "guidesLead": "Las guías públicas explican cómo funcionan la simulación histórica de posiciones y el riesgo de cola.",
     "guideLinks": {
       "replay": "Simulación histórica de posiciones",
       "var": "Riesgo de cola"
@@ -2020,10 +2020,10 @@
       "varLink": "Guía de riesgo de cola",
       "window": "{portfolio}. Del {start} al {end}. {exampleLabel}.",
       "replayCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. Rendimiento acumulado: {cumulative}, frente a {spyCumulative} para SPY. La caída máxima fue {drawdown}, del {peak} al {trough}.",
-      "varCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. El VaR de un día al 95% es {dayVar}, el CVaR es {dayCvar} y la referencia es {referenceDay}. La referencia discontinua parte de una respuesta conservadora hipotética al cuestionario.",
+      "varCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. El VaR de un día al 95% es {dayVar}, el CVaR es {dayCvar} y la referencia es {referenceDay}. La referencia punteada parte de una respuesta conservadora hipotética al cuestionario.",
       "normalCaption": "{portfolio}, del {start} al {end}. {exampleLabel}. Simulación histórica y modelo normal con los mismos rendimientos diarios.",
-      "day": "{oneDay} día",
-      "month": "{oneMonth} mes",
+      "day": "1 día",
+      "month": "1 mes",
       "metric": "Métrica",
       "level": "Confianza",
       "historical": "Simulación histórica",
@@ -2070,7 +2070,7 @@
         },
         "s6": {
           "heading": "Sustitutos e historial anterior a la cotización",
-          "p1": "Un fondo cotizado (ETF) es un fondo que cotiza en bolsa y sigue un índice. Una posición sin historial propio utilizable se representa con un ETF de índice elegido por mercado o clase de activo. El efectivo permanece constante en su propia moneda. Antes de una cotización posterior, la herramienta completa el historial con el ETF de su mercado, ajustado por beta: una medida de cuánto se movió la posición con ese ETF. Beta es {betaFallback} cuando hay menos de {betaSamples} muestras. La tarjeta declara cada método y la proporción aproximada, con un aviso adicional al 66%."
+          "p1": "Un fondo cotizado (ETF) es un fondo que cotiza en bolsa y sigue un índice. Una posición sin historial propio utilizable se representa con un ETF de índice elegido por mercado o clase de activo. El efectivo permanece constante en su propia moneda. Antes de una cotización posterior, la herramienta completa el historial con el ETF de su mercado, ajustado por beta: una medida de cuánto se movió la posición con ese ETF. Beta es 1 cuando hay menos de 60 muestras. La tarjeta declara cada método y la proporción aproximada, con un aviso adicional al 66%."
         },
         "s7": {
           "heading": "Por qué los períodos cortos amplifican las cifras anualizadas",
@@ -2096,11 +2096,12 @@
       "sections": {
         "s1": {
           "heading": "La pregunta detrás del riesgo de cola",
-          "p1": "El riesgo de cola pregunta aproximadamente cuánto podría costar un mal día o mes y cuál fue la profundidad media de los peores días o meses. El valor en riesgo (VaR, Value at Risk) marca un límite de pérdida con un nivel de confianza elegido. El valor en riesgo condicional (CVaR, Conditional Value at Risk), también llamado pérdida esperada, describe la pérdida media en esa cola. Ambas medidas proceden de la misma simulación de sus posiciones actuales. Describen una distribución de cambios históricos, no un pronóstico para el próximo día o mes."
+          "p1": "El riesgo de cola pregunta aproximadamente cuánto podría costar un mal día o mes y cuál fue la profundidad media de los peores días o meses. El valor en riesgo (VaR, Value at Risk) marca un límite de pérdida con un nivel de confianza elegido. El valor en riesgo condicional (CVaR, Conditional Value at Risk), también llamado pérdida esperada, describe la pérdida media en esa cola. Ambas medidas proceden de la misma simulación de sus posiciones actuales. Describen una distribución de cambios históricos, no un pronóstico para el próximo día o mes.",
+          "p2": "Cómo leerlo: al 95%, el VaR diario del ejemplo es {dayVar}. En unos 95 de cada 100 días de la simulación la cartera perdió menos de {dayVar}. Los otros 5 días perdió más, y CVaR ({dayCvar}) es su pérdida media."
         },
         "s2": {
           "heading": "La distribución de rendimientos diarios",
-          "p1": "Cada barra cuenta los días de una banda de rendimiento diario. Las pérdidas están a la izquierda y las ganancias a la derecha; el ancho es 0.005. El ejemplo tiene {dailyCount} rendimientos diarios. Las líneas de VaR y CVaR corresponden a la cola de un día al 95%. La línea discontinua es una referencia distinta del cuestionario, basada en una respuesta conservadora hipotética. La altura describe frecuencia y la distancia hacia la izquierda describe profundidad de pérdida. Una barra pequeña y distante a la izquierda puede representar una observación rara pero profunda."
+          "p1": "Cada barra cuenta los días de una banda de rendimiento diario. Las pérdidas están a la izquierda y las ganancias a la derecha; el ancho es 0.005. El ejemplo tiene {dailyCount} rendimientos diarios. Las líneas de VaR y CVaR corresponden a la cola de un día al 95%. La línea punteada es una referencia distinta del cuestionario, basada en una respuesta conservadora hipotética. La altura describe frecuencia y la distancia hacia la izquierda describe profundidad de pérdida. Una barra pequeña y distante a la izquierda puede representar una observación rara pero profunda."
         },
         "s3": {
           "heading": "Un día y un mes",
@@ -2124,7 +2125,7 @@
         },
         "s8": {
           "heading": "Simulación histórica y modelo normal",
-          "p1": "La simulación histórica utiliza directamente los rendimientos observados. El modelo normal ajusta una distribución en forma de campana a su media y desviación estándar muestral. Al 95%, los VaR de un día son próximos: {dayVar} histórico y {normal95} normal. Al 99%, difieren: {dayVar99} y {normal99}. Hubo {fatCount} días por debajo de la media menos {threeSd} desviaciones estándar, frente a {normalExpected} esperados con una distribución normal. La tabla también compara CVaR. El producto presenta el modelo normal solo como una comparación de una línea dentro de los detalles del cálculo."
+          "p1": "La simulación histórica utiliza directamente los rendimientos observados. El modelo normal ajusta una distribución en forma de campana a su media y desviación estándar muestral. Al 95%, los VaR de un día son próximos: {dayVar} histórico y {normal95} normal. Al 99%, difieren: {dayVar99} y {normal99}. Hubo {fatCount} días por debajo de la media menos tres desviaciones estándar, frente a {normalExpected} esperados con una distribución normal. La tabla también compara CVaR. El producto presenta el modelo normal solo como una comparación de una línea dentro de los detalles del cálculo."
         },
         "s9": {
           "heading": "Qué pueden ocultar los sustitutos",
@@ -2132,7 +2133,7 @@
         },
         "s10": {
           "heading": "La referencia del cuestionario",
-          "p1": "La referencia parte del umbral de volatilidad anualizada «superior» del Riesgo del Resumen: 20%, 30% o 40% para respuestas conservadoras, equilibradas o agresivas. Un horizonte corto o el objetivo de preservar capital lo desplaza 5 puntos porcentuales hacia abajo, con un mínimo de 20%. Convierte esa volatilidad en pérdida diaria y mensual suponiendo distribución normal de media cero. VaR histórico usa la distribución real, por lo que las bases difieren. Es solo una comparación, sin juicio de «dentro» o «fuera»; lo aceptable difiere entre personas y a lo largo del tiempo. Aparece como fila de la tabla y línea discontinua del histograma diario; queda ausente si no hay respuestas al cuestionario."
+          "p1": "La referencia parte del umbral de volatilidad anualizada «superior» del Riesgo del Resumen: 20%, 30% o 40% para respuestas conservadoras, equilibradas o agresivas. Un horizonte corto o el objetivo de preservar capital lo desplaza 5 puntos porcentuales hacia abajo, con un mínimo de 20%. Convierte esa volatilidad en pérdida diaria y mensual suponiendo distribución normal de media cero. VaR histórico usa la distribución real, por lo que las bases difieren. Es solo una comparación, sin juicio de «dentro» o «fuera»; lo aceptable difiere entre personas y a lo largo del tiempo. Aparece como fila de la tabla y línea punteada del histograma diario; queda ausente si no hay respuestas al cuestionario."
         },
         "s11": {
           "heading": "Por qué no hay prueba retrospectiva con los mismos datos",
@@ -2144,7 +2145,7 @@
         },
         "s13": {
           "heading": "Referencias",
-          "p1": "J.P. Morgan/Reuters, RiskMetrics — Technical Document ({year1996}). Artzner, Delbaen, Eber & Heath, Coherent Measures of Risk, Mathematical Finance {volume9}({issue3}), {year1999}. Rockafellar & Uryasev, Optimization of Conditional Value-at-Risk, Journal of Risk {volume2}({issue3}), {year2000}. Acerbi & Tasche, On the Coherence of Expected Shortfall, Journal of Banking & Finance {volume26}({issue7}), {year2002}."
+          "p1": "J.P. Morgan/Reuters, RiskMetrics — Technical Document (1996). Artzner, Delbaen, Eber & Heath, Coherent Measures of Risk, Mathematical Finance 9(3), 1999. Rockafellar & Uryasev, Optimization of Conditional Value-at-Risk, Journal of Risk 2(3), 2000. Acerbi & Tasche, On the Coherence of Expected Shortfall, Journal of Banking & Finance 26(7), 2002."
         }
       }
     }

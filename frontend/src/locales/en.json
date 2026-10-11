@@ -1957,7 +1957,7 @@
       "whatItSays": "What it says: how differently your holdings moved from a reference portfolio you define, such as 60% US stocks and 40% US bonds. Excess return is the gap in total return between the two; the chart shows how that gap built up, above zero when your portfolio was ahead and below zero when it was behind. Tracking error measures how unevenly the gap moved, whichever side ended ahead: low means your portfolio moved closely with the reference, high means it often moved differently. As a rough guide, 5% means the yearly gap typically varied by about 5 percentage points. REITs (real estate investment trusts) are listed companies that own income-producing property."
     },
     "guideLink": "Read the guide",
-    "guidesLead": "Public explanations.",
+    "guidesLead": "Public guides explain how holdings replay and tail risk work.",
     "guideLinks": {
       "replay": "Holdings replay",
       "var": "Tail risk"
@@ -2020,10 +2020,10 @@
       "varLink": "Tail risk guide",
       "window": "{portfolio}. {start} to {end}. {exampleLabel}.",
       "replayCaption": "{portfolio}, {start} to {end}. {exampleLabel}. Cumulative return: {cumulative}, compared with {spyCumulative} for SPY. The maximum drawdown was {drawdown}, from {peak} to {trough}.",
-      "varCaption": "{portfolio}, {start} to {end}. {exampleLabel}. The 95% one-day VaR is {dayVar}, CVaR is {dayCvar}, and the reference is {referenceDay}. The dashed reference comes from a hypothetical conservative questionnaire answer.",
+      "varCaption": "{portfolio}, {start} to {end}. {exampleLabel}. The 95% one-day VaR is {dayVar}, CVaR is {dayCvar}, and the reference is {referenceDay}. The dotted reference comes from a hypothetical conservative questionnaire answer.",
       "normalCaption": "{portfolio}, {start} to {end}. {exampleLabel}. Historical simulation and the normal model, using the same daily returns.",
-      "day": "{oneDay} day",
-      "month": "{oneMonth} month",
+      "day": "1 day",
+      "month": "1 month",
       "metric": "Metric",
       "level": "Confidence",
       "historical": "Historical simulation",
@@ -2070,7 +2070,7 @@
         },
         "s6": {
           "heading": "Proxies and history before listing",
-          "p1": "An exchange-traded fund (ETF) is a fund listed on an exchange that tracks an index. A holding without its own usable history is represented by an index ETF chosen by market or asset class. Cash stays constant in its own currency. Before a later listing, the tool fills history with its market ETF, scaled by beta: a measure of how strongly the holding moved with that ETF. Beta is {betaFallback} when fewer than {betaSamples} samples are available. The card discloses each method and the approximated share, with an additional notice at 66%."
+          "p1": "An exchange-traded fund (ETF) is a fund listed on an exchange that tracks an index. A holding without its own usable history is represented by an index ETF chosen by market or asset class. Cash stays constant in its own currency. Before a later listing, the tool fills history with its market ETF, scaled by beta: a measure of how strongly the holding moved with that ETF. Beta is 1 when fewer than 60 samples are available. The card discloses each method and the approximated share, with an additional notice at 66%."
         },
         "s7": {
           "heading": "Why short spans magnify annualized figures",
@@ -2096,11 +2096,12 @@
       "sections": {
         "s1": {
           "heading": "The question behind tail risk",
-          "p1": "Tail risk asks roughly how much a bad day or month could cost, and how deep the worst days or months were on average. Value at Risk (VaR) marks a loss boundary at a chosen confidence level. Conditional Value at Risk (CVaR), also called Expected Shortfall, describes the average loss in that tail. Both measures here come from the same replay of today’s holdings. They describe a distribution of historical changes, rather than a forecast for the next day or month."
+          "p1": "Tail risk asks roughly how much a bad day or month could cost, and how deep the worst days or months were on average. Value at Risk (VaR) marks a loss boundary at a chosen confidence level. Conditional Value at Risk (CVaR), also called Expected Shortfall, describes the average loss in that tail. Both measures here come from the same replay of today’s holdings. They describe a distribution of historical changes, rather than a forecast for the next day or month.",
+          "p2": "How to read it: at 95%, the example’s one-day VaR is {dayVar}. On about 95 of every 100 days in the replay the portfolio lost less than {dayVar}. On the other 5 days it lost more, and CVaR ({dayCvar}) is their average loss."
         },
         "s2": {
           "heading": "The daily-return distribution",
-          "p1": "Each bar counts days in a band of daily return. Losses are on the left and gains on the right; the bin width is 0.005. The example has {dailyCount} daily returns. The marked VaR and CVaR lines refer to the 95% one-day tail. The dashed line is a separate questionnaire reference, drawn from a hypothetical conservative answer. Bar heights describe frequency, while distance to the left describes depth of loss. A small bar far to the left can represent a rare but deep observation."
+          "p1": "Each bar counts days in a band of daily return. Losses are on the left and gains on the right; the bin width is 0.005. The example has {dailyCount} daily returns. The marked VaR and CVaR lines refer to the 95% one-day tail. The dotted line is a separate questionnaire reference, drawn from a hypothetical conservative answer. Bar heights describe frequency, while distance to the left describes depth of loss. A small bar far to the left can represent a rare but deep observation."
         },
         "s3": {
           "heading": "One day and one month",
@@ -2124,7 +2125,7 @@
         },
         "s8": {
           "heading": "Historical simulation and the normal model",
-          "p1": "Historical simulation uses the observed returns directly. The normal model fits a bell-shaped distribution to their mean and sample standard deviation. At 95%, the one-day VaR figures are close: {dayVar} historically and {normal95} under the normal model. At 99%, they differ: {dayVar99} and {normal99}. There were {fatCount} days below the mean minus {threeSd} standard deviations, against {normalExpected} expected under a normal distribution. The table also compares CVaR. The product presents the normal model only as a one-line comparison inside calculation details."
+          "p1": "Historical simulation uses the observed returns directly. The normal model fits a bell-shaped distribution to their mean and sample standard deviation. At 95%, the one-day VaR figures are close: {dayVar} historically and {normal95} under the normal model. At 99%, they differ: {dayVar99} and {normal99}. There were {fatCount} days below the mean minus three standard deviations, against {normalExpected} expected under a normal distribution. The table also compares CVaR. The product presents the normal model only as a one-line comparison inside calculation details."
         },
         "s9": {
           "heading": "What proxies can hide",
@@ -2132,7 +2133,7 @@
         },
         "s10": {
           "heading": "The questionnaire reference line",
-          "p1": "The reference starts with the Overview Risk ‘exceeds’ annualized-volatility threshold: 20%, 30% or 40% for conservative, balanced or aggressive answers. A short horizon or capital-preservation objective shifts it down by 5 percentage points, floored at 20%. It converts that volatility to a daily and monthly loss under a zero-mean normal assumption. Historical VaR uses the actual distribution, so the bases differ. The line is a comparison only, with no ‘within’ or ‘beyond’ judgement; what is acceptable differs by person and over time. It appears as a table row and a dashed daily-histogram line, and is absent when the questionnaire is unanswered."
+          "p1": "The reference starts with the Overview Risk ‘exceeds’ annualized-volatility threshold: 20%, 30% or 40% for conservative, balanced or aggressive answers. A short horizon or capital-preservation objective shifts it down by 5 percentage points, floored at 20%. It converts that volatility to a daily and monthly loss under a zero-mean normal assumption. Historical VaR uses the actual distribution, so the bases differ. The line is a comparison only, with no ‘within’ or ‘beyond’ judgement; what is acceptable differs by person and over time. It appears as a table row and a dotted daily-histogram line, and is absent when the questionnaire is unanswered."
         },
         "s11": {
           "heading": "Why there is no same-data backtest",
@@ -2144,7 +2145,7 @@
         },
         "s13": {
           "heading": "References",
-          "p1": "J.P. Morgan/Reuters, RiskMetrics — Technical Document ({year1996}). Artzner, Delbaen, Eber & Heath, Coherent Measures of Risk, Mathematical Finance {volume9}({issue3}), {year1999}. Rockafellar & Uryasev, Optimization of Conditional Value-at-Risk, Journal of Risk {volume2}({issue3}), {year2000}. Acerbi & Tasche, On the Coherence of Expected Shortfall, Journal of Banking & Finance {volume26}({issue7}), {year2002}."
+          "p1": "J.P. Morgan/Reuters, RiskMetrics — Technical Document (1996). Artzner, Delbaen, Eber & Heath, Coherent Measures of Risk, Mathematical Finance 9(3), 1999. Rockafellar & Uryasev, Optimization of Conditional Value-at-Risk, Journal of Risk 2(3), 2000. Acerbi & Tasche, On the Coherence of Expected Shortfall, Journal of Banking & Finance 26(7), 2002."
         }
       }
     }
