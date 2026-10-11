@@ -88,6 +88,40 @@ STYLE_LOW_FIT = 0.6
 STYLE_SOLVER_TOL = 1e-12
 
 
+CASH_COMPONENT = "CASH"
+TRACKING_COMPONENTS: tuple[EtfSpec, ...] = (
+    SPY,
+    CLASS_PROXY["EQUITY_US_TECH"],
+    BENCHMARK_ETF["dow30"],
+    BENCHMARK_ETF["nasdaq"],
+    STYLE_BASIS[0],
+    STYLE_BASIS[1],
+    STYLE_BASIS[2],
+    ACWI,
+    CLASS_PROXY["EQUITY_DM"],
+    CLASS_PROXY["EQUITY_EM"],
+    STOCK_PROXY_BY_MARKET["HK"],
+    CSI,
+    STOCK_PROXY_BY_MARKET["UK"],
+    STOCK_PROXY_BY_MARKET["Europe"],
+    STOCK_PROXY_BY_MARKET["Japan"],
+    STOCK_PROXY_BY_MARKET["Korea"],
+    CLASS_PROXY["BOND_FUND"],
+    STYLE_BASIS[8],
+    STYLE_BASIS[12],
+    CLASS_PROXY["PRECIOUS_METALS"],
+    CLASS_PROXY["COMMODITY"],
+    CLASS_PROXY["REIT"],
+    CLASS_PROXY["ENERGY"],
+)
+TRACKING_SYMBOLS: tuple[str, ...] = (*(e.symbol for e in TRACKING_COMPONENTS), CASH_COMPONENT)
+TRACKING_KEYS = frozenset("yf:" + e.symbol for e in TRACKING_COMPONENTS)
+DEFAULT_TRACKING_REFERENCE: tuple[tuple[str, int], ...] = (("SPY", 60), ("AGG", 40))
+TRACKING_MAX_COMPONENTS = 5
+TRACKING_HORIZON_DAYS = 5
+TRACKING_MIN_SAMPLES = 10
+
+
 def years_before(day: date, years: int) -> date:
     try:
         return day.replace(year=day.year - years)

@@ -1874,6 +1874,69 @@
         "VNQ": "US real estate (REITs)",
         "BIL": "Cash and short-term bills (USD)"
       }
+    },
+    "tracking": {
+      "title": "Tracking against your reference",
+      "intro": "Compares today's holdings, replayed over the span selected above, with a reference portfolio you define: how far the two drifted apart, and how unevenly.",
+      "editor": {
+        "title": "Your reference portfolio",
+        "example": "Example reference, not saved. Change it and save to use your own.",
+        "component": "Component",
+        "weight": "Weight (%)",
+        "add": "Add component",
+        "remove": "Remove",
+        "total": "Total: {total}%",
+        "invalid": "Use whole-number weights from 1 to 100 that add up to exactly 100%, with each component once.",
+        "save": "Save reference",
+        "saving": "Saving…",
+        "saveError": "The reference could not be saved."
+      },
+      "referenceLabel": "Reference: {composition}",
+      "rows": {
+        "portfolio": "Your portfolio (cumulative)",
+        "reference": "Reference (cumulative)",
+        "excess": "Excess return (cumulative)",
+        "annualizedExcess": "Excess return (annualized)",
+        "trackingError": "Tracking error (annualized)"
+      },
+      "legend": {
+        "excess": "Excess return over the reference"
+      },
+      "teInsufficient": "Tracking error needs at least {min} five-day returns; this span has {count}.",
+      "proxyNote": "Some holdings follow index ETFs as proxies. Those ETFs move like index-based references, so tracking error may be understated.",
+      "referencePending": "Price history for the reference is being prepared. It is updated once a day after the US market close.",
+      "referenceUnavailable": "The reference cannot be computed for this span because one of its components has no prices for part of it.",
+      "model": "Calculation model",
+      "windowText": "Window {start} – {end}; {count} overlapping five-day returns.",
+      "methodText": "Prices are total return (dividends reinvested), converted to {currency} at each day's exchange rate; the cash component stays constant in {currency}. The reference is rebalanced to its weights every day, so its daily return is the weighted sum of its components' daily returns. Excess return is your portfolio's cumulative return minus the reference's; annualized excess is the difference between the two annualized returns. Tracking error is the standard deviation of the difference between the two five-day returns, computed every day and scaled by √(252/5). Five-day returns line up markets that close at different times; daily returns would add differences that come only from the closing times.",
+      "limitations": "You choose the reference; the results describe the difference from it, not whether it suits you. Overlapping five-day samples are not independent, so the effective sample is smaller than the count shown, especially for short spans. Your portfolio is today's holdings replayed without rebalancing, while the reference is rebalanced daily. This describes the past and is not a forecast.",
+      "loadError": "Tracking could not be loaded.",
+      "labels": {
+        "SPY": "US large-cap (S&P 500)",
+        "QQQ": "US large-cap tech (Nasdaq-100)",
+        "DIA": "US blue chips (Dow 30)",
+        "ONEQ": "US Nasdaq Composite",
+        "IWF": "US large-cap growth",
+        "IWD": "US large-cap value",
+        "IWM": "US small-cap",
+        "ACWI": "Global equities",
+        "EFA": "Developed markets ex-US",
+        "EEM": "Emerging markets",
+        "2800_HK": "Hong Kong equities",
+        "510300_SS": "China A-shares (CSI 300)",
+        "ISF_L": "UK equities (FTSE 100)",
+        "EXSA_DE": "European equities (STOXX Europe 600)",
+        "1306_T": "Japanese equities (TOPIX)",
+        "069500_KS": "Korean equities (KOSPI 200)",
+        "AGG": "US aggregate bonds",
+        "TLT": "US long-term Treasuries",
+        "BIL": "Cash and short-term bills (USD)",
+        "GLD": "Gold",
+        "DBC": "Broad commodities",
+        "VNQ": "US real estate (REITs)",
+        "XLE": "US energy",
+        "CASH": "Cash ({currency}, held constant)"
+      }
     }
   }
 }

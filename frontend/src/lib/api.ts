@@ -1152,3 +1152,44 @@ export async function getJadeStyle(baseCurrency?: BaseCurrency, benchmark: Bench
   if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<JadeStyle>;
 }
+
+export interface TrackingComponent { symbol: string; weight: number }
+export interface JadeBenchmark { components: TrackingComponent[]; saved: boolean }
+export interface TrackingMetrics {
+  portfolio_return: string;
+  benchmark_return: string;
+  excess_return: string;
+  annualized_excess: string;
+  tracking_error: string | null;
+}
+export interface JadeTracking {
+  status: JadeReplay["status"];
+  range: ReplayRange;
+  base_currency: string;
+  window_start: string;
+  window_end: string;
+  first_valid_date: string | null;
+  components: TrackingComponent[];
+  benchmark_saved: boolean;
+  benchmark_status: "ok" | "pending" | "unavailable" | null;
+  sample_count: number;
+  horizon_days: number;
+  min_samples: number;
+  metrics: TrackingMetrics | null;
+  points: { date: string; excess: string }[];
+  coverage: JadeReplay["coverage"];
+  proxy_note: boolean;
+}
+export async function getJadeTracking(baseCurrency?: BaseCurrency, range?: ReplayRange): Promise<JadeTracking> {
+  const params = new URLSearchParams();
+  if (baseCurrency) params.set("base_currency", baseCurrency);
+  if (range) params.set("range", range);
+  const res = await fetch(`/api/jade/tracking?${params.toString()}`, { cache: "no-store" });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<JadeTracking>;
+}
+export async function saveJadeBenchmark(components: TrackingComponent[]): Promise<JadeBenchmark> {
+  const res = await fetch("/api/jade/benchmark", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ components }) });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<JadeBenchmark>;
+}

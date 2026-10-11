@@ -99,3 +99,13 @@ it.each(["inactive", "expired"] as const)("B16 style hidden for %s Jade", status
   render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, status } }} hadLoadError={false} />);
   expect(screen.queryByTestId("style-section")).not.toBeInTheDocument();
 });
+
+vi.mock("./tracking-section", () => ({ TrackingSection: () => <div data-testid="tracking-section" /> }));
+it.each(["jade", "daily", "weekly"] as const)("B17 tracking is Jade-only for active %s", plan => {
+  render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, type: plan } }} hadLoadError={false} />);
+  expect(screen.queryByTestId("tracking-section") !== null).toBe(plan === "jade");
+});
+it.each(["inactive", "expired"] as const)("B17 tracking hidden for %s Jade", status => {
+  render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, status } }} hadLoadError={false} />);
+  expect(screen.queryByTestId("tracking-section")).not.toBeInTheDocument();
+});

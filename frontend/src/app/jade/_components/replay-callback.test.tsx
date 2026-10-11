@@ -11,9 +11,9 @@ it("A18 callback follows initial and changed successful responses only",async()=
   getJadeReplay.mockResolvedValueOnce(result).mockResolvedValueOnce({...result,range:"3Y",base_currency:"EUR",benchmark:"csi300"}).mockRejectedValueOnce(new Error("offline"));
   const onSettled=vi.fn();
   render(<LocaleProvider routeLocale={null}><ReplaySection onSettled={onSettled}/></LocaleProvider>);
-  await waitFor(()=>expect(onSettled).toHaveBeenCalledExactlyOnceWith("USD","sp500"));
+  await waitFor(()=>expect(onSettled).toHaveBeenCalledExactlyOnceWith("USD","sp500","1Y"));
   fireEvent.click(screen.getByRole("button",{name:"3Y"}));
-  await waitFor(()=>expect(onSettled).toHaveBeenLastCalledWith("EUR","csi300"));
+  await waitFor(()=>expect(onSettled).toHaveBeenLastCalledWith("EUR","csi300","3Y"));
   fireEvent.click(screen.getByRole("button",{name:"5Y"}));
   await screen.findByRole("alert");expect(onSettled).toHaveBeenCalledTimes(2);
   vi.unstubAllGlobals();
