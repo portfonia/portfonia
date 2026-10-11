@@ -4,9 +4,14 @@ from datetime import date
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
-from app.services.jade_replay_config import ReplayRange, ScenarioId
+from app.services.jade_replay_config import (
+    TRACKING_MAX_COMPONENTS,
+    TRACKING_SYMBOLS,
+    ReplayRange,
+    ScenarioId,
+)
 
 
 class Metrics(BaseModel):
@@ -237,3 +242,63 @@ class JadeStyleOut(BaseModel):
     points: list[StylePoint]
     coverage: Coverage
     proxy_inflates_fit: bool
+
+
+class TrackingComponent(BaseModel):
+    symbol: str
+    weight: int
+
+
+class JadeBenchmarkIn(BaseModel):
+    components: list[TrackingComponent]
+
+    @model_validator(mode="after")
+    def validate_components(self) -> "JadeBenchmarkIn":
+        if not 1 <= len(self.components) <= TRACKING_MAX_COMPONENTS:
+            raise ValueError("Choose one to five components")
+        if any(c.symbol not in TRACKING_SYMBOLS for c in self.components):
+            raise ValueError("Unknown reference component")
+        if any(not 1 <= c.weight <= 100 for c in self.components):
+            raise ValueError("Weights must be between 1 and 100")
+        if len({c.symbol for c in self.components}) != len(self.components):
+            raise ValueError("Components must be unique")
+        if sum(c.weight for c in self.components) != 100:
+            raise ValueError("Weights must sum to 100")
+        return self
+
+
+class JadeBenchmarkOut(BaseModel):
+    components: list[TrackingComponent]
+    saved: bool
+
+
+class TrackingMetrics(BaseModel):
+    portfolio_return: str
+    benchmark_return: str
+    excess_return: str
+    annualized_excess: str
+    tracking_error: str | None
+
+
+class TrackingPoint(BaseModel):
+    date: date
+    excess: str
+
+
+class JadeTrackingOut(BaseModel):
+    status: Literal["ok", "pending", "no_holdings", "insufficient"]
+    range: ReplayRange
+    base_currency: str
+    window_start: date
+    window_end: date
+    first_valid_date: date | None
+    components: list[TrackingComponent]
+    benchmark_saved: bool
+    benchmark_status: Literal["ok", "pending", "unavailable"] | None
+    sample_count: int
+    horizon_days: int
+    min_samples: int
+    metrics: TrackingMetrics | None
+    points: list[TrackingPoint]
+    coverage: Coverage
+    proxy_note: bool

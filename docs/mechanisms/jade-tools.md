@@ -468,3 +468,110 @@ positive proxy or head-proxy share separately explains mechanically inflated
 fit. No position judgement or action wording is added. Review, merge, deployment,
 nightly-fill triggering and each production operation remain separately
 authorized. Until nightly fill attempts the five new series the card is pending.
+
+## Custom reference and tracking error (issue #729)
+
+The Jade-only card below style compares today's unchanged holdings replay with
+one reference portfolio chosen by the user. It uses the replay's currency and
+span (1M, 3M, 6M, YTD, 1Y, 3Y, 5Y; default 1Y), independently of the replay's
+index benchmark and the questionnaire. The reference does not affect replay,
+tail risk, stress, style, Overview, Performance or reports.
+
+### Components, storage and APIs
+
+Picker order is SPY, QQQ, DIA, ONEQ, IWF, IWD, IWM, ACWI, EFA, EEM, 2800.HK,
+510300.SS, ISF.L, EXSA.DE, 1306.T, 069500.KS, AGG, TLT, BIL, GLD, DBC, VNQ,
+XLE, then CASH. All 23 ETFs already belong to the fixed replay or style cache;
+no collection, substitute configuration, scenario fill or Beat change is needed.
+CASH is constant in the display currency and requires no prices or FX.
+
+Migration `d72900000001`, following `d72000000001`, adds nullable JSONB
+`users.jade_benchmark`; downgrade drops it. There is no table, CHECK or backfill.
+The public ETF choices and weights are not encrypted. Both account-deletion
+paths remove the value by deleting the user row, without a deletion-flow change.
+
+`PUT /jade/benchmark` accepts `{"components": [{"symbol": "SPY", "weight": 60},
+{"symbol": "AGG", "weight": 40}]}` and writes only the caller's column. Validation
+checks one to five components, known symbols, integer weights in 1–100,
+unique symbols and sum exactly 100, in that order. Pydantic uses its normal lax
+integer mode; a fractional number such as 60.5 returns 422. Order is preserved;
+repeat identical saves return 200. The response contains components and
+`saved: true`. No reference GET or DELETE endpoint exists. NULL selects 60%
+SPY / 40% AGG, explicitly labelled an unsaved example.
+
+`GET /jade/tracking?base_currency=&range=` defaults to report currency and 1Y.
+Both APIs use `_jade_access`, returning 403 `subscription_required` for non-Jade
+callers and standard 422 for invalid input. Tracking reads cached data only,
+with no database write, outbound call, request-time fill or result cache.
+
+### Common dates and calculation
+
+`compute_tracking` calls unrounded `build_replay(..., "sp500", range)` and ignores
+its benchmark result. Replay no_holdings, pending and insufficient pass through
+with null benchmark status/metrics, empty points and zero samples. For an ok
+replay, a missing or unattempted non-cash series gives benchmark pending. Prices
+and each historical FX leg carry at most ten calendar days, using `price_on`,
+`load_fx_series` and `to_base` exactly as style does.
+
+Common dates are portfolio dates where every reference component has a converted
+value. Empty common dates or absence of either portfolio endpoint gives reference
+unavailable, without changing portfolio status or using substitutes/backfill.
+Missing interior dates are skipped; returns span common-date positions. The
+reference index starts at one and multiplies by `1 + sum(weight * component_return)`
+per common date. These daily constant weights differ from the portfolio's
+unchanged holdings without rebalancing. For SPY [100, 102, 101] and AGG
+[50, 50, 50.5], 60/40 produces [1.000000, 1.012000, 1.010095].
+
+Cumulative excess is portfolio cumulative return minus reference cumulative
+return. Annualized excess subtracts their annualized returns, each using
+`365.25 / calendar_days`. The excess curve draws only this cumulative difference,
+starting at zero with a zero reference line. Endpoint coverage keeps portfolio
+cumulative return identical to the replay for the same currency and span.
+
+Tracking error takes sample standard deviation of
+`P[i]/P[i-5] - R[i]/R[i-5]`, multiplied by `sqrt(252/5)`. Count is
+`max(common_dates - 5, 0)`; below ten samples tracking error is null while other
+metrics remain present. Fourteen dates give nine samples, fifteen give ten.
+The owner-authorized historical probe found that daily tracking error for a
+50/50 Hong Kong/China portfolio against SPY/AGG was 16.5%, versus 10.2% with
+five-day overlapping returns and 9.9% with independent weekly returns; QQQ/SPY
+was 9.3% daily versus 8.9% over five days. Five-day returns align asynchronous
+closes. Overlapping samples remain dependent, especially in short spans.
+No information ratio, suitability judgement or forecast is produced.
+
+The response includes components/saved state in every status, replay window,
+first valid date and coverage, five-day horizon, ten-sample minimum and a proxy
+note whenever proxy or head-proxy share is positive. Ok reference results carry
+six-decimal metrics and excess points. Pending/unavailable reference results
+retain ok portfolio status with null metrics and empty points. Zero calendar
+span, nonpositive reference factors and obsolete stored symbols are outside the
+handled states.
+
+### Editor, requests and layout
+
+Replay `onSettled(currency, benchmark, range)` reports the successful response's
+span. Tracking follows currency/range, ignores index benchmark, and starts with
+an unparameterized request. Tail risk, stress and style remain dependent only
+on currency/benchmark and do not request on a span change. Tracking permits one
+flight, queues latest settings only, retains previous data on failure and shows
+an alert without automatic retry. Successful saves reload latest settings; a
+save during a request queues that reload before the normal settings check.
+
+The editor initializes once from response components, preserves edits across
+subsequent responses and resets to saved components on save success. Each row
+has a native picker with other rows' symbols disabled and an integer numeric
+input. Adding uses the first unused symbol and an empty weight; add disappears
+at five rows, remove at one. Invalid or unchanged rows disable save. Save
+failures keep the rows and display an error. The editor remains outside the
+calculating overlay.
+
+The overlay contains composition, a two-column five-metric table, 240px excess
+chart, notes, status texts and initially closed Calculation model details. Null
+tracking error displays a dash with sample count. Short-span annualization,
+66% approximation and positive proxy-share notices follow their conditions.
+Editor rows stack, selectors fill their width, weight/remove controls share a
+line, table cells wrap and chart fills the card at 375px. Colors follow theme
+variables for dark mode. Three hand-authored locale catalogs share identical
+keys and the issue's component labels. Deployment including migration, review,
+merge and phone verification require separate owner authorization; no data fill
+is needed.

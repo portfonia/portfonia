@@ -9,13 +9,22 @@ from app.core.database import get_session
 from app.core.deps import Principal, current_principal
 from app.models.user import User
 from app.routers.portfolio import BaseCurrency, BenchmarkCode
-from app.schemas.jade import JadeReplayOut, JadeStressOut, JadeStyleOut, JadeTailRiskOut
+from app.schemas.jade import (
+    JadeBenchmarkIn,
+    JadeBenchmarkOut,
+    JadeReplayOut,
+    JadeStressOut,
+    JadeStyleOut,
+    JadeTailRiskOut,
+    JadeTrackingOut,
+)
 from app.services import subscription
 from app.services.jade_replay import compute_replay
 from app.services.jade_replay_config import DEFAULT_REPLAY_RANGE, ReplayRange
 from app.services.jade_stress import compute_stress
 from app.services.jade_style import compute_style
 from app.services.jade_tail_risk import compute_tail_risk
+from app.services.jade_tracking import compute_tracking
 from app.services.user_scope import report_currency_for
 
 router = APIRouter()
@@ -108,4 +117,42 @@ def get_style(
         principal.user_id,
         base_currency or report_currency_for(session, principal.user_id, "USD"),
         benchmark,
+    )
+
+
+@router.put(
+    "/benchmark",
+    response_model=JadeBenchmarkOut,
+    dependencies=[Depends(_jade_access)],
+    summary="Save the caller's custom reference portfolio (Jade)",
+)
+def save_benchmark(
+    body: JadeBenchmarkIn,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> JadeBenchmarkOut:
+    user = session.get(User, principal.user_id)
+    assert user is not None
+    user.jade_benchmark = {"components": [c.model_dump() for c in body.components]}
+    session.commit()
+    return JadeBenchmarkOut(components=body.components, saved=True)
+
+
+@router.get(
+    "/tracking",
+    response_model=JadeTrackingOut,
+    dependencies=[Depends(_jade_access)],
+    summary="Tracking against the caller's daily-rebalanced reference (Jade, cached data only)",
+)
+def get_tracking(
+    base_currency: Annotated[BaseCurrency | None, Query()] = None,
+    range: ReplayRange = DEFAULT_REPLAY_RANGE,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> JadeTrackingOut:
+    return compute_tracking(
+        session,
+        principal.user_id,
+        base_currency or report_currency_for(session, principal.user_id, "USD"),
+        range,
     )

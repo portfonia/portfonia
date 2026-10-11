@@ -1,5 +1,6 @@
 "use client";
 
+import { TrackingSection } from "./tracking-section";
 import { StyleSection } from "./style-section";
 import { StressSection } from "./stress-section";
 import { TailRiskSection } from "./tail-risk-section";
@@ -11,12 +12,12 @@ import { useTranslations } from "next-intl";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { setJadeCadence, type BenchmarkCode, type BriefingPlan, type Me } from "@/lib/api";
+import { setJadeCadence, type BenchmarkCode, type BriefingPlan, type Me, type ReplayRange } from "@/lib/api";
 import { useSubscription } from "@/app/profile/_components/use-subscription";
 import { SubscriptionDialog } from "@/app/profile/_components/subscription-dialog";
 
 export function JadePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError: boolean }) {
-  const [replaySettings, setReplaySettings] = useState<{ currency: BaseCurrency; benchmark: BenchmarkCode } | null>(null);
+  const [replaySettings, setReplaySettings] = useState<{ currency: BaseCurrency; benchmark: BenchmarkCode; range: ReplayRange } | null>(null);
   const t = useTranslations("jade");
   const profile = useTranslations("profile");
   const router = useRouter();
@@ -71,6 +72,6 @@ export function JadePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError
         {cadenceError && <p role="alert" className="text-destructive">{t("cadenceError")}</p>}
       </CardContent>
     </Card>}
-    {isJade && <><ReplaySection onSettled={(currency, benchmark) => setReplaySettings({ currency, benchmark })} /><TailRiskSection settings={replaySettings} /><StressSection settings={replaySettings} /><StyleSection settings={replaySettings} /></>}
+    {isJade && <><ReplaySection onSettled={(currency, benchmark, range) => setReplaySettings({ currency, benchmark, range })} /><TailRiskSection settings={replaySettings} /><StressSection settings={replaySettings} /><StyleSection settings={replaySettings} /><TrackingSection settings={replaySettings} /></>}
   </div>;
 }

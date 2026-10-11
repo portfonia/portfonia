@@ -5,7 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import Boolean, CheckConstraint, Date, Numeric, SmallInteger, Text, func, text
-from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
+from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.encryption import EncryptedString
@@ -80,6 +80,7 @@ class User(Base):
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     display_name: Mapped[str | None] = mapped_column(EncryptedString)
     locale: Mapped[str] = mapped_column(Text, nullable=False)
+    jade_benchmark: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     base_currency: Mapped[str] = mapped_column(Text, nullable=False)
     report_cadence: Mapped[str] = mapped_column(Text, nullable=False)
     subscription_status: Mapped[str] = mapped_column(
