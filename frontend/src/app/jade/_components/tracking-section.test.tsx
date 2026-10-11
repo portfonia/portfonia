@@ -146,3 +146,50 @@ it.each(["en", "zh-Hans", "zh-Hant"] as const)("B17 %s locale parity and D9 labe
   expect(keys(jade.tracking)).toEqual(keys((catalogs.en.jade as unknown as typeof jade).tracking));
   for (const [key, value] of Object.entries(jade.style.labels)) expect(jade.tracking.labels[key]).toBe(value);
 });
+
+it("F1 saved editor state survives failed post-save reload", async () => {
+  await ready();
+  const saved = [{ symbol: "SPY", weight: 70 }, { symbol: "AGG", weight: 30 }];
+  fireEvent.change(weights()[0], { target: { value: "70" } });
+  fireEvent.change(weights()[1], { target: { value: "30" } });
+  saveJadeBenchmark.mockResolvedValue({ components: saved, saved: true });
+  getJadeTracking.mockRejectedValueOnce(new Error("offline"));
+  fireEvent.click(save());
+  expect(await screen.findByRole("alert")).toHaveTextContent("Tracking could not be loaded.");
+  expect(weights()[0]).toHaveValue(70);
+  expect(weights()[1]).toHaveValue(30);
+  expect(screen.queryByText(/Example reference, not saved/)).not.toBeInTheDocument();
+  expect(save()).toBeDisabled();
+  expect(screen.getByTestId("tracking-table")).toHaveTextContent("12.00%");
+  expect(screen.getByText(/^Reference: 60%/)).toBeInTheDocument();
+  expect(getJadeTracking).toHaveBeenCalledTimes(2);
+});
+it("F1 pre-save GET cannot replace saved editor state and post-save GET updates card", async () => {
+  const { rerender, wrap } = await ready();
+  let resolveOld: (value: typeof data) => void = () => {};
+  let resolveNew: (value: typeof data) => void = () => {};
+  getJadeTracking.mockImplementationOnce(() => new Promise(r => { resolveOld = r; }))
+    .mockImplementationOnce(() => new Promise(r => { resolveNew = r; }));
+  rerender(wrap({ currency: "EUR", range: "1Y", benchmark: "sp500" }));
+  const saved = [{ symbol: "SPY", weight: 70 }, { symbol: "AGG", weight: 30 }];
+  fireEvent.change(weights()[0], { target: { value: "70" } });
+  fireEvent.change(weights()[1], { target: { value: "30" } });
+  saveJadeBenchmark.mockResolvedValue({ components: saved, saved: true });
+  fireEvent.click(save());
+  await act(async () => {});
+  expect(getJadeTracking).toHaveBeenCalledTimes(2);
+  await act(async () => resolveOld({ ...data, base_currency: "EUR", metrics: { ...data.metrics, portfolio_return: "0.130000" } }));
+  expect(getJadeTracking).toHaveBeenCalledTimes(3);
+  expect(screen.queryByText(/Example reference, not saved/)).not.toBeInTheDocument();
+  expect(save()).toBeDisabled();
+  expect(weights()[0]).toHaveValue(70);
+  expect(weights()[1]).toHaveValue(30);
+  expect(screen.getByTestId("tracking-table")).toHaveTextContent("13.00%");
+  await act(async () => resolveNew({ ...data, base_currency: "EUR", components: saved, benchmark_saved: true, metrics: { ...data.metrics, portfolio_return: "0.140000" } }));
+  expect(screen.getByTestId("tracking-table")).toHaveTextContent("14.00%");
+  expect(screen.getByText(/^Reference: 70%/)).toBeInTheDocument();
+  expect(screen.queryByText(/Example reference, not saved/)).not.toBeInTheDocument();
+  expect(save()).toBeDisabled();
+  expect(getJadeTracking).toHaveBeenLastCalledWith("EUR", "1Y");
+  expect(getJadeTracking).toHaveBeenCalledTimes(3);
+});

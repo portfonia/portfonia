@@ -11,7 +11,7 @@ import { useLocale } from "@/app/_components/locale-provider";
 import type { BaseCurrency } from "@/app/portfolio/_components/currencies";
 import { formatShortDate, formatTickPct } from "@/app/portfolio/performance/_components/performance-format";
 import { PORTFOLIO_COLOR } from "@/app/portfolio/performance/_components/performance-colors";
-import { getJadeTracking, saveJadeBenchmark, type BenchmarkCode, type JadeTracking, type ReplayRange, type TrackingComponent } from "@/lib/api";
+import { getJadeTracking, saveJadeBenchmark, type BenchmarkCode, type JadeBenchmark, type JadeTracking, type ReplayRange, type TrackingComponent } from "@/lib/api";
 
 type Settings = { currency: BaseCurrency; range: ReplayRange; benchmark: BenchmarkCode };
 type RequestSettings = Pick<Settings, "currency" | "range">;
@@ -32,6 +32,8 @@ export function TrackingSection({ settings }: { settings: Settings | null }) {
   const [data, setData] = useState<JadeTracking | null>(null);
   const [pending, setPending] = useState(true);
   const [error, setError] = useState(false);
+  const [reference, setReference] = useState<JadeBenchmark | null>(null);
+  const savedVersion = useRef(0);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
@@ -47,11 +49,13 @@ export function TrackingSection({ settings }: { settings: Settings | null }) {
     function load(next: RequestSettings | null) {
       busy.current = true;
       setPending(true); setError(false);
+      const version = savedVersion.current;
       const promise = next ? getJadeTracking(next.currency, next.range) : getJadeTracking();
       promise.then(result => {
         if (alive) {
           savedData.current = result;
           setData(result);
+          if (version === savedVersion.current) setReference({ components: result.components, saved: result.benchmark_saved });
           setRows(previous => previous ?? editorRows(result.components));
         }
       }).catch(() => { if (alive) setError(true); }).finally(() => {
@@ -82,13 +86,15 @@ export function TrackingSection({ settings }: { settings: Settings | null }) {
   const valid = rows !== null && rows.length >= 1 && rows.length <= 5 &&
     rows.every(r => r.weight.trim() !== "" && Number.isInteger(Number(r.weight)) && Number(r.weight) >= 1 && Number(r.weight) <= 100 && symbols.includes(r.symbol)) &&
     new Set(rows.map(r => r.symbol)).size === rows.length && total === 100;
-  const unchanged = rows !== null && JSON.stringify(rows.map(r => ({ symbol: r.symbol, weight: Number(r.weight) }))) === JSON.stringify(data?.components);
+  const unchanged = rows !== null && JSON.stringify(rows.map(r => ({ symbol: r.symbol, weight: Number(r.weight) }))) === JSON.stringify(reference?.components);
   async function save() {
     if (!rows || !valid || unchanged || saving) return;
     setSaving(true); setSaveError(false);
     try {
       const result = await saveJadeBenchmark(rows.map(r => ({ symbol: r.symbol, weight: Number(r.weight) })));
       if (!mounted.current) return;
+      savedVersion.current += 1;
+      setReference(result);
       setRows(editorRows(result.components));
       if (busy.current) reload.current = true;
       else request.current(latestSettings.current);
@@ -110,7 +116,7 @@ export function TrackingSection({ settings }: { settings: Settings | null }) {
       <p>{t("intro")}</p>
       {rows && <div data-testid="tracking-editor" className="flex min-w-0 flex-col gap-3">
         <h3 className="font-medium">{t("editor.title")}</h3>
-        {!data?.benchmark_saved && <p>{t("editor.example")}</p>}
+        {!reference?.saved && <p>{t("editor.example")}</p>}
         {rows.map((row, index) => <div key={index} data-tracking-row className="flex min-w-0 flex-col gap-2">
           <label className="min-w-0">{t("editor.component")}
             <select aria-label={`${t("editor.component")} ${index + 1}`} value={row.symbol} onChange={event => updateRow(index, { symbol: event.target.value })} className="w-full min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-foreground">

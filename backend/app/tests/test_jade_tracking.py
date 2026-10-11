@@ -404,3 +404,58 @@ def test_b11_points(db_session: Session) -> None:
     assert [p.date for p in out.points] == DAYS
     assert out.metrics is not None
     assert out.points[0].excess == "0.000000" and out.points[-1].excess == out.metrics.excess_return
+
+
+def test_f2_route_valid_range(app_client: TestClient, db_session: Session) -> None:
+    fixture(db_session)
+    one = app_client.get("/jade/tracking?range=1Y")
+    three = app_client.get("/jade/tracking?range=3Y")
+    assert one.status_code == three.status_code == 200
+    assert one.json()["range"] == "1Y"
+    assert three.json()["range"] == "3Y"
+    assert three.json()["window_start"] != one.json()["window_start"]
+
+
+@pytest.mark.parametrize(
+    "components",
+    [
+        [
+            {"symbol": s, "weight": w}
+            for s, w in zip(SYMBOLS[:6], [15, 17, 17, 17, 17, 17], strict=True)
+        ],
+        [{"symbol": "SPY", "weight": 0}, {"symbol": "AGG", "weight": 100}],
+        [{"symbol": "SPY", "weight": 60.5}, {"symbol": "AGG", "weight": 39.5}],
+    ],
+    ids=["six-sum100", "zero-sum100", "fraction-sum100"],
+)
+def test_f3_isolated_rejections(
+    app_client: TestClient, db_session: Session, components: list[dict[str, object]]
+) -> None:
+    before: dict[str, object] = {"components": [{"symbol": "CASH", "weight": 100}]}
+    user(db_session).jade_benchmark = before
+    db_session.flush()
+    response = app_client.put("/jade/benchmark", json={"components": components})
+    assert response.status_code == 422
+    db_session.expire_all()
+    assert user(db_session).jade_benchmark == before
+
+
+@pytest.mark.parametrize(
+    "components,message",
+    [
+        ([], "Choose one to five components"),
+        ([{"symbol": "SPY", "weight": 101}], "Weights must be between 1 and 100"),
+    ],
+    ids=["empty-length-message", "101-weight-message"],
+)
+def test_f3_validation_message(
+    app_client: TestClient, db_session: Session, components: list[dict[str, object]], message: str
+) -> None:
+    before: dict[str, object] = {"components": [{"symbol": "CASH", "weight": 100}]}
+    user(db_session).jade_benchmark = before
+    db_session.flush()
+    response = app_client.put("/jade/benchmark", json={"components": components})
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["msg"] == "Value error, " + message
+    db_session.expire_all()
+    assert user(db_session).jade_benchmark == before
