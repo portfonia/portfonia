@@ -752,7 +752,7 @@
       "titleLine1": "What's worth noticing",
       "titleAccent": "in your holdings.",
       "tagline": "Holdings-relevant depth and breadth — with you through the cycle, as lasting judgment compounds.",
-      "sub": "Portfonia is a software tool built to last through market cycles. It keeps watching the news, the macro, and company developments, and maps them systematically onto every position you have entered — depth and breadth that stay close to what you care about. Cycles rise and fall; information you can rely on has to be there for years. That is why we exist.",
+      "sub": "Portfonia is a software tool that keeps tracking news, macro events and company developments, mapping them to the holdings you enter.",
       "ctaPrimary": "Get started",
       "ctaSecondary": "See how it works"
     },
@@ -762,7 +762,7 @@
       "cards": [
         {
           "title": "Holdings ingestion",
-          "body": "Upload a CSV or spreadsheet describing your positions. An LLM normalizes it into structured records — no manual re-entry.",
+          "body": "Upload CSV, Excel, Markdown or plain text describing your positions. An LLM normalizes it into structured records — no manual re-entry.",
           "tags": [
             "CSV",
             "Markdown",
@@ -780,9 +780,10 @@
         },
         {
           "title": "Personalized briefings",
-          "body": "Mon / Wed / Fri, tied to your actual holdings — price anomalies, technical position, and a forward calendar of macro and earnings events.",
+          "body": "Briefings arrive weekly, Mon / Wed / Fri or daily depending on your plan, tied to your actual holdings — price anomalies, technical position and a forward calendar.",
           "tags": [
-            "Email delivery"
+            "Email",
+            "Web report history"
           ]
         }
       ],
@@ -796,11 +797,11 @@
     },
     "preview": {
       "heading": "What a briefing actually looks like",
-      "tag": "Real report, anonymized",
-      "badge": "Anonymized from a real report — sample holdings & figures",
+      "tag": "Real market data, fictional holdings",
+      "badge": "Sample built from real market data for 2026-07-31 — fictional holdings",
       "footnote": "Briefing frequency depends on your plan.",
       "snapshotTitle": "Portfolio snapshot",
-      "totalLine": "Total value: $1,000,000 (FX date: 2026-08-21)",
+      "totalLine": "Total value: $968,326 (FX date: 2026-07-31)",
       "holdingsColumns": [
         "Holding",
         "Currency",
@@ -813,148 +814,107 @@
         [
           "TSMC (TSM)",
           "USD",
-          "209,000",
-          "20.9%",
-          "Custodian A",
+          "209,648",
+          "21.7%",
+          "A",
           "Stocks"
         ],
         [
           "Microsoft (MSFT)",
           "USD",
-          "80,000",
-          "8.0%",
-          "Custodian A",
+          "80,245",
+          "8.3%",
+          "A",
           "Stocks"
         ],
         [
           "Alphabet (GOOGL)",
           "USD",
-          "69,000",
-          "6.9%",
-          "Custodian A",
+          "69,045",
+          "7.1%",
+          "A",
           "Stocks"
         ],
         [
           "**Custodian A subtotal**",
           "USD",
-          "**358,000**",
-          "**35.8%**",
+          "**358,938**",
+          "**37.1%**",
           "",
           ""
         ],
         [
           "QQQ (QQQ)",
           "USD",
-          "160,000",
-          "16.0%",
-          "Custodian B",
+          "160,822",
+          "16.6%",
+          "B",
           "US tech ETF"
         ],
         [
           "VOO (VOO)",
           "USD",
-          "131,000",
-          "13.1%",
-          "Custodian B",
+          "130,814",
+          "13.5%",
+          "B",
           "US broad ETF"
         ],
         [
           "BOXX (BOXX)",
           "USD",
-          "48,000",
-          "4.8%",
-          "Custodian B",
+          "47,904",
+          "4.9%",
+          "B",
           "Bond fund"
         ],
         [
           "Cash",
           "USD",
-          "2,000",
+          "2,130",
           "0.2%",
-          "Custodian B",
+          "B",
           "Cash equivalent"
         ],
         [
           "**Custodian B subtotal**",
           "USD",
-          "**341,000**",
-          "**34.1%**",
+          "**341,670**",
+          "**35.3%**",
           "",
           ""
         ],
         [
-          "Tencent (0700.HK)",
-          "HKD",
-          "546,000",
-          "7.0%",
-          "Custodian C",
-          "Stocks"
-        ],
-        [
-          "BYD (1211.HK)",
-          "HKD",
-          "413,400",
-          "5.3%",
-          "Custodian C",
+          "Pershing Square Holdings (PSH.L)",
+          "GBP",
+          "108,713",
+          "15.1%",
+          "C",
           "Stocks"
         ],
         [
           "**Custodian C subtotal** (converted to USD)",
           "USD",
-          "**123,000**",
-          "**12.3%**",
-          "",
-          ""
-        ],
-        [
-          "Gold ETF (518880.SS)",
-          "CNH",
-          "14,300",
-          "0.2%",
-          "Custodian D",
-          "Precious metals"
-        ],
-        [
-          "CSI 300 ETF (510300.SS)",
-          "CNH",
-          "7,150",
-          "0.1%",
-          "Custodian D",
-          "China equities"
-        ],
-        [
-          "Cash",
-          "CNH",
-          "42,900",
-          "0.6%",
-          "Custodian D",
-          "Cash equivalent"
-        ],
-        [
-          "**Custodian D subtotal** (converted to USD)",
-          "USD",
-          "**9,000**",
-          "**0.9%**",
+          "**146,338**",
+          "**15.1%**",
           "",
           ""
         ],
         [
           "USD cash & FX",
           "USD",
-          "169,000",
-          "16.9%",
-          "Custodian E",
+          "121,380",
+          "12.5%",
+          "D",
           "Cash equivalent"
         ]
       ],
       "distributionLines": [
-        "**By market:** US 86.8%, HK 12.3%, A-shares & CNH 0.9%",
-        "**By currency:** USD 86.8%, HKD 12.3%, CNH 0.9%",
-        "**By asset class:** Stocks 48.1%, US tech ETF 16.0%, US broad ETF 13.1%, Bond funds 4.8%, Precious metals 0.2%, China equities 0.1%, Cash equivalents 17.7%",
-        "**FX rates used:** HKD 7.80, CNH 7.15 vs USD"
+        "**By market:** US 84.9%, UK 15.1%",
+        "**By currency:** USD 84.9%, GBP 15.1%",
+        "**By asset class:** Stocks 52.2%, US tech ETF 16.6%, US broad ETF 13.5%, Bond funds 4.9%, Cash equivalents 12.8%",
+        "**FX rates used:** GBP 0.74 vs USD"
       ],
       "macroTitle": "Macro events",
-      "macroBody": "Markets repriced the policy path after the latest FOMC minutes showed a split committee. The transmission into this portfolio runs through the equity-duration channel: long-duration growth names (TSMC, Microsoft, Alphabet) and the broad ETFs are mechanically sensitive to shifts in rate expectations embedded in the yield curve. No price anomaly was triggered in this window to confirm a repricing in any specific holding, so this direction stands as structural exposure to monitor rather than an observed event. [Probable]",
       "calendarTitle": "Forward calendar",
       "calendarNote": "Scheduled US events over the coming days and the holdings they bear on. Calendar facts only — not forecasts.",
       "calendarColumns": [
@@ -965,64 +925,85 @@
       ],
       "calendarRows": [
         [
-          "08-27",
+          "08-03",
+          "ISM Manufacturing PMI (July)",
+          "—",
+          "Factory-sector momentum; prices paid"
+        ],
+        [
+          "08-06",
           "Jobless claims",
           "—",
-          "Labor market momentum; rate-path implications"
+          "Labor market momentum"
         ],
         [
-          "08-29",
-          "Core PCE price index",
+          "08-07",
+          "Employment Situation (July)",
           "TSMC, MSFT, GOOGL +2",
-          "Inflation vs consensus; rate-path implications"
-        ],
-        [
-          "09-02",
-          "ISM Manufacturing PMI",
-          "—",
-          "Factory-sector momentum"
+          "Payrolls and wages vs consensus; rate-path implications"
         ]
       ],
       "analysisTitle": "Holdings context",
-      "analysisHeading": "TSMC — 20.9% of the portfolio, the single largest position",
-      "analysisBody": "TSMC stands out this period not for a company-specific event but for its disproportionate weight and its exposure to several macro themes at once. … No anomaly was observed in this window to confirm the market actually traded on the monetary-policy theme.",
       "radarTitle": "Exposure & price data",
-      "concentrationBody": "The top three holdings together account for 50.0% of portfolio value — at the 50% watch threshold. The largest single asset-class bucket (stocks) sits at 48.1%, just below it. Single-position concentration is dominated by TSMC at 20.9%; the two broad ETF positions diversify within US equities while raising correlation to US monetary-policy developments.",
+      "concentrationBody": "The top three holdings — TSMC 21.7%, QQQ 16.6% and Pershing Square Holdings 15.1% — total 53.4%, above the 50% watch threshold. Stocks are the largest asset-class bucket at 52.2%, above its 50% watch threshold and below the 65% high threshold. TSMC alone accounts for 21.7%.",
       "anomalyColumns": [
         "Holding",
-        "Net move",
+        "Net %",
+        "3-day %",
+        "5-day %",
         "Worst day (date)",
         "Prev close",
         "Open (gap %)",
         "Intraday range",
         "Close",
+        "After-hrs",
         "Trigger"
       ],
       "anomalyRows": [
         [
-          "QQQ (QQQ)",
-          "+2.4%",
-          "+1.8% (08-25)",
-          "562.10",
-          "564.20 (+0.4%)",
-          "561.4–574.8",
-          "573.90",
-          "single_day"
+          "Microsoft (MSFT)",
+          "+18.99%",
+          "+18.14%",
+          "+21.75%",
+          "+15.51% (2026-07-30)",
+          "450.25",
+          "449.15 (-0.2%)",
+          "448.49-465.96",
+          "463.85",
+          "—",
+          "single day"
         ],
         [
           "TSMC (TSM)",
-          "+3.1%",
-          "+2.2% (08-24)",
-          "198.40",
-          "197.90 (-0.3%)",
-          "196.5–204.1",
-          "203.85",
-          "single_day"
+          "+7.89%",
+          "+3.04%",
+          "+0.21%",
+          "+7.64% (2026-07-30)",
+          "402.23",
+          "418.38 (+4.0%)",
+          "397.73-419.23",
+          "403.17",
+          "—",
+          "single day"
+        ],
+        [
+          "Alphabet (GOOGL)",
+          "+5.77%",
+          "+6.72%",
+          "+11.38%",
+          "+6.73% (2026-07-31)",
+          "333.45",
+          "340.61 (+2.1%)",
+          "339.78-358.35",
+          "355.9",
+          "—",
+          "single day"
         ]
       ],
       "anomalyBullets": [
-        "QQQ — +2.4% over the window; the +1.8% single-day surge came with no immediately identifiable fund-specific catalyst in this period's research; attribution remains open [Speculative].",
-        "TSMC — +3.1% over the window; coincided with an active AI-semiconductor news cycle, but no TSMC-specific driver was confirmed in research [Probable]."
+        "Microsoft — fiscal Q4 results came after the 07-29 close. [Established]",
+        "TSMC — moved with the semiconductor rebound on 07-30 that followed Microsoft’s results; no TSMC-specific release was confirmed. [Probable]",
+        "Alphabet — Q2 results came on 07-22; no company-specific catalyst for the 07-31 move was identified, and attribution remains open. [Speculative]"
       ],
       "technicalColumns": [
         "Holding",
@@ -1034,41 +1015,88 @@
       "technicalRows": [
         [
           "TSMC (TSM)",
-          "-2.5%",
-          "+16.0%",
-          "75%",
-          "+45.3%"
+          "-4.9%",
+          "+13.6%",
+          "71%",
+          "+49.0%"
         ],
         [
           "Microsoft (MSFT)",
-          "+20.9%",
-          "+12.9%",
-          "73%",
-          "+61.1%"
+          "+16.4%",
+          "+7.5%",
+          "60%",
+          "+60.2%"
         ],
         [
           "Alphabet (GOOGL)",
-          "+1.4%",
-          "+10.7%",
-          "81%",
-          "+50.9%"
+          "-0.7%",
+          "+9.3%",
+          "78%",
+          "+46.1%"
         ],
         [
           "QQQ (QQQ)",
-          "+0.5%",
-          "+11.2%",
-          "86%",
-          "+26.5%"
+          "-3.7%",
+          "+6.9%",
+          "70%",
+          "+23.8%"
         ],
         [
           "VOO (VOO)",
-          "+3.3%",
-          "+10.2%",
-          "99%",
-          "+14.4%"
+          "+0.4%",
+          "+7.1%",
+          "93%",
+          "+12.6%"
+        ],
+        [
+          "BOXX (BOXX)",
+          "+0.4%",
+          "+1.6%",
+          "100%",
+          "+0.3%"
+        ],
+        [
+          "Pershing Square Holdings (PSH.L)",
+          "-1.4%",
+          "-12.0%",
+          "11%",
+          "+24.2%"
         ]
       ],
-      "technicalNote": "Range position: 0% = at the 52-week low, 100% = at the high. Describes where price sits — not a signal."
+      "technicalNote": "Range position: 0% = at the 52-week low, 100% = at the high. Describes where price sits — not a signal.",
+      "macro": {
+        "overview": "The FOMC kept rates at 3.50-3.75% on 07-29 in a 9-3 vote, with Hammack, Kashkari and Logan favouring a 25 bp hike. The next day brought slower growth than the Q1 pace alongside firm year-on-year inflation. [Probable] Equities fell on the decision day and recovered over the next two sessions.",
+        "anchor": {
+          "question": "Does slower growth, with core inflation still at 3.3%, change the policy path signalled by the July dissents? [Speculative]",
+          "paragraphs": [
+            "The dissents favoured higher rates, while the Q2 real GDP advance estimate of +1.5% annualized on 07-30 was below Q1’s +2.1% pace. These releases leave growth and inflation pulling the policy discussion in different directions. [Probable]",
+            "Rate-path expectations can transmit into the valuations of long-duration equities in this portfolio: TSMC, Microsoft, Alphabet, QQQ and VOO. [Probable] BOXX has short-duration exposure, so the channel differs from that of the equity positions. [Probable]",
+            "June PCE was -0.1% m/m and +3.7% y/y; core PCE was +0.1% m/m and +3.3% y/y. The modest monthly core reading is a counterweight to the firm annual reading, rather than a settled policy outcome. [Probable]",
+            "The remaining uncertainty is whether slower activity and persistent annual inflation continue together. [Speculative] The July Employment Situation on 08-07 is an observable for payrolls and wages alongside this growth-and-inflation tension. [Probable]",
+            "If the employment release points to softer activity, watch how rate-path expectations and these equity exposures respond; if wage pressure persists, watch whether the case reflected in the July dissents remains in focus. [Speculative] These are conditional observation paths. [Speculative]"
+          ]
+        },
+        "updates": [
+          {
+            "title": "US indices rebounded.",
+            "body": "On 07-29, S&P 500 was -1.52% and Nasdaq Composite -1.74%; on 07-30 they were +1.66% and +2.78%, followed by +0.70% and +1.00% on 07-31. The sequence shows a recovery after the decision-day drop, without isolating a single cause. [Probable]"
+          },
+          {
+            "title": "Sterling and PSH.L’s USD value.",
+            "body": "GBPUSD moved from 1.3287 (07-29) to 1.3461 (07-31), +1.3%. PSH.L was +1.8% in GBP over the window and about +3.2% in USD; sterling’s rise contributed to the difference in USD valuation. [Established]"
+          }
+        ]
+      },
+      "analysisItems": [
+        {
+          "heading": "TSMC — 21.7% of the portfolio, the single largest position",
+          "body": "At 21.7%, TSMC is above the 20% single-holding high threshold for stocks. Its +7.64% move on 07-30 coincided with the semiconductor rebound after Microsoft’s results. [Probable] Its exposure spans the AI-capex theme and the rate path discussed in section 2. [Probable]"
+        },
+        {
+          "heading": "Microsoft — 8.3% of the portfolio",
+          "body": "Microsoft was +15.51% on 07-30 after fiscal Q4 results, with revenue of $90.01B and Azure growth of +43%. [Established] That single session helps explain its 20-day annualized volatility of 60.2% and its +16.4% distance above the 50-day average. [Probable]"
+        }
+      ]
     },
     "audience": {
       "heading": "For investors who stay through the cycle",
@@ -1104,7 +1132,7 @@
         },
         {
           "q": "Which markets and holdings does it support?",
-          "a": "US equities, HK equities, A-shares, Chinese public funds, cash, and FX today. More coverage is planned."
+          "a": "US, UK, European, Japanese and Korean equities, Hong Kong equities, A-shares, Chinese public funds, cash and FX."
         },
         {
           "q": "What does it cost?",
@@ -1119,15 +1147,15 @@
     },
     "productPreviews": {
       "riskHeading": "Portfolio risk",
-      "riskBody": "Sample figures, not your holdings. The same illustrative portfolio's historical volatility, Beta against the S&P 500, and where it sits against a personal questionnaire.",
+      "riskBody": "Real-market-data sample with fictional holdings. The same portfolio’s historical volatility, Beta against S&P 500, and risk and deviation against a reference questionnaire: balanced appetite with a short horizon.",
       "riskCtaHeading": "Going the distance means balancing opportunity and risk",
       "riskCtaBody": "Opportunity decides how fast you can go; risk decides how steady the ride is. The two reinforce and constrain each other, and you need both. Here you can see how much your portfolio swings, how closely it moves with the market, and how far it sits from the tolerance you set.",
       "portfolioHeading": "Portfolio overview",
       "portfolioBody": "Sample figures, not your holdings. One illustrative portfolio, grouped by market, asset class, and portfolio group.",
       "performanceHeading": "Portfolio performance",
-      "performanceBody": "A static year-to-date illustration. The portfolio line sits beside S&P 500 and CSI 300, followed by allocation history and monthly performance against one benchmark.",
+      "performanceBody": "A static year-to-date replay of the sample holdings on real closes, beside S&P 500 and Nasdaq Composite, followed by allocation history and monthly performance against S&P 500.",
       "metricLabel": "Portfolio performance",
-      "metricValue": "+16.58%",
+      "metricValue": "+9.84%",
       "yearToDate": "Year to date",
       "chartMarket": "Market",
       "chartAssetClass": "Asset class",
@@ -1136,22 +1164,22 @@
       "ctaBody": "From portfolio structure to year-to-date performance, see change in one place.",
       "markets": {
         "us": "US",
-        "hk": "Hong Kong",
-        "cn": "China",
-        "other": "Other"
+        "uk": "UK"
       },
       "assetClasses": {
         "stock": "Stock",
         "usBroadEtf": "US broad-market ETF",
         "usTechEtf": "US technology ETF",
         "bondFund": "Bond fund",
-        "other": "Other"
+        "cash": "Cash equivalent"
       },
       "groups": {
         "longTerm": "Long-term holdings",
-        "retirement": "Retirement account",
-        "opportunity": "Opportunity portfolio"
-      }
+        "opportunity": "Opportunity portfolio",
+        "compounding": "Compounding"
+      },
+      "startCtaHeading": "See this reading on your own holdings",
+      "startCtaBody": "You have seen how a sample briefing connects events with a portfolio. Enter your holdings to receive a briefing grounded in the positions you enter."
     }
   },
   "welcome": {
@@ -1646,7 +1674,11 @@
       "markets": [
         "US",
         "HK",
-        "A-shares"
+        "A-shares",
+        "UK",
+        "Europe",
+        "Japan",
+        "Korea"
       ]
     }
   },

@@ -194,9 +194,9 @@ it.each(LOCALE_VALUES)("%s referral copy and Terms preserve the required layout 
 });
 
 
-it.each(LOCALE_VALUES)("#706 %s OG copy has three markets and removes legacy sample text", locale => {
+it.each(LOCALE_VALUES)("#706 %s OG copy has seven markets and removes legacy sample text", locale => {
   const og = catalogs[locale].seo.og as Record<string, unknown>;
-  expect(og.markets).toHaveLength(3);
+  expect(og.markets).toHaveLength(7);
   expect((og.markets as string[]).every(value => typeof value === "string" && value.trim().length > 0)).toBe(true);
   expect(og).not.toHaveProperty("subline");
   expect(og).not.toHaveProperty("sampleRows");

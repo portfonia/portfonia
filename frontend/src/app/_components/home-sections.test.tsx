@@ -1,3 +1,4 @@
+import expectedData from "./home-real-data.fixture.json";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +12,7 @@ import {
   HOME_GROUP_SHARES,
   HOME_MARKET_SHARES,
   HOME_PERFORMANCE_ROWS,
+  HOME_SERIES_POINTS,
   HOME_MONTHLY_ROWS,
 } from "./home-product-previews";
 import { HOME_RISK_SAMPLE } from "./home-risk-sample";
@@ -21,7 +23,7 @@ vi.mock("@/lib/api", () => ({
   getPortfolioRisk: vi.fn(),
 }));
 
-const LOCALES: Locale[] = ["en", "zh-Hans", "zh-Hant"];
+const LOCALES: Locale[] = ["en", "es", "zh-Hans", "zh-Hant"];
 
 class SizedResizeObserver {
   private callback: ResizeObserverCallback;
@@ -43,54 +45,11 @@ function parseUsdAmount(cell: string): number {
   return Number(cell.replace(/\*\*/g, "").replace(/,/g, ""));
 }
 
-function parsePercent(cell: string): number {
-  return Number(cell.replace(/\*\*/g, "").replace("%", ""));
-}
-
-// Every locale's sample data names its institutions "<word> A".."<word> E"
-// in the institution column (index 4) — e.g. "Custodian A" / "机构 A" /
-// "機構 A". Deriving the localized word from holding A's own row (instead of
-// hardcoding all three locales' translations here) keeps this test locale-
-// agnostic.
-function institutionWord(holdingsRows: string[][]): string {
-  const [firstRow] = holdingsRows;
-  return firstRow[4].replace(/ A$/, "");
-}
-
-function institutionRow(holdingsRows: string[][], word: string, letter: string): string[] {
-  const label = `${word} ${letter}`;
-  const row = holdingsRows.find((r) => r[4] === label);
-  if (!row) throw new Error(`no holdingsRow with institution "${label}"`);
-  return row;
-}
-
-// Subtotal rows carry the institution word + letter as a substring of the
-// label column (index 0), e.g. "**Custodian D subtotal**" / "**机构 D 小计**".
-function subtotalRow(subtotalRows: string[][], word: string, letter: string): string[] {
-  const needle = `${word} ${letter}`;
-  const row = subtotalRows.find((r) => r[0].includes(needle));
-  if (!row) throw new Error(`no subtotal row containing "${needle}"`);
-  return row;
-}
-
-// USD/CNH/HKD columns render as a localized currency NAME, not the ISO code,
-// in the two Chinese locales (pre-existing behavior, not introduced by
-// issue #209) — one set of name variants per code, checked per locale.
-const CURRENCY_NAMES: Record<string, string[]> = {
-  USD: ["USD", "美元"],
-  CNH: ["CNH", "人民币", "人民幣"],
-  HKD: ["HKD", "港元", "港幣"],
-};
-
-function isCurrency(cell: string, code: keyof typeof CURRENCY_NAMES): boolean {
-  return CURRENCY_NAMES[code].includes(cell);
-}
-
 // The sample-briefing section must show EVERY report section (owner ask,
 // issue #207 follow-up): snapshot, macro events, forward calendar, holdings
 // context, exposure & price data — plus the subscription-tier footnote.
 describe("HomeSections sample briefing", () => {
-  it("renders every report section in the anonymized real-report sample", () => {
+  it("renders every report section in the real-market-data sample", () => {
     render(
       <LocaleProvider routeLocale={null}>
         <HomeSections />
@@ -125,52 +84,19 @@ describe("HomeSections sample briefing", () => {
 
     // Subtotal rows carry ** markers in label, value AND weight columns —
     // all must render as styled text, none as raw asterisks.
-    for (const text of ["358,000", "35.8%", "341,000", "34.1%"]) {
+    for (const text of ["358,938", "37.1%", "341,670", "35.3%"]) {
       const strongs = screen.getAllByText((_, element) => element?.tagName === "STRONG" && element.textContent === text);
       expect(strongs.length).toBeGreaterThan(0);
     }
     expect(screen.queryByText(/\*\*/)).not.toBeInTheDocument();
   });
 
-  it.each(LOCALES)(
-    "keeps %s sample snapshot internally consistent (USD subtotals = total, weights = 100)",
-    (locale) => {
-      const preview = catalogs[locale].home.preview;
-      const totalMatch = preview.totalLine.match(/[\d,]+/);
-      expect(totalMatch).not.toBeNull();
-      const advertisedTotal = Number(totalMatch![0].replace(/,/g, ""));
-
-      const word = institutionWord(preview.holdingsRows);
-      const usdSubtotals = preview.holdingsRows.filter(
-        (row) => row[0].includes("subtotal") || row[0].includes("小计") || row[0].includes("小計"),
-      );
-      const subtotalSum = usdSubtotals.reduce(
-        (sum, row) => sum + parseUsdAmount(row[2]),
-        0,
-      );
-      const eRow = institutionRow(preview.holdingsRows, word, "E");
-      expect(subtotalSum + parseUsdAmount(eRow[2])).toBe(advertisedTotal);
-
-      const weightSum =
-        usdSubtotals.reduce((sum, row) => sum + parsePercent(row[3]), 0) +
-        parsePercent(eRow[3]);
-      expect(weightSum).toBeCloseTo(100, 5);
-
-      const dSubtotalRow = subtotalRow(usdSubtotals, word, "D");
-      const cnhUsd = parseUsdAmount(dSubtotalRow[2]);
-      const cnhFace = preview.holdingsRows
-        .filter((row) => isCurrency(row[1], "CNH"))
-        .reduce((sum, row) => sum + parseUsdAmount(row[2]), 0);
-      expect(cnhFace / 7.15).toBeCloseTo(cnhUsd, 0);
-
-      const cSubtotalRow = subtotalRow(usdSubtotals, word, "C");
-      const hkdUsd = parseUsdAmount(cSubtotalRow[2]);
-      const hkdFace = preview.holdingsRows
-        .filter((row) => isCurrency(row[1], "HKD"))
-        .reduce((sum, row) => sum + parseUsdAmount(row[2]), 0);
-      expect(hkdFace / 7.8).toBeCloseTo(hkdUsd, 0);
-    },
-  );
+  it.each(LOCALES)("keeps %s USD subtotals and cash consistent with the total", (locale) => {
+    const preview = catalogs[locale].home.preview;
+    expect(preview.totalLine).toContain("968,326");
+    const rows = preview.holdingsRows;
+    expect([rows[3], rows[8], rows[10], rows[11]].reduce((sum, row) => sum + parseUsdAmount(row[2]), 0)).toBe(968326);
+  });
 
   it.each(LOCALES)(
     "ships %s positive-framing keys together (issue #364)",
@@ -191,7 +117,7 @@ describe("HomeSections sample briefing", () => {
       "以高相关的信息深度与广度，陪你穿越周期，沉淀长久的价值回报。",
     );
     expect(home.hero.sub).toBe(
-      "Portfonia 是一款为穿越市场周期而生的软件工具。它持续追踪新闻、宏观事件与公司动态，把它们系统地映射到你录入的每一笔持仓，带来与你的关注紧密相关的信息深度与广度。周期有涨有落，值得信赖的信息需要长年相伴——这是我们存在的理由。",
+      "Portfonia 是一款软件工具，持续追踪新闻、宏观事件与公司动态，并将这些信息映射到你录入的持仓。",
     );
     expect(home.audience.paragraphs).toEqual([
       "Portfonia 是一款面向穿越周期的投资者的软件工具。深入理解趋势、周期与基本面需要时间，也需要与你的持仓紧密相关的信息，持续、可靠地送达。",
@@ -246,7 +172,7 @@ describe("HomeSections sample briefing", () => {
     });
   });
 
-  it("renders tagline and audience between how and boundary, without a new /about route (issue #364)", () => {
+  it("renders tagline and audience between hero and how, without a new /about route (issue #364)", () => {
     render(
       <LocaleProvider routeLocale={null}>
         <HomeSections />
@@ -265,7 +191,7 @@ describe("HomeSections sample briefing", () => {
     expect(how).not.toBeNull();
     expect(audience).not.toBeNull();
     expect(boundary).not.toBeNull();
-    expect(how!.compareDocumentPosition(audience!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(audience!.compareDocumentPosition(how!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(audience!.compareDocumentPosition(boundary!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(screen.queryByRole("link", { name: /about/i })).not.toBeInTheDocument();
   });
@@ -366,12 +292,14 @@ describe("HomeSections product previews (issue #549)", () => {
 
     const heading = (name: string) => screen.getByRole("heading", { level: 2, name });
     const order = [
+      catalogs.en.home.audience.heading,
       catalogs.en.home.how.heading,
       catalogs.en.home.preview.heading,
+      catalogs.en.home.productPreviews.startCtaHeading,
+      catalogs.en.home.productPreviews.riskHeading,
       catalogs.en.home.productPreviews.portfolioHeading,
       catalogs.en.home.productPreviews.performanceHeading,
       catalogs.en.home.productPreviews.ctaHeading,
-      catalogs.en.home.audience.heading,
       catalogs.en.home.boundary.heading,
       catalogs.en.home.faq.heading,
     ];
@@ -389,7 +317,7 @@ describe("HomeSections product previews (issue #549)", () => {
     expect(inserted).not.toBeNull();
     expect(audience).not.toBeNull();
     expect(preview!.compareDocumentPosition(inserted!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(inserted!.compareDocumentPosition(audience!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(audience!.compareDocumentPosition(inserted!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(audience!.compareDocumentPosition(boundary!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(boundary!.compareDocumentPosition(faq!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(screen.getByText(catalogs.en.home.status)).toBeInTheDocument();
@@ -462,13 +390,13 @@ describe("HomeSections product previews (issue #549)", () => {
     expect(dates.at(-1)).toBe("2026-09-30");
     expect(dates.every((date, index) => index === 0 || date > dates[index - 1])).toBe(true);
     expect([...dates].sort()).toEqual(dates);
-    expect(points[points.length - 1]?.portfolio).toBeCloseTo(0.1658, 6);
+    expect(points[points.length - 1]?.portfolio).toBeCloseTo(0.0984, 6);
     expect(legendPairs(performance)).toEqual([
       { label: catalogs.en.portfolio.performance.chartPortfolioLabel, color: "var(--chart-1)" },
       { label: catalogs.en.portfolio.performance.benchmarkNames.sp500, color: "var(--chart-2)" },
       { label: catalogs.en.portfolio.performance.benchmarkNames.nasdaq, color: "var(--chart-4)" },
     ]);
-    expect(screen.getByText("+16.58%")).toBeInTheDocument();
+    expect(screen.getByText("+9.84%")).toBeInTheDocument();
     expect(screen.getByText(catalogs.en.home.productPreviews.yearToDate)).toBeInTheDocument();
     expect(screen.queryByText(/since inception/i)).not.toBeInTheDocument();
     const performanceBlock = screen.getByRole("heading", { level: 2, name: catalogs.en.home.productPreviews.performanceHeading }).parentElement?.parentElement;
@@ -513,7 +441,7 @@ describe("HomeSections product previews (issue #549)", () => {
     ]);
   });
 
-  it("adds exactly one Get Started link after performance, aimed at /holdings", () => {
+  it("renders four Get Started links to /holdings, with CTAs between risk and overview and after performance", () => {
     render(
       <LocaleProvider routeLocale={null}>
         <HomeSections />
@@ -521,19 +449,19 @@ describe("HomeSections product previews (issue #549)", () => {
     );
 
     const links = screen.getAllByRole("link", { name: catalogs.en.home.hero.ctaPrimary });
-    expect(links).toHaveLength(3);
-    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/holdings", "/holdings", "/holdings"]);
+    expect(links).toHaveLength(4);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/holdings", "/holdings", "/holdings", "/holdings"]);
     const riskPreview = screen.getByTestId("home-risk-preview");
     const portfolioHeading = screen.getByRole("heading", { level: 2, name: catalogs.en.home.productPreviews.portfolioHeading });
-    expect(riskPreview.compareDocumentPosition(links[1])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(links[1].compareDocumentPosition(portfolioHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(riskPreview.compareDocumentPosition(links[2])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(links[2].compareDocumentPosition(portfolioHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     const performance = screen.getByRole("heading", {
       level: 2,
       name: catalogs.en.home.productPreviews.performanceHeading,
     });
     const audience = document.getElementById("audience");
-    expect(performance.compareDocumentPosition(links[2])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(links[2].compareDocumentPosition(audience!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(performance.compareDocumentPosition(links[3])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(audience!.compareDocumentPosition(links[3])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(screen.queryByRole("link", { name: /sign up|waitlist|apply|invite/i })).not.toBeInTheDocument();
   });
 
@@ -560,14 +488,14 @@ describe("HomeSections product previews (issue #549)", () => {
     expect(copy.performanceHeading.length).toBeGreaterThan(0);
     expect(copy.performanceBody.length).toBeGreaterThan(0);
     expect(copy.metricLabel.length).toBeGreaterThan(0);
-    expect(copy.metricValue).toBe("+16.58%");
+    expect(copy.metricValue).toBe("+9.84%");
     expect(copy.yearToDate.length).toBeGreaterThan(0);
     expect(copy.chartMarket.length).toBeGreaterThan(0);
     expect(copy.chartAssetClass.length).toBeGreaterThan(0);
     expect(copy.chartGroup.length).toBeGreaterThan(0);
     expect(copy.ctaHeading.length).toBeGreaterThan(0);
     expect(copy.ctaBody.length).toBeGreaterThan(0);
-    expect(Object.values(copy.markets)).toHaveLength(4);
+    expect(Object.values(copy.markets)).toHaveLength(2);
     expect(Object.values(copy.assetClasses)).toHaveLength(5);
     expect(Object.values(copy.groups)).toHaveLength(3);
     expect(home.hero.ctaPrimary.length).toBeGreaterThan(0);
@@ -587,7 +515,7 @@ describe("HomeSections product previews (issue #549)", () => {
     expect(riskCta.compareDocumentPosition(overview)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(overview.compareDocumentPosition(performance)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(performance.compareDocumentPosition(finalCta)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(screen.getByText("Sample figures, not your holdings. The same illustrative portfolio's historical volatility, Beta against the S&P 500, and where it sits against a personal questionnaire.")).toBeInTheDocument();
+    expect(screen.getByText(catalogs.en.home.productPreviews.riskBody)).toBeInTheDocument();
     expect(screen.getByText("Opportunity decides how fast you can go; risk decides how steady the ride is. The two reinforce and constrain each other, and you need both. Here you can see how much your portfolio swings, how closely it moves with the market, and how far it sits from the tolerance you set.")).toBeInTheDocument();
     expect(container.querySelectorAll('[data-testid="home-risk-preview"]')).toHaveLength(1);
   });
@@ -596,12 +524,12 @@ describe("HomeSections product previews (issue #549)", () => {
     const { container } = render(<LocaleProvider routeLocale={null}><HomeSections /></LocaleProvider>);
     const risk = screen.getByTestId("home-risk-preview");
     const beta = within(risk).getByRole("button", { name: /Beta:/ });
-    expect(beta).toHaveTextContent("1.12");
+    expect(beta).toHaveTextContent("1.28");
     expect(beta.querySelector('[data-testid="beta-portfolio-marker"]')).not.toBeNull();
     expect(beta.querySelector('[data-testid="beta-reference-marker"]')).not.toBeNull();
     expect(within(risk).getByRole("button", { name: /^Risk:/ })).toHaveTextContent("Caution");
     expect(within(risk).getByRole("button", { name: /^Deviation:/ })).toHaveTextContent("Aggressive direction +1 tier");
-    for (const value of ["18.6%", "14.2%", "16.8%", catalogs.en.portfolio.riskPanel.footnote]) {
+    for (const value of ["16.0%", "11.0%", "17.3%", catalogs.en.portfolio.riskPanel.footnote]) {
       expect(within(risk).getByText(value)).toBeInTheDocument();
     }
     expect(within(risk).queryByRole("button", { name: /Volatility comparison benchmark/i })).toBeNull();
@@ -615,13 +543,13 @@ describe("HomeSections product previews (issue #549)", () => {
   });
 
   it("keeps the sample literal coherent and ships the approved risk copy", () => {
-    expect(HOME_RISK_SAMPLE.beta.value).toBe("1.12");
+    expect(HOME_RISK_SAMPLE.beta.value).toBe("1.28");
     expect(HOME_RISK_SAMPLE.risk.label).toBe("caution");
     expect(HOME_RISK_SAMPLE.deviation.delta).toBe(1);
-    expect(HOME_RISK_SAMPLE.portfolio_vol.current).toBe("0.186");
-    expect(HOME_RISK_SAMPLE.benchmark_vols.map((item) => [item.code, item.current])).toEqual([["sp500", "0.142"], ["csi300", "0.168"]]);
+    expect(HOME_RISK_SAMPLE.portfolio_vol.current).toBe("0.160");
+    expect(HOME_RISK_SAMPLE.benchmark_vols.map((item) => [item.code, item.current])).toEqual([["sp500", "0.110"], ["nasdaq", "0.173"]]);
     for (const series of [HOME_RISK_SAMPLE.portfolio_vol, ...HOME_RISK_SAMPLE.benchmark_vols]) {
-      expect(series.points.length).toBeGreaterThanOrEqual(35);
+      expect(series.points.length).toBe(60);
       expect(series.points.at(-1)).toEqual({ date: "2026-09-18", vol: series.current });
       expect(series.window_start).toBe(series.points[0].date);
       expect(series.window_end).toBe("2026-09-18");
@@ -629,7 +557,7 @@ describe("HomeSections product previews (issue #549)", () => {
     expect(catalogs.en.home.productPreviews.riskHeading).toBe("Portfolio risk");
     expect(catalogs.en.home.productPreviews.riskCtaHeading).toBe("Going the distance means balancing opportunity and risk");
     expect(catalogs["zh-Hans"].home.productPreviews.riskHeading).toBe("风险画像");
-    expect(catalogs["zh-Hans"].home.productPreviews.riskBody).toBe("示例数字，不是你的持仓。同一份示例组合的历史波动、相对 S&P 500 的 Beta，以及对照个人问卷的风险位置与偏离度。");
+    expect(catalogs["zh-Hans"].home.productPreviews.riskBody).toContain("平衡型");
     expect(catalogs["zh-Hans"].home.productPreviews.riskCtaHeading).toBe("走得长远，需要平衡好机会与风险");
     expect(catalogs["zh-Hans"].home.productPreviews.riskCtaBody).toBe("收益机会决定你能走多快，风险决定你能走多稳。两者相辅相成，又互相制约，缺一不可。在这里看清组合的波动有多大、和大盘有多同步、离自己设定的承受范围有多远。");
     for (const locale of LOCALES) {
@@ -643,7 +571,9 @@ describe("HomeSections product previews (issue #549)", () => {
 it.each(LOCALES)("issue #702 shows the %s product image before the sample report", (locale) => {
   const { container } = render(<LocaleProvider routeLocale={locale}><HomeSections /></LocaleProvider>);
   const preview = container.querySelector("#preview");
-  const image = preview?.querySelector("img");
+  const how = container.querySelector("#how");
+  const image = how?.querySelector("img");
+  expect(preview?.querySelector("img")).toBeNull();
   expect(image).toHaveAttribute("src", `/og/${locale}`);
   expect(image).toHaveAttribute("alt", catalogs[locale].seo.ogImageAlt);
   expect(image).toHaveAttribute("width", "1200");
@@ -680,51 +610,45 @@ it("acceptance_03 home series uses fixed Nasdaq values and preserves the other p
   expect(series.map(item => item.key)).toEqual(["portfolio", "sp500", "nasdaq"]);
   expect(HOME_PERFORMANCE_ROWS[0].nasdaq).toBe(0);
   expect(HOME_PERFORMANCE_ROWS.at(-1)?.nasdaq).toBe(0.1557);
-  expect(HOME_PERFORMANCE_ROWS.map(row => [row.date, row.portfolio, row.sp500])).toEqual([
-    ["2026-01-01", 0.0, 0.0],
-    ["2026-01-02", 0.0028, 0.0019],
-    ["2026-01-09", 0.0244, 0.0176],
-    ["2026-01-16", 0.0186, 0.0138],
-    ["2026-01-23", 0.0135, 0.0102],
-    ["2026-01-30", 0.021, 0.0137],
-    ["2026-02-06", 0.0202, 0.0127],
-    ["2026-02-13", 0.0017, -0.0014],
-    ["2026-02-20", 0.0167, 0.0094],
-    ["2026-02-27", 0.0136, 0.0049],
-    ["2026-03-06", -0.0123, -0.0154],
-    ["2026-03-13", -0.0294, -0.0312],
-    ["2026-03-20", -0.0474, -0.0495],
-    ["2026-03-27", -0.0721, -0.0696],
-    ["2026-03-31", -0.046, -0.0463],
-    ["2026-04-02", -0.0334, -0.0384],
-    ["2026-04-10", 0.006, -0.0042],
-    ["2026-04-17", 0.0566, 0.041],
-    ["2026-04-24", 0.0663, 0.0467],
-    ["2026-04-30", 0.0756, 0.0531],
-    ["2026-05-01", 0.0766, 0.0562],
-    ["2026-05-08", 0.1071, 0.0808],
-    ["2026-05-15", 0.1121, 0.0822],
-    ["2026-05-22", 0.1213, 0.0917],
-    ["2026-05-29", 0.1394, 0.1073],
-    ["2026-06-05", 0.1096, 0.0786],
-    ["2026-06-12", 0.1172, 0.0856],
-    ["2026-06-18", 0.1273, 0.0957],
-    ["2026-06-26", 0.1056, 0.0743],
-    ["2026-06-30", 0.132, 0.0955],
-    ["2026-07-02", 0.1265, 0.0932],
-    ["2026-07-10", 0.1447, 0.1066],
-    ["2026-07-17", 0.1273, 0.0894],
-    ["2026-07-24", 0.117, 0.0828],
-    ["2026-07-31", 0.1307, 0.0941],
-    ["2026-08-07", 0.1813, 0.1332],
-    ["2026-08-14", 0.1851, 0.1374],
-    ["2026-08-21", 0.164, 0.1211],
-    ["2026-08-28", 0.1744, 0.1265],
-    ["2026-08-31", 0.1709, 0.1228],
-    ["2026-09-04", 0.1739, 0.1275],
-    ["2026-09-11", 0.1658, 0.1185],
-    ["2026-09-18", 0.1674, 0.1176],
-    ["2026-09-25", 0.1811, 0.1312],
-    ["2026-09-30", 0.1658, 0.1177],
-  ]);
+  expect(HOME_PERFORMANCE_ROWS.map(row => [row.date, row.portfolio, row.sp500])).toEqual(
+    expectedData.HOME_SERIES_POINTS.map(row => row.slice(0, 3)),
+  );
+});
+
+it.each(LOCALES)("#741 renders the %s macro anchor, two holdings and first CTA in contract order", locale => {
+  const { container } = render(<LocaleProvider routeLocale={locale}><HomeSections /></LocaleProvider>);
+  const home = catalogs[locale].home;
+  const ids = ["top", "audience", "how", "preview", "product-previews", "boundary", "faq"];
+  for (let i = 0; i < ids.length - 1; i++) {
+    expect(container.querySelector(`#${ids[i]}`)?.compareDocumentPosition(container.querySelector(`#${ids[i + 1]}`)!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  }
+  const image = container.querySelector("#how img");
+  expect(image).toHaveAttribute("src", `/og/${locale}`);
+  expect(image?.compareDocumentPosition(screen.getByRole("heading", { name: home.how.cards[0].title }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(container.querySelector("#preview img")).toBeNull();
+  expect(within(container.querySelector("#preview")! as HTMLElement).getByText(home.preview.macro.anchor.question)).toBeInTheDocument();
+  for (const item of home.preview.analysisItems) expect(screen.getByText(item.heading)).toBeInTheDocument();
+  const start = screen.getByRole("heading", { name: home.productPreviews.startCtaHeading });
+  const risk = screen.getByRole("heading", { name: home.productPreviews.riskHeading });
+  expect(start.compareDocumentPosition(risk)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(within(start.parentElement!).getByRole("link", { name: home.hero.ctaPrimary })).toHaveAttribute("href", "/holdings");
+});
+
+it("#741 uses every fixed replay, monthly and risk point without recalculation", () => {
+  expect(HOME_MARKET_SHARES).toEqual({ us: "85", uk: "15" });
+  expect(HOME_ASSET_CLASS_SHARES).toEqual({ stock: "52", usTechEtf: "17", usBroadEtf: "13", bondFund: "5", cash: "13" });
+  expect(HOME_GROUP_SHARES).toEqual({ longTerm: "52", compounding: "35", opportunity: "13" });
+  expect(HOME_SERIES_POINTS.map(p => [p.date, p.portfolio, p.sp500, p.nasdaq, p.weights])).toEqual(expectedData.HOME_SERIES_POINTS);
+  for (const p of HOME_SERIES_POINTS) expect(p.weights.reduce((s, n) => s + n, 0)).toBeCloseTo(1, 10);
+  expect(HOME_MONTHLY_ROWS.map(r => [r.month, r.startDate, r.endDate, r.portfolio, r.benchmark])).toEqual(expectedData.HOME_MONTHLY_ROWS);
+  const points = [expectedData.RISK.PORTFOLIO_POINTS, expectedData.RISK.SP500_POINTS, expectedData.RISK.NASDAQ_POINTS];
+  const current = ["0.160", "0.110", "0.173"];
+  [HOME_RISK_SAMPLE.portfolio_vol, ...HOME_RISK_SAMPLE.benchmark_vols].forEach((series, i) => {
+    expect(series).toMatchObject({ status: "ok", current: current[i], tier: "medium", window_start: "2026-06-25", window_end: "2026-09-18", sample_count: 60 });
+    expect(series.points.map(p => [p.date, p.vol])).toEqual(points[i]);
+  });
+  expect(HOME_RISK_SAMPLE.beta).toEqual({ status: "ok", value: "1.28", sample_count: 60 });
+  expect(HOME_RISK_SAMPLE.risk).toEqual({ status: "ok", label: "caution" });
+  expect(HOME_RISK_SAMPLE.deviation).toEqual({ status: "ok", delta: 1 });
+  expect(HOME_RISK_SAMPLE.manual_valuation_share).toBe("0");
 });

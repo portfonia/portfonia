@@ -84,6 +84,19 @@ export function HomeSections() {
         </div>
       </section>
 
+      <section id="audience" className="px-6 py-16 sm:py-20">
+        <div className="mx-auto max-w-4xl">
+          <div className="mb-8 border-b border-white/10 pb-5">
+            <h2 className="font-serif text-2xl sm:text-3xl">{t.audience.heading}</h2>
+          </div>
+          <div className="space-y-5 text-base leading-relaxed text-foreground/70 sm:text-lg">
+            {t.audience.paragraphs.map((paragraph) => (
+              <p key={paragraph}>{paragraph}</p>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <section id="how" className="px-6 py-16 sm:py-20">
         <div className="mx-auto max-w-4xl">
           <div className="mb-10 flex items-baseline justify-between gap-6 border-b border-white/10 pb-5">
@@ -92,6 +105,10 @@ export function HomeSections() {
               {t.how.tag}
             </span>
           </div>
+
+          {/* Fixed-size generated PNG; no image optimizer is needed. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={`/og/${locale}`} alt={tSeo("ogImageAlt")} width={1200} height={630} loading="lazy" className="mb-10 h-auto w-full rounded-2xl border border-white/10" />
 
           <div className="grid gap-4 sm:grid-cols-3">
             {t.how.cards.map((card, i) => (
@@ -160,10 +177,6 @@ export function HomeSections() {
             </span>
           </div>
 
-          {/* Fixed-size generated PNG; no image optimizer is needed. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`/og/${locale}`} alt={tSeo("ogImageAlt")} width={1200} height={630} loading="lazy" className="mb-10 h-auto w-full rounded-2xl border border-white/10" />
-
           <div className="rounded-2xl border border-dashed border-white/15 bg-card p-6 sm:p-8">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 font-mono text-[11px] uppercase tracking-wide text-foreground/55">
               <span className="h-1.5 w-1.5 rounded-full bg-foreground/40" />
@@ -207,7 +220,16 @@ export function HomeSections() {
             {/* §2 Macro events */}
             <div className="space-y-2 border-t border-white/10 pt-6">
               <h3 className="font-serif text-base">{t.preview.macroTitle}</h3>
-              <p className="text-sm leading-relaxed text-foreground/70">{t.preview.macroBody}</p>
+              <p className="text-sm leading-relaxed text-foreground/70">{t.preview.macro.overview}</p>
+              <p className="text-sm font-medium text-foreground/85">{t.preview.macro.anchor.question}</p>
+              {t.preview.macro.anchor.paragraphs.map((paragraph) => (
+                <p key={paragraph} className="text-sm leading-relaxed text-foreground/70">{paragraph}</p>
+              ))}
+              {t.preview.macro.updates.map((update) => (
+                <p key={update.title} className="text-sm leading-relaxed text-foreground/70">
+                  <span className="font-medium text-foreground/85">{update.title}</span>{" "}{update.body}
+                </p>
+              ))}
             </div>
 
             {/* §2.5 Forward calendar */}
@@ -239,8 +261,12 @@ export function HomeSections() {
             {/* §3 Holdings context */}
             <div className="mt-6 space-y-2 border-t border-white/10 pt-6">
               <h3 className="font-serif text-base">{t.preview.analysisTitle}</h3>
-              <p className="text-sm font-medium text-foreground/85">{t.preview.analysisHeading}</p>
-              <p className="text-sm leading-relaxed text-foreground/70">{t.preview.analysisBody}</p>
+              {t.preview.analysisItems.map((item, i) => (
+                <div key={item.heading} className={i > 0 ? "mt-4 space-y-2" : "space-y-2"}>
+                  <p className="text-sm font-medium text-foreground/85">{item.heading}</p>
+                  <p className="text-sm leading-relaxed text-foreground/70">{item.body}</p>
+                </div>
+              ))}
             </div>
 
             {/* §4 Exposure & price data */}
@@ -311,19 +337,6 @@ export function HomeSections() {
       </section>
 
       <HomeProductPreviews />
-
-      <section id="audience" className="px-6 py-16 sm:py-20">
-        <div className="mx-auto max-w-4xl">
-          <div className="mb-8 border-b border-white/10 pb-5">
-            <h2 className="font-serif text-2xl sm:text-3xl">{t.audience.heading}</h2>
-          </div>
-          <div className="space-y-5 text-base leading-relaxed text-foreground/70 sm:text-lg">
-            {t.audience.paragraphs.map((paragraph) => (
-              <p key={paragraph}>{paragraph}</p>
-            ))}
-          </div>
-        </div>
-      </section>
 
       <section id="boundary" className="px-6 py-16 sm:py-20">
         <div className="mx-auto max-w-4xl rounded-2xl border border-white/10 bg-card p-7 sm:p-11">
