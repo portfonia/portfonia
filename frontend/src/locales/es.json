@@ -1065,21 +1065,21 @@
       ],
       "technicalNote": "Posición en rango: 0% = mínimo de 52 semanas, 100% = máximo. Describe dónde está el precio; no es una señal.",
       "macro": {
-        "overview": "El FOMC dejó la tasa en 3.50-3.75% el 07-29, por 9-3; Hammack, Kashkari y Logan favorecieron un ajuste de 25 pb al alza. Al día siguiente, el crecimiento fue menor que el ritmo del Q1, mientras la inflación interanual seguía firme. Las acciones cayeron el día de la decisión y se recuperaron en las dos sesiones siguientes.",
+        "overview": "El FOMC dejó la tasa en 3.50-3.75% el 07-29, por 9-3; Hammack, Kashkari y Logan favorecieron un ajuste de 25 pb al alza. Al día siguiente, el crecimiento fue menor que el ritmo del Q1, mientras la inflación interanual seguía firme. [Probable] Las acciones cayeron el día de la decisión y se recuperaron en las dos sesiones siguientes.",
         "anchor": {
-          "question": "¿El menor crecimiento, con inflación subyacente todavía en 3.3%, cambia la trayectoria de política señalada por los votos disidentes de julio?",
+          "question": "¿El menor crecimiento, con inflación subyacente todavía en 3.3%, cambia la trayectoria de política señalada por los votos disidentes de julio? [Speculative]",
           "paragraphs": [
-            "Los votos disidentes favorecieron tasas más altas, pero la estimación preliminar del PIB real del Q2, publicada el 07-30, fue de +1.5% anualizado, por debajo del +2.1% del Q1. Estas publicaciones dejan al crecimiento y la inflación ejerciendo presiones distintas sobre el debate de política.",
-            "Las expectativas sobre la trayectoria de tasas pueden transmitirse a las valuaciones de las acciones de larga duración de esta cartera: TSMC, Microsoft, Alphabet, QQQ y VOO. BOXX tiene exposición de corta duración, por lo que el canal difiere del de las posiciones accionarias. [Probable]",
-            "El PCE de junio fue -0.1% mensual y +3.7% interanual; el PCE subyacente fue +0.1% mensual y +3.3% interanual. La lectura mensual moderada contrasta con la firmeza anual, sin resolver por sí sola el rumbo de política.",
-            "La incertidumbre pendiente es si una actividad más lenta y una inflación anual persistente continuarán juntas. El informe de empleo de julio del 08-07 ofrece una referencia observable de nóminas y salarios para esa tensión entre crecimiento e inflación.",
-            "Si el informe de empleo señala menor actividad, observe la respuesta de las expectativas de tasas y de estas exposiciones accionarias; si persiste la presión salarial, observe si sigue presente el argumento de los disidentes de julio. Son escenarios condicionales de observación. [Speculative]"
+            "Los votos disidentes favorecieron tasas más altas, pero la estimación preliminar del PIB real del Q2, publicada el 07-30, fue de +1.5% anualizado, por debajo del +2.1% del Q1. Estas publicaciones dejan al crecimiento y la inflación ejerciendo presiones distintas sobre el debate de política. [Probable]",
+            "Las expectativas sobre la trayectoria de tasas pueden transmitirse a las valuaciones de las acciones de larga duración de esta cartera: TSMC, Microsoft, Alphabet, QQQ y VOO. [Probable] BOXX tiene exposición de corta duración, por lo que el canal difiere del de las posiciones accionarias. [Probable]",
+            "El PCE de junio fue -0.1% mensual y +3.7% interanual; el PCE subyacente fue +0.1% mensual y +3.3% interanual. La lectura mensual moderada contrasta con la firmeza anual, sin resolver por sí sola el rumbo de política. [Probable]",
+            "La incertidumbre pendiente es si una actividad más lenta y una inflación anual persistente continuarán juntas. [Speculative] El informe de empleo de julio del 08-07 ofrece una referencia observable de nóminas y salarios para esa tensión entre crecimiento e inflación. [Probable]",
+            "Si el informe de empleo señala menor actividad, observe la respuesta de las expectativas de tasas y de estas exposiciones accionarias; si persiste la presión salarial, observe si sigue presente el argumento de los disidentes de julio. [Speculative] Son escenarios condicionales de observación. [Speculative]"
           ]
         },
         "updates": [
           {
             "title": "Repunte de los índices de EE. UU.",
-            "body": "El 07-29, S&P 500 registró -1.52% y Nasdaq Composite -1.74%; el 07-30, +1.66% y +2.78%, seguidos de +0.70% y +1.00% el 07-31. La secuencia muestra una recuperación tras la caída del día de la decisión, sin identificar una causa única."
+            "body": "El 07-29, S&P 500 registró -1.52% y Nasdaq Composite -1.74%; el 07-30, +1.66% y +2.78%, seguidos de +0.70% y +1.00% el 07-31. La secuencia muestra una recuperación tras la caída del día de la decisión, sin identificar una causa única. [Probable]"
           },
           {
             "title": "La libra y el valor de PSH.L en USD.",

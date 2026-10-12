@@ -1065,21 +1065,21 @@
       ],
       "technicalNote": "Range position: 0% = at the 52-week low, 100% = at the high. Describes where price sits — not a signal.",
       "macro": {
-        "overview": "The FOMC kept rates at 3.50-3.75% on 07-29 in a 9-3 vote, with Hammack, Kashkari and Logan favouring a 25 bp hike. The next day brought slower growth than the Q1 pace alongside firm year-on-year inflation. Equities fell on the decision day and recovered over the next two sessions.",
+        "overview": "The FOMC kept rates at 3.50-3.75% on 07-29 in a 9-3 vote, with Hammack, Kashkari and Logan favouring a 25 bp hike. The next day brought slower growth than the Q1 pace alongside firm year-on-year inflation. [Probable] Equities fell on the decision day and recovered over the next two sessions.",
         "anchor": {
-          "question": "Does slower growth, with core inflation still at 3.3%, change the policy path signalled by the July dissents?",
+          "question": "Does slower growth, with core inflation still at 3.3%, change the policy path signalled by the July dissents? [Speculative]",
           "paragraphs": [
-            "The dissents favoured higher rates, while the Q2 real GDP advance estimate of +1.5% annualized on 07-30 was below Q1’s +2.1% pace. These releases leave growth and inflation pulling the policy discussion in different directions.",
-            "Rate-path expectations can transmit into the valuations of long-duration equities in this portfolio: TSMC, Microsoft, Alphabet, QQQ and VOO. BOXX has short-duration exposure, so the channel differs from that of the equity positions. [Probable]",
-            "June PCE was -0.1% m/m and +3.7% y/y; core PCE was +0.1% m/m and +3.3% y/y. The modest monthly core reading is a counterweight to the firm annual reading, rather than a settled policy outcome.",
-            "The remaining uncertainty is whether slower activity and persistent annual inflation continue together. The July Employment Situation on 08-07 is an observable for payrolls and wages alongside this growth-and-inflation tension.",
-            "If the employment release points to softer activity, watch how rate-path expectations and these equity exposures respond; if wage pressure persists, watch whether the case reflected in the July dissents remains in focus. These are conditional observation paths. [Speculative]"
+            "The dissents favoured higher rates, while the Q2 real GDP advance estimate of +1.5% annualized on 07-30 was below Q1’s +2.1% pace. These releases leave growth and inflation pulling the policy discussion in different directions. [Probable]",
+            "Rate-path expectations can transmit into the valuations of long-duration equities in this portfolio: TSMC, Microsoft, Alphabet, QQQ and VOO. [Probable] BOXX has short-duration exposure, so the channel differs from that of the equity positions. [Probable]",
+            "June PCE was -0.1% m/m and +3.7% y/y; core PCE was +0.1% m/m and +3.3% y/y. The modest monthly core reading is a counterweight to the firm annual reading, rather than a settled policy outcome. [Probable]",
+            "The remaining uncertainty is whether slower activity and persistent annual inflation continue together. [Speculative] The July Employment Situation on 08-07 is an observable for payrolls and wages alongside this growth-and-inflation tension. [Probable]",
+            "If the employment release points to softer activity, watch how rate-path expectations and these equity exposures respond; if wage pressure persists, watch whether the case reflected in the July dissents remains in focus. [Speculative] These are conditional observation paths. [Speculative]"
           ]
         },
         "updates": [
           {
             "title": "US indices rebounded.",
-            "body": "On 07-29, S&P 500 was -1.52% and Nasdaq Composite -1.74%; on 07-30 they were +1.66% and +2.78%, followed by +0.70% and +1.00% on 07-31. The sequence shows a recovery after the decision-day drop, without isolating a single cause."
+            "body": "On 07-29, S&P 500 was -1.52% and Nasdaq Composite -1.74%; on 07-30 they were +1.66% and +2.78%, followed by +0.70% and +1.00% on 07-31. The sequence shows a recovery after the decision-day drop, without isolating a single cause. [Probable]"
           },
           {
             "title": "Sterling and PSH.L’s USD value.",
