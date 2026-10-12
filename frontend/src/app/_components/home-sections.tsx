@@ -4,6 +4,7 @@ import { LanguageLinks } from "./language-links";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
+import { HomeJadeTools } from "./home-jade-tools";
 import { HomeProductPreviews } from "./home-product-previews";
 import { useHomeMessages, useLocale, useLocalizedHref } from "./locale-provider";
 
@@ -337,6 +338,7 @@ export function HomeSections() {
       </section>
 
       <HomeProductPreviews />
+      <HomeJadeTools />
 
       <section id="boundary" className="px-6 py-16 sm:py-20">
         <div className="mx-auto max-w-4xl rounded-2xl border border-white/10 bg-card p-7 sm:p-11">

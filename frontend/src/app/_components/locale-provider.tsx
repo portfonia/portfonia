@@ -134,6 +134,7 @@ export function useHomeMessages(): Messages["home"] {
     status: t.raw("status"),
     footer: t.raw("footer"),
     productPreviews: t.raw("productPreviews"),
+    jadeTools: t.raw("jadeTools"),
   };
 }
 

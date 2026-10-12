@@ -562,6 +562,18 @@ page; English and Chinese show no notice. Spanish is UI-only: signup,
 waitlist and referrals map to English service locales. Reports, emails,
 invitation letters, export dialects and stored rows are unchanged.
 
+### Homepage Jade tools (issue #745)
+
+The homepage inserts `#jade-tools` directly after `#product-previews` and before
+`#boundary` in all four locales. `HomeJadeTools` calculates the existing fixed
+60% SPY / 40% AGG guide example once at module load and renders its replay chart
+and localized caption. The exported `ReplayChart` is shared with `GuideBody`;
+the guide's chart configuration, content and calculations are unchanged. Five
+cards reuse the Jade tool titles and guide-index summaries in replay, tail-risk,
+stress, style and tracking order, linking to localized guides. The index link
+also preserves locale; the closing CTA uses the shared Get started label and
+`/holdings` target. Only the four `home.jadeTools` strings are new copy.
+
 ## Jade page, Profile coordination and menu (issue #710)
 
 Every authenticated menu includes Jade directly after Performance; guests do

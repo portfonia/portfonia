@@ -1145,6 +1145,12 @@
       "stack1": "Next.js · FastAPI · Celery · PostgreSQL",
       "stack2": "Proveedores de modelos intercambiables mediante OpenRouter"
     },
+    "jadeTools": {
+      "heading": "Herramientas de cartera de Jade",
+      "body": "El plan Jade incluye cinco herramientas que examinan sus posiciones con precios y escenarios históricos. El gráfico utiliza precios de cierre reales para una cartera de ejemplo fija, distinta de sus posiciones; las guías explican cada método.",
+      "ctaHeading": "Vea su cartera desde más perspectivas",
+      "ctaBody": "Explore la historia, los patrones de pérdidas, los estilos de mercado y las comparaciones con una referencia de su propia cartera. Cada lectura muestra sus datos y su método para dar más contexto a los riesgos que observa."
+    },
     "productPreviews": {
       "riskHeading": "Riesgo de cartera",
       "riskBody": "Ejemplo con datos reales de mercado y posiciones ficticias. Volatilidad histórica de la misma cartera, Beta frente al S&P 500 y riesgo y desviación respecto de un cuestionario de referencia: tolerancia equilibrada y horizonte corto.",
