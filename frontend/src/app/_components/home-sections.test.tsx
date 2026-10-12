@@ -441,7 +441,7 @@ describe("HomeSections product previews (issue #549)", () => {
     ]);
   });
 
-  it("adds exactly one Get Started link after performance, aimed at /holdings", () => {
+  it("renders four Get Started links to /holdings, with CTAs between risk and overview and after performance", () => {
     render(
       <LocaleProvider routeLocale={null}>
         <HomeSections />
