@@ -46,7 +46,7 @@ Write for an implementing agent that has not seen the conversation:
 | Requirements | Observable behavior, affected users, scope, and exclusions. |
 | Reasons | The concrete problem and the value of the requested change. |
 | Exploration | Verified evidence, source/revision, alternatives, owner decisions, and unresolved questions. |
-| Design | Module boundaries and caller/writer/reader flow; schema and API names, types and nullability; algorithms, units, normalization and date semantics; operation order; errors and unavailable data; UI states; compatibility and rollout; worked input/output examples. |
+| Design | Module boundaries and caller/writer/reader flow; schema and API names, types and nullability; algorithms, units, normalization and date semantics; operation order; errors and unavailable data; UI states; compatibility and rollout; worked input/output examples; the "Public surfaces affected:" line. |
 | Contract constraints | Invariants, dependencies, non-goals, concrete acceptance inputs and expected results, required validation and review, and separate deployment/data-operation authorization. |
 
 Do not replace a design with desired outcomes or leave substantive product
@@ -68,6 +68,51 @@ These dimensions are not a mandate to add subsystems or exhaustive tests.
 Keep the contract proportionate to the authorized problem. When more scope
 is proposed, present its value, impact/cost, and reason for owner approval
 before adding it to the work.
+
+## Public surface sync
+
+Public surfaces are everything a visitor can see without a paid subscription.
+The rule in [CLAUDE.md](../../CLAUDE.md#public-surfaces-stay-in-sync-with-the-product-mandatory-2026-10-12)
+applies project-wide to every issue and every agent or harness working in the
+repository. Any change to behaviour, coverage, cadence, pricing, limits, data
+sources, formulas or UI updates every public surface that describes or samples
+it in the same PR, in all four UI locales: `en`, `es`, `zh-Hans`, and `zh-Hant`.
+
+### Inventory
+
+| Surface | Source files |
+|---|---|
+| Homepage | `frontend/src/app/_components/home-*.tsx`, `frontend/src/app/_components/home-risk-sample.ts`, `frontend/src/app/_components/home-real-data.fixture.json`; `home` in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
+| About, Pricing, Waitlist, and legal pages | `frontend/src/app/{about,pricing,waitlist,privacy,terms,refund}`; page copy and legal catalogs in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
+| Guides index and guide pages | `frontend/src/app/guides`; guide catalogs in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
+| Public agent documentation | `frontend/src/app/agent`. |
+| Login, signup, forgot-password, reset-password, verify-email, unsubscribe, and localized 404 | `frontend/src/app/{login,signup,forgot-password,reset-password,verify-email,unsubscribe}`, `frontend/src/app/not-found.tsx`; catalogs in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
+| OG / social preview images | `frontend/src/app/og/[locale]/route.tsx`; `home` and `seo.og` in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
+| SEO metadata | `frontend/src/lib/seo.ts`; `seo.pages` in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
+| Pre-subscription emails (waitlist and invitation letters, verification email) and invitation unsubscribe page | `_INVITATION_LETTER_COPY` and `_VERIFICATION_EMAIL_COPY` in `backend/app/services/email_sender.py`; page copy in `backend/app/routers/invitation_letters.py`. |
+
+### Procedure
+
+1. While designing, grep the inventory's source files for terms affected by the
+   change: plan names and prices, cadences, markets, benchmarks, formats, limits,
+   and formulas. End the issue Design with `Public surfaces affected:` listing
+   each affected surface and its change, or `none` when there are no hits that
+   need updating.
+2. Update the affected surfaces in the same PR, in all four locales. Regenerate
+   derived sample data with its documented method instead of hand-editing figures.
+3. During review, check the Design line against the diff and grep the same terms
+   in the public files left untouched by the diff to identify missed updates.
+
+### Sample data and provenance
+
+Public sample figures trace to real market data, a product formula, or a verified
+public event; they are never hand-invented. A constructed sample never claims to
+be a real user's report.
+
+The homepage sample uses fictional holdings with real closes and verified public
+events, anchored to the 2026-07-31 briefing date. Its provenance, product formulas,
+and derivation scripts are recorded in [issue #741 Exploration](https://github.com/portfonia/portfonia/issues/741#issuecomment-6120455248).
+Use that documented method when regenerating its derived figures.
 
 ## Evidence and implementation tracking
 
