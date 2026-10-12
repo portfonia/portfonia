@@ -1145,6 +1145,12 @@
       "stack1": "Next.js · FastAPI · Celery · PostgreSQL",
       "stack2": "Pluggable LLM providers via OpenRouter"
     },
+    "jadeTools": {
+      "heading": "Jade portfolio tools",
+      "body": "The Jade plan includes five tools that read your own holdings against past prices and scenarios. The chart below uses real closing prices for a fixed example portfolio, separate from your holdings; the guides explain each method.",
+      "ctaHeading": "See your portfolio through a wider lens",
+      "ctaBody": "Explore the history, loss patterns, market styles and reference comparisons behind your own portfolio. Each reading makes its data and method visible, giving you more context for the risks you are watching."
+    },
     "productPreviews": {
       "riskHeading": "Portfolio risk",
       "riskBody": "Real-market-data sample with fictional holdings. The same portfolio’s historical volatility, Beta against S&P 500, and risk and deviation against a reference questionnaire: balanced appetite with a short horizon.",

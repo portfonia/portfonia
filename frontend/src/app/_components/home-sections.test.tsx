@@ -441,7 +441,7 @@ describe("HomeSections product previews (issue #549)", () => {
     ]);
   });
 
-  it("renders four Get Started links to /holdings, with CTAs between risk and overview and after performance", () => {
+  it("renders five Get Started links to /holdings, with CTAs between risk and overview and after performance", () => {
     render(
       <LocaleProvider routeLocale={null}>
         <HomeSections />
@@ -449,8 +449,9 @@ describe("HomeSections product previews (issue #549)", () => {
     );
 
     const links = screen.getAllByRole("link", { name: catalogs.en.home.hero.ctaPrimary });
-    expect(links).toHaveLength(4);
-    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/holdings", "/holdings", "/holdings", "/holdings"]);
+    expect(links).toHaveLength(5);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/holdings", "/holdings", "/holdings", "/holdings", "/holdings"]);
+    expect(document.getElementById("jade-tools")).toContainElement(links[4]);
     const riskPreview = screen.getByTestId("home-risk-preview");
     const portfolioHeading = screen.getByRole("heading", { level: 2, name: catalogs.en.home.productPreviews.portfolioHeading });
     expect(riskPreview.compareDocumentPosition(links[2])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);

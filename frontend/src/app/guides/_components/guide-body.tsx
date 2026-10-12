@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { LanguageLinks } from "@/app/_components/language-links";
 import { useLocale, useLocalizedHref } from "@/app/_components/locale-provider";
+import { ReplayChart } from "./replay-chart";
 import type { Example } from "../_lib/example";
-import { PORTFOLIO_COLOR, BENCHMARK_COLORS } from "@/app/portfolio/performance/_components/performance-colors";
+import { PORTFOLIO_COLOR } from "@/app/portfolio/performance/_components/performance-colors";
 import type { Messages } from "@/locales";
 
 export function GuideBody({ kind, example }: {
@@ -237,29 +238,14 @@ export function GuideBody({ kind, example }: {
     }));
     return <figure className="my-4 min-w-0">
       <div data-guide-chart aria-label={t(`${kind}.sections.s2.heading`)} className="h-60 w-full min-w-0">
-        {kind === 'replay' ? <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={example.points} margin={{
-            top: 8,
-            right: 8,
-            bottom: 0,
-            left: 0
-          }}>
-            <CartesianGrid stroke="var(--border)" vertical={false} />
-            <XAxis type="number" dataKey="time" domain={['dataMin', 'dataMax']} tickFormatter={v => date.format(new Date(Number(v)))} minTickGap={36} tick={{
-              fontSize: 10,
-              fill: 'var(--muted-foreground)'
-            }} />
-            <YAxis width={48} tickFormatter={formatPercent} tick={{
-              fontSize: 10,
-              fill: 'var(--muted-foreground)'
-            }} />
-            <Line name={portfolio} dataKey="portfolio" stroke={PORTFOLIO_COLOR} dot={false} isAnimationActive={false} />
-            <Line name="SPY" dataKey="spy" stroke={BENCHMARK_COLORS.sp500} dot={false} isAnimationActive={false} />
-            <ReferenceLine x={Date.parse(portfolioMetrics.peakDate)} stroke="var(--muted-foreground)" strokeDasharray="3 3" />
-            <ReferenceLine x={Date.parse(portfolioMetrics.troughDate)} stroke="var(--muted-foreground)" strokeDasharray="3 3" />
-            <Legend wrapperStyle={{ fontSize: 10 }} />
-          </LineChart>
-        </ResponsiveContainer> : <ResponsiveContainer width="100%" height="100%">
+        {kind === 'replay' ? <ReplayChart
+          points={example.points}
+          peakDate={portfolioMetrics.peakDate}
+          troughDate={portfolioMetrics.troughDate}
+          portfolioName={portfolio}
+          formatPercent={formatPercent}
+          formatTick={v => date.format(new Date(Number(v)))}
+        /> : <ResponsiveContainer width="100%" height="100%">
           <BarChart data={histogramData}>
             <XAxis type="number" dataKey="midpoint" domain={['dataMin', 'dataMax']} tickFormatter={formatPercent} tick={{
               fontSize: 10,
