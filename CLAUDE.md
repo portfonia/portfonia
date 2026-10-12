@@ -78,6 +78,17 @@ missing because of it. Full incident: issue #494.
   `TZ=America/New_York` (`docker-compose.yml`) — this is defense in
   depth alongside the code convention above, not a substitute for it.
 
+## Public surfaces stay in sync with the product (MANDATORY, 2026-10-12)
+
+Any change to behaviour, coverage, cadence, pricing, limits, data sources, formulas
+or UI updates, in the same PR and in all four locales, every surface outside the
+paywall that describes or samples it (inventory and procedure:
+`docs/playbooks/documentation-governance.md`, "Public surface sync"). Public sample
+figures trace to real market data, a product formula or a verified public event,
+and a constructed sample never claims to be a real report. **Why**: issue #741.
+**How to apply**: every issue Design ends with "Public surfaces affected:" (each
+surface and its change, or "none"); reviews check it against the diff.
+
 ## Where to find current state
 
 This file holds **conventions and mechanisms**, not a project status board.
