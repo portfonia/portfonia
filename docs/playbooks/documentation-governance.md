@@ -71,21 +71,25 @@ before adding it to the work.
 
 ## Public surface sync
 
-Public surfaces are everything a visitor can see without a paid subscription.
+Public surfaces are everything a visitor can see without a paid subscription,
+as listed in the inventory below.
 The rule in [CLAUDE.md](../../CLAUDE.md#public-surfaces-stay-in-sync-with-the-product-mandatory-2026-10-12)
 applies project-wide to every issue and every agent or harness working in the
 repository. Any change to behaviour, coverage, cadence, pricing, limits, data
 sources, formulas or UI updates every public surface that describes or samples
 it in the same PR, in all four UI locales: `en`, `es`, `zh-Hans`, and `zh-Hant`.
+Every surface is updated in all four UI locales, except where the Language Policy
+in `CLAUDE.md` limits it to fewer languages (Spanish is UI-only: verification and
+invitation emails and the invitation unsubscribe page have no `es` copy).
 
 ### Inventory
 
 | Surface | Source files |
 |---|---|
-| Homepage | `frontend/src/app/_components/home-*.tsx`, `frontend/src/app/_components/home-risk-sample.ts`, `frontend/src/app/_components/home-real-data.fixture.json`; `home` in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
+| Homepage | `frontend/src/app/page.tsx`, `frontend/src/app/_components/home-*.tsx`, `frontend/src/app/_components/home-risk-sample.ts`, `frontend/src/app/_components/home-real-data.fixture.json`; `home` in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
 | About, Pricing, Waitlist, and legal pages | `frontend/src/app/{about,pricing,waitlist,privacy,terms,refund}`; page copy and legal catalogs in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
 | Guides index and guide pages | `frontend/src/app/guides`; guide catalogs in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
-| Public agent documentation | `frontend/src/app/agent`. |
+| Public agent documentation | `frontend/src/app/agent`, `frontend/public/agent.md`, `frontend/public/llms.txt`. |
 | Login, signup, forgot-password, reset-password, verify-email, unsubscribe, and localized 404 | `frontend/src/app/{login,signup,forgot-password,reset-password,verify-email,unsubscribe}`, `frontend/src/app/not-found.tsx`; catalogs in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
 | OG / social preview images | `frontend/src/app/og/[locale]/route.tsx`; `home` and `seo.og` in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
 | SEO metadata | `frontend/src/lib/seo.ts`; `seo.pages` in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
@@ -98,8 +102,9 @@ it in the same PR, in all four UI locales: `en`, `es`, `zh-Hans`, and `zh-Hant`.
    and formulas. End the issue Design with `Public surfaces affected:` listing
    each affected surface and its change, or `none` when there are no hits that
    need updating.
-2. Update the affected surfaces in the same PR, in all four locales. Regenerate
-   derived sample data with its documented method instead of hand-editing figures.
+2. Update the affected surfaces in the same PR, in all four locales (subject to
+   the Language Policy exception above). Regenerate derived sample data with its
+   documented method instead of hand-editing figures.
 3. During review, check the Design line against the diff and grep the same terms
    in the public files left untouched by the diff to identify missed updates.
 
