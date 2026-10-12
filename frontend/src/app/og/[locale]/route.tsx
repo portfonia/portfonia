@@ -44,7 +44,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ loc
           {inputs.map(input => (
             <div key={input.title} style={{ display: "flex", flexDirection: "column", padding: "20px 22px", borderRadius: 18, backgroundColor: "#0d1c22", border: "1.5px solid rgba(238,243,241,0.12)", flexShrink: 0 }}>
               <div style={{ display: "flex", fontSize: locale === "en" ? 30 : 32, fontWeight: 600 }}>{input.title}</div>
-              <div style={{ display: "flex", marginTop: 14, gap: 8, alignItems: "flex-start", flexShrink: 0 }}>
+              <div style={{ display: "flex", marginTop: 14, gap: 8, alignItems: "flex-start", flexShrink: 0, flexWrap: "wrap", rowGap: 4 }}>
                 {input.chips.map(chip => <div key={chip} style={{ display: "flex", padding: "4px 12px", borderRadius: 8, backgroundColor: "#142a32", fontSize: 23, flexShrink: 0 }}>{chip}</div>)}
               </div>
             </div>

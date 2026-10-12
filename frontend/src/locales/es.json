@@ -752,7 +752,7 @@
       "titleLine1": "Lo que merece atención",
       "titleAccent": "entre sus posiciones.",
       "tagline": "Información pertinente, profunda y amplia, a su lado durante el ciclo mientras su criterio se fortalece.",
-      "sub": "Portfonia es una herramienta de software diseñada para acompañarle a lo largo de los ciclos del mercado. Sigue noticias, macroeconomía y novedades empresariales, y las relaciona sistemáticamente con cada posición que ingresa; profundidad y amplitud cercanas a lo que le importa. Los ciclos suben y bajan; la información confiable debe estar disponible durante años. Por eso existimos.",
+      "sub": "Portfonia es una herramienta de software que sigue noticias, eventos macroeconómicos y novedades de empresas, y los vincula con las posiciones que usted registra.",
       "ctaPrimary": "Comenzar",
       "ctaSecondary": "Ver cómo funciona"
     },
@@ -762,7 +762,7 @@
       "cards": [
         {
           "title": "Carga de posiciones",
-          "body": "Suba un CSV o una hoja de cálculo con sus posiciones. Un modelo de lenguaje lo normaliza en registros estructurados, sin volver a ingresarlos a mano.",
+          "body": "Suba sus posiciones en CSV, Excel, Markdown o texto sin formato. Un modelo de lenguaje las organiza en registros estructurados, sin volver a ingresarlas a mano.",
           "tags": [
             "CSV",
             "Markdown",
@@ -770,7 +770,7 @@
           ]
         },
         {
-          "title": "Seguimiento de mercado y macro",
+          "title": "Mercados y macro",
           "body": "Consulta diaria de precios, divisas y noticias macro seleccionadas de fuentes reconocidas; principalmente en inglés y en chino cuando el instrumento lo requiere.",
           "tags": [
             "Precios",
@@ -780,9 +780,10 @@
         },
         {
           "title": "Resúmenes personalizados",
-          "body": "Lun / Mié / Vie, vinculados a sus posiciones reales: anomalías de precios, situación técnica y calendario futuro de eventos macro y resultados.",
+          "body": "Los resúmenes llegan cada semana, los lunes / miércoles / viernes o diariamente, según su plan, vinculados a sus posiciones: anomalías de precios, situación técnica y calendario próximo.",
           "tags": [
-            "Entrega por correo"
+            "Correo electrónico",
+            "Historial de informes en la web"
           ]
         }
       ],
@@ -795,12 +796,12 @@
       }
     },
     "preview": {
-      "heading": "Cómo es un resumen real",
-      "tag": "Informe real anonimizado",
-      "badge": "Anonimizado a partir de un informe real; posiciones y cifras de ejemplo",
+      "heading": "Cómo se ve un resumen",
+      "tag": "Datos reales de mercado, posiciones ficticias",
+      "badge": "Ejemplo con datos reales de mercado del 2026-07-31 y posiciones ficticias",
       "footnote": "La frecuencia de los resúmenes depende de su plan.",
       "snapshotTitle": "Instantánea de cartera",
-      "totalLine": "Valor total: $1,000,000 (fecha de cambio: 2026-08-21)",
+      "totalLine": "Valor total: $968,326 (fecha de cambio: 2026-07-31)",
       "holdingsColumns": [
         "Posición",
         "Moneda",
@@ -813,148 +814,107 @@
         [
           "TSMC (TSM)",
           "USD",
-          "209,000",
-          "20.9%",
-          "Custodio A",
+          "209,648",
+          "21.7%",
+          "A",
           "Acciones"
         ],
         [
           "Microsoft (MSFT)",
           "USD",
-          "80,000",
-          "8.0%",
-          "Custodio A",
+          "80,245",
+          "8.3%",
+          "A",
           "Acciones"
         ],
         [
           "Alphabet (GOOGL)",
           "USD",
-          "69,000",
-          "6.9%",
-          "Custodio A",
+          "69,045",
+          "7.1%",
+          "A",
           "Acciones"
         ],
         [
           "**Custodio A subtotal**",
           "USD",
-          "**358,000**",
-          "**35.8%**",
+          "**358,938**",
+          "**37.1%**",
           "",
           ""
         ],
         [
           "QQQ (QQQ)",
           "USD",
-          "160,000",
-          "16.0%",
-          "Custodio B",
+          "160,822",
+          "16.6%",
+          "B",
           "ETF tecnológico de EE. UU."
         ],
         [
           "VOO (VOO)",
           "USD",
-          "131,000",
-          "13.1%",
-          "Custodio B",
+          "130,814",
+          "13.5%",
+          "B",
           "ETF amplio de EE. UU."
         ],
         [
           "BOXX (BOXX)",
           "USD",
-          "48,000",
-          "4.8%",
-          "Custodio B",
+          "47,904",
+          "4.9%",
+          "B",
           "Fondo de bonos"
         ],
         [
           "Efectivo",
           "USD",
-          "2,000",
+          "2,130",
           "0.2%",
-          "Custodio B",
+          "B",
           "Equivalente de efectivo"
         ],
         [
           "**Custodio B subtotal**",
           "USD",
-          "**341,000**",
-          "**34.1%**",
+          "**341,670**",
+          "**35.3%**",
           "",
           ""
         ],
         [
-          "Tencent (0700.HK)",
-          "HKD",
-          "546,000",
-          "7.0%",
-          "Custodio C",
-          "Acciones"
-        ],
-        [
-          "BYD (1211.HK)",
-          "HKD",
-          "413,400",
-          "5.3%",
-          "Custodio C",
+          "Pershing Square Holdings (PSH.L)",
+          "GBP",
+          "108,713",
+          "15.1%",
+          "C",
           "Acciones"
         ],
         [
           "**Custodio C subtotal** (convertido a USD)",
           "USD",
-          "**123,000**",
-          "**12.3%**",
-          "",
-          ""
-        ],
-        [
-          "ETF de oro (518880.SS)",
-          "CNH",
-          "14,300",
-          "0.2%",
-          "Custodio D",
-          "Metales preciosos"
-        ],
-        [
-          "ETF CSI 300 (510300.SS)",
-          "CNH",
-          "7,150",
-          "0.1%",
-          "Custodio D",
-          "Renta variable de China"
-        ],
-        [
-          "Efectivo",
-          "CNH",
-          "42,900",
-          "0.6%",
-          "Custodio D",
-          "Equivalente de efectivo"
-        ],
-        [
-          "**Custodio D subtotal** (convertido a USD)",
-          "USD",
-          "**9,000**",
-          "**0.9%**",
+          "**146,338**",
+          "**15.1%**",
           "",
           ""
         ],
         [
           "Efectivo USD y divisas",
           "USD",
-          "169,000",
-          "16.9%",
-          "Custodio E",
+          "121,380",
+          "12.5%",
+          "D",
           "Equivalente de efectivo"
         ]
       ],
       "distributionLines": [
-        "**Por mercado:** EE. UU. 86.8%, HK 12.3%, acciones A y CNH 0.9%",
-        "**Por moneda:** USD 86.8%, HKD 12.3%, CNH 0.9%",
-        "**Por clase de activo:** Acciones 48.1%, ETF tecnológico de EE. UU. 16.0%, ETF amplio de EE. UU. 13.1%, Fondos de bonos 4.8%, Metales preciosos 0.2%, Renta variable de China 0.1%, Equivalentes de efectivo 17.7%",
-        "**Tipos de cambio usados:** HKD 7.80, CNH 7.15 frente al USD"
+        "**Por mercado:** EE. UU. 84.9%, Reino Unido 15.1%",
+        "**Por moneda:** USD 84.9%, GBP 15.1%",
+        "**Por clase de activo:** Acciones 52.2%, ETF tecnológico de EE. UU. 16.6%, ETF amplio de EE. UU. 13.5%, Fondos de bonos 4.9%, Equivalentes de efectivo 12.8%",
+        "**Tipos de cambio usados:** GBP 0.74 frente al USD"
       ],
       "macroTitle": "Eventos macroeconómicos",
-      "macroBody": "Los mercados reajustaron la trayectoria de política tras unas actas del FOMC que mostraron un comité dividido. La transmisión a esta cartera pasa por la duración de la renta variable: las empresas de crecimiento de larga duración (TSMC, Microsoft, Alphabet) y los ETF amplios son sensibles a cambios en las expectativas de tipos incorporadas en la curva de rendimientos. No se activó ninguna anomalía de precio en esta ventana que confirmara un reajuste en una posición concreta; esta dirección es exposición estructural a observar, no un evento observado. [Probable]",
       "calendarTitle": "Calendario próximo",
       "calendarNote": "Eventos programados de EE. UU. en los próximos días y las posiciones relacionadas. Solo hechos del calendario, no pronósticos.",
       "calendarColumns": [
@@ -965,64 +925,85 @@
       ],
       "calendarRows": [
         [
-          "08-27",
-          "Solicitudes de desempleo",
+          "08-03",
+          "PMI manufacturero ISM (julio)",
           "—",
-          "Impulso del mercado laboral; implicaciones para los tipos"
+          "Dinamismo industrial; precios pagados"
         ],
         [
-          "08-29",
-          "Índice de precios PCE subyacente",
+          "08-06",
+          "Solicitudes de seguro de desempleo",
+          "—",
+          "Dinamismo del mercado laboral"
+        ],
+        [
+          "08-07",
+          "Informe de empleo (julio)",
           "TSMC, MSFT, GOOGL +2",
-          "Inflación frente al consenso; implicaciones para los tipos"
-        ],
-        [
-          "09-02",
-          "PMI manufacturero ISM",
-          "—",
-          "Impulso del sector industrial"
+          "Nóminas y salarios frente al consenso; implicaciones para las tasas"
         ]
       ],
       "analysisTitle": "Contexto de posiciones",
-      "analysisHeading": "TSMC: 20.9% de la cartera, la mayor posición individual",
-      "analysisBody": "TSMC destaca este período por su peso desproporcionado y su exposición a varias temáticas macro a la vez, no por un evento específico de la empresa. … No se observó ninguna anomalía en esta ventana que confirmara que el mercado reaccionó a la temática de política monetaria.",
       "radarTitle": "Exposición y precios",
-      "concentrationBody": "Las tres mayores posiciones suman 50.0% del valor de la cartera, justo en el umbral de seguimiento del 50%. La mayor clase de activo (acciones) alcanza 48.1%, ligeramente por debajo. TSMC domina la concentración individual con 20.9%; los dos ETF amplios diversifican dentro de las acciones estadounidenses, a la vez que elevan la correlación con su política monetaria.",
+      "concentrationBody": "Las tres mayores posiciones — TSMC 21.7%, QQQ 16.6% y Pershing Square Holdings 15.1% — suman 53.4%, por encima del umbral de seguimiento de 50%. Las acciones son la mayor clase de activo con 52.2%, por encima de su umbral de seguimiento de 50% y por debajo del umbral alto de 65%. TSMC por sí sola representa 21.7%.",
       "anomalyColumns": [
         "Posición",
-        "Cambio neto",
+        "Neto %",
+        "3 días %",
+        "5 días %",
         "Mayor movimiento (fecha)",
         "Cierre anterior",
         "Apertura (brecha %)",
         "Rango intradiario",
         "Cierre",
+        "Fuera de horario",
         "Activador"
       ],
       "anomalyRows": [
         [
-          "QQQ (QQQ)",
-          "+2.4%",
-          "+1.8% (08-25)",
-          "562.10",
-          "564.20 (+0.4%)",
-          "561.4–574.8",
-          "573.90",
-          "single_day"
+          "Microsoft (MSFT)",
+          "+18.99%",
+          "+18.14%",
+          "+21.75%",
+          "+15.51% (2026-07-30)",
+          "450.25",
+          "449.15 (-0.2%)",
+          "448.49-465.96",
+          "463.85",
+          "—",
+          "un día"
         ],
         [
           "TSMC (TSM)",
-          "+3.1%",
-          "+2.2% (08-24)",
-          "198.40",
-          "197.90 (-0.3%)",
-          "196.5–204.1",
-          "203.85",
-          "single_day"
+          "+7.89%",
+          "+3.04%",
+          "+0.21%",
+          "+7.64% (2026-07-30)",
+          "402.23",
+          "418.38 (+4.0%)",
+          "397.73-419.23",
+          "403.17",
+          "—",
+          "un día"
+        ],
+        [
+          "Alphabet (GOOGL)",
+          "+5.77%",
+          "+6.72%",
+          "+11.38%",
+          "+6.73% (2026-07-31)",
+          "333.45",
+          "340.61 (+2.1%)",
+          "339.78-358.35",
+          "355.9",
+          "—",
+          "un día"
         ]
       ],
       "anomalyBullets": [
-        "QQQ: +2.4% en la ventana; la subida de +1.8% en un día no tuvo un catalizador específico del fondo identificable en la investigación del período; la atribución sigue abierta [Speculative].",
-        "TSMC: +3.1% en la ventana; coincidió con noticias activas de semiconductores de IA, pero la investigación no confirmó un impulsor específico de TSMC [Probable]."
+        "Microsoft: los resultados del Q4 fiscal llegaron después del cierre del 07-29. [Established]",
+        "TSMC: acompañó el repunte de semiconductores del 07-30 posterior a los resultados de Microsoft; no se confirmó una publicación específica de TSMC. [Probable]",
+        "Alphabet: los resultados del Q2 llegaron el 07-22; no se identificó un catalizador propio para el movimiento del 07-31 y la atribución sigue abierta. [Speculative]"
       ],
       "technicalColumns": [
         "Posición",
@@ -1034,41 +1015,88 @@
       "technicalRows": [
         [
           "TSMC (TSM)",
-          "-2.5%",
-          "+16.0%",
-          "75%",
-          "+45.3%"
+          "-4.9%",
+          "+13.6%",
+          "71%",
+          "+49.0%"
         ],
         [
           "Microsoft (MSFT)",
-          "+20.9%",
-          "+12.9%",
-          "73%",
-          "+61.1%"
+          "+16.4%",
+          "+7.5%",
+          "60%",
+          "+60.2%"
         ],
         [
           "Alphabet (GOOGL)",
-          "+1.4%",
-          "+10.7%",
-          "81%",
-          "+50.9%"
+          "-0.7%",
+          "+9.3%",
+          "78%",
+          "+46.1%"
         ],
         [
           "QQQ (QQQ)",
-          "+0.5%",
-          "+11.2%",
-          "86%",
-          "+26.5%"
+          "-3.7%",
+          "+6.9%",
+          "70%",
+          "+23.8%"
         ],
         [
           "VOO (VOO)",
-          "+3.3%",
-          "+10.2%",
-          "99%",
-          "+14.4%"
+          "+0.4%",
+          "+7.1%",
+          "93%",
+          "+12.6%"
+        ],
+        [
+          "BOXX (BOXX)",
+          "+0.4%",
+          "+1.6%",
+          "100%",
+          "+0.3%"
+        ],
+        [
+          "Pershing Square Holdings (PSH.L)",
+          "-1.4%",
+          "-12.0%",
+          "11%",
+          "+24.2%"
         ]
       ],
-      "technicalNote": "Posición en rango: 0% = mínimo de 52 semanas, 100% = máximo. Describe dónde está el precio; no es una señal."
+      "technicalNote": "Posición en rango: 0% = mínimo de 52 semanas, 100% = máximo. Describe dónde está el precio; no es una señal.",
+      "macro": {
+        "overview": "El FOMC dejó la tasa en 3.50-3.75% el 07-29, por 9-3; Hammack, Kashkari y Logan favorecieron un ajuste de 25 pb al alza. Al día siguiente, el crecimiento fue menor que el ritmo del Q1, mientras la inflación interanual seguía firme. Las acciones cayeron el día de la decisión y se recuperaron en las dos sesiones siguientes.",
+        "anchor": {
+          "question": "¿El menor crecimiento, con inflación subyacente todavía en 3.3%, cambia la trayectoria de política señalada por los votos disidentes de julio?",
+          "paragraphs": [
+            "Los votos disidentes favorecieron tasas más altas, pero la estimación preliminar del PIB real del Q2, publicada el 07-30, fue de +1.5% anualizado, por debajo del +2.1% del Q1. Estas publicaciones dejan al crecimiento y la inflación ejerciendo presiones distintas sobre el debate de política.",
+            "Las expectativas sobre la trayectoria de tasas pueden transmitirse a las valuaciones de las acciones de larga duración de esta cartera: TSMC, Microsoft, Alphabet, QQQ y VOO. BOXX tiene exposición de corta duración, por lo que el canal difiere del de las posiciones accionarias. [Probable]",
+            "El PCE de junio fue -0.1% mensual y +3.7% interanual; el PCE subyacente fue +0.1% mensual y +3.3% interanual. La lectura mensual moderada contrasta con la firmeza anual, sin resolver por sí sola el rumbo de política.",
+            "La incertidumbre pendiente es si una actividad más lenta y una inflación anual persistente continuarán juntas. El informe de empleo de julio del 08-07 ofrece una referencia observable de nóminas y salarios para esa tensión entre crecimiento e inflación.",
+            "Si el informe de empleo señala menor actividad, observe la respuesta de las expectativas de tasas y de estas exposiciones accionarias; si persiste la presión salarial, observe si sigue presente el argumento de los disidentes de julio. Son escenarios condicionales de observación. [Speculative]"
+          ]
+        },
+        "updates": [
+          {
+            "title": "Repunte de los índices de EE. UU.",
+            "body": "El 07-29, S&P 500 registró -1.52% y Nasdaq Composite -1.74%; el 07-30, +1.66% y +2.78%, seguidos de +0.70% y +1.00% el 07-31. La secuencia muestra una recuperación tras la caída del día de la decisión, sin identificar una causa única."
+          },
+          {
+            "title": "La libra y el valor de PSH.L en USD.",
+            "body": "GBPUSD pasó de 1.3287 (07-29) a 1.3461 (07-31), +1.3%. PSH.L registró +1.8% en GBP en la ventana y cerca de +3.2% en USD; el avance de la libra contribuyó a esa diferencia de valuación en USD. [Established]"
+          }
+        ]
+      },
+      "analysisItems": [
+        {
+          "heading": "TSMC: 21.7% de la cartera, la mayor posición individual",
+          "body": "Con 21.7%, TSMC supera el umbral alto de 20% para una posición individual en acciones. Su movimiento de +7.64% el 07-30 coincidió con el repunte de semiconductores posterior a los resultados de Microsoft. [Probable] Su exposición abarca el gasto de capital en IA y la trayectoria de tasas descrita en la sección 2. [Probable]"
+        },
+        {
+          "heading": "Microsoft: 8.3% de la cartera",
+          "body": "Microsoft registró +15.51% el 07-30 después de sus resultados del Q4 fiscal, con ingresos de $90.01B y crecimiento de Azure de +43%. [Established] Esa sesión ayuda a explicar la volatilidad anualizada de 20 días de 60.2% y la distancia de +16.4% sobre el promedio de 50 días. [Probable]"
+        }
+      ]
     },
     "audience": {
       "heading": "Para quienes invierten a lo largo del ciclo",
@@ -1104,7 +1132,7 @@
         },
         {
           "q": "¿Qué mercados y posiciones admite?",
-          "a": "Actualmente, acciones de EE. UU., Hong Kong, acciones A, fondos públicos chinos, efectivo y divisas. Se prevé ampliar la cobertura."
+          "a": "Acciones de Estados Unidos, Reino Unido, Europa, Japón, Corea y Hong Kong; acciones A, fondos públicos chinos, efectivo y divisas."
         },
         {
           "q": "¿Cuánto cuesta?",
@@ -1119,15 +1147,15 @@
     },
     "productPreviews": {
       "riskHeading": "Riesgo de cartera",
-      "riskBody": "Cifras de ejemplo, no sus posiciones. Volatilidad histórica de la misma cartera ilustrativa, Beta frente al S&P 500 y relación con un cuestionario personal.",
+      "riskBody": "Ejemplo con datos reales de mercado y posiciones ficticias. Volatilidad histórica de la misma cartera, Beta frente al S&P 500 y riesgo y desviación respecto de un cuestionario de referencia: tolerancia equilibrada y horizonte corto.",
       "riskCtaHeading": "Llegar lejos requiere equilibrar oportunidad y riesgo",
       "riskCtaBody": "La oportunidad determina la velocidad; el riesgo determina la estabilidad. Ambos se refuerzan y se limitan, y ambos son necesarios. Aquí puede ver cuánto fluctúa su cartera, cómo acompaña al mercado y cuánto se aleja de su tolerancia declarada.",
       "portfolioHeading": "Resumen de cartera",
       "portfolioBody": "Cifras de ejemplo, no sus posiciones. Una cartera ilustrativa agrupada por mercado, clase de activo y grupo.",
       "performanceHeading": "Rendimiento de cartera",
-      "performanceBody": "Una ilustración estática del año en curso. La línea de cartera aparece junto al S&P 500 y CSI 300, seguida del historial de distribución y del rendimiento mensual frente a un índice.",
+      "performanceBody": "Una reconstrucción estática del año en curso de las posiciones de ejemplo con cierres reales, junto al S&P 500 y Nasdaq Composite, seguida del historial de distribución y el rendimiento mensual frente al S&P 500.",
       "metricLabel": "Rendimiento de cartera",
-      "metricValue": "+16.58%",
+      "metricValue": "+9.84%",
       "yearToDate": "Año en curso",
       "chartMarket": "Mercado",
       "chartAssetClass": "Clase de activo",
@@ -1136,22 +1164,22 @@
       "ctaBody": "De la estructura de cartera al rendimiento anual, observe los cambios en un solo lugar.",
       "markets": {
         "us": "EE. UU.",
-        "hk": "Hong Kong",
-        "cn": "China",
-        "other": "Otro"
+        "uk": "Reino Unido"
       },
       "assetClasses": {
         "stock": "Acciones",
         "usBroadEtf": "ETF amplio de EE. UU.",
         "usTechEtf": "ETF tecnológico de EE. UU.",
         "bondFund": "Fondo de bonos",
-        "other": "Otro"
+        "cash": "Equivalente de efectivo"
       },
       "groups": {
         "longTerm": "Posiciones a largo plazo",
-        "retirement": "Cuenta de jubilación",
-        "opportunity": "Cartera de oportunidades"
-      }
+        "opportunity": "Cartera de oportunidades",
+        "compounding": "Capitalización compuesta"
+      },
+      "startCtaHeading": "Vea esta lectura aplicada a sus posiciones",
+      "startCtaBody": "Ya vio cómo un resumen de ejemplo vincula los eventos con una cartera. Registre sus posiciones para recibir un resumen basado en las posiciones que ingresa."
     }
   },
   "welcome": {
@@ -1646,7 +1674,11 @@
       "markets": [
         "EE. UU.",
         "HK",
-        "Acciones A"
+        "Acciones A",
+        "Reino Unido",
+        "Europa",
+        "Japón",
+        "Corea"
       ]
     }
   },

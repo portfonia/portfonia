@@ -72,3 +72,21 @@ it("acceptance_08 Spanish OG is static and has the agreed locale code", async ()
   expect(generateStaticParams()).toContainEqual({ locale: "es" });
   expect(OG_LOCALE.es).toBe("es_LA");
 });
+
+it.each(["en", "es", "zh-Hans", "zh-Hant"] as Locale[])("#741 wraps all %s chips inside both input cards", async locale => {
+  await GET(new Request(`https://portfonia.com/og/${locale}`), { params: Promise.resolve({ locale }) });
+  function chipRows(node: ReactNode): { text: string[]; style: React.CSSProperties }[] {
+    return Children.toArray(node).flatMap(child => {
+      if (!isValidElement<{ children?: ReactNode; style?: React.CSSProperties }>(child)) return [];
+      const { children, style } = child.props;
+      const row = style?.alignItems === "flex-start" && style?.gap === 8;
+      return [...(row && style ? [{ text: strings(children), style }] : []), ...chipRows(children)];
+    });
+  }
+  const rows = chipRows(captured.element);
+  expect(rows).toHaveLength(2);
+  expect(rows[0].text).toEqual(catalogs[locale].seo.og.markets);
+  expect(rows[0].text).toHaveLength(7);
+  expect(rows[0].style).toEqual({ display: "flex", marginTop: 14, gap: 8, alignItems: "flex-start", flexShrink: 0, flexWrap: "wrap", rowGap: 4 });
+  expect(rows[1].style).toEqual({ display: "flex", marginTop: 14, gap: 8, alignItems: "flex-start", flexShrink: 0, flexWrap: "wrap", rowGap: 4 });
+});
