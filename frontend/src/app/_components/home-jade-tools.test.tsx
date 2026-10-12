@@ -79,6 +79,7 @@ it.each(locales)("745 A5 %s contains the replay chart card", locale => {
   const { container } = renderHome(locale);
   const section = jadeSection(container);
   expect(within(section).getByTestId("home-jade-replay-chart")).toBeInTheDocument();
+  expect(within(section).getByTestId("home-jade-replay-chart").querySelector(".recharts-responsive-container")).not.toBeNull();
 });
 
 it.each(locales)("745 A6 %s ends with the shared holdings CTA", locale => {
