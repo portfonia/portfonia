@@ -7,6 +7,10 @@
 - [API reference](https://portfonia.com/agent.md): Authentication, endpoints, response schemas, limits and data handling.
 - [Human guide and token settings](https://portfonia.com/agent): Getting started and personal token management.
 
+## Planned holdings management (not available yet)
+
+- [Strict future holdings contract](https://portfonia.com/agent.md#planned-holdings-management-strict-contract-not-available-yet): Complete submissions must account for every existing ID and explicitly list deletions; empty submissions and deleting the last holding are rejected. Read the version, retry, permission, quota and source-download rules before building a future pipeline. Current Agent endpoints remain read-only; this is not an availability announcement.
+
 ## Guides
 
 - [Jade guides index](https://portfonia.com/guides): Public explanations of all five Jade portfolio tools.

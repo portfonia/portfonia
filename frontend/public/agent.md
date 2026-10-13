@@ -165,6 +165,72 @@ Example: `GET /agent/v1/intel?date=2026-10-04`:
 Intelligence carries no source links, URL keys, provider or publisher
 fields. Use the supplied text; do not infer or invent source attribution.
 
+## Planned holdings management: strict contract (not available yet)
+
+The following owner-approved requirements describe a future release. Current
+Agent endpoints remain read-only. Do not call planned holdings routes or
+assume a current token has write permission. This section does not announce
+availability; consult the implemented endpoint documentation when released.
+
+The planned workflow lets users download their institution's holdings and
+use their own agent to update Portfonia. Users manage downloads, scheduling,
+source credentials and source-to-Portfonia holding-ID mappings themselves.
+
+The holdings contract must enforce these rules:
+
+- Complete submissions use `{version, holdings, delete_ids}`. Every current
+  holding ID must occur exactly once in either the retained holdings or the
+  explicit deletion list. Missing IDs reject the entire request; omission
+  never means deletion. An ID cannot occur in both lists. New rows have no ID.
+- `holdings` must not be empty. A complete submission cannot clear the book,
+  even when every old ID appears in `delete_ids`. Use the web UI to clear it.
+- Single-row DELETE must reject deletion of the last holding. Do not use a
+  loop of deletions or an empty replacement to work around this restriction.
+- Retained/new holdings follow the submitted array order. IDs are stable;
+  identical instruments in different accounts are not automatically merged.
+- Only user-input fields are writable. IDs, timestamps, captured prices,
+  internal account identifiers, capture support and automatic `asset_class`
+  remain server-owned. Watch tiers must survive read-edit-submit.
+- All API holdings writes require the version returned by a current read.
+  A conflict means reread and reassess the changes; do not blindly substitute
+  a new version and repeat an old payload. Writes succeed or roll back together.
+- Creation requires an idempotency key. Successful results are retained for
+  24 hours; matching retries return the original result, changed content under
+  the same key is a conflict. Preserve the key and original request on retries.
+- Write permission and an active Advanced/Jade entitlement are required.
+  Existing tokens remain read-only; new tokens will default to read-only.
+- Planned single-row writes share 30 requests/minute and 100/hour across
+  POST/PUT/PATCH/DELETE and all tokens. Request 31/minute triggers a 15-minute
+  account lock. Other calls retain their limits and scheduled quiet windows.
+- Planned caps are Basic 30, Advanced 50 and Jade 100 stored rows, including
+  cash/watch-only rows, across web/import/API writers. Existing over-limit rows
+  are not automatically deleted; reads/edits/reductions remain allowed, but
+  additions are blocked until compliant. No active Advanced/Jade means Basic.
+
+For a complete submission with existing rows A/B/C, retaining A/B and explicitly
+deleting C is valid; retaining only A and deleting C rejects because B is
+unaccounted for. A/B/C symbolize UUIDs, not valid request identifiers. To edit
+A alone, use the future single-row PATCH operation instead of a complete PUT.
+
+A pipeline must preserve other institutions' rows in complete submissions.
+Do not infer deletion from a failed, incomplete, empty or stale source download.
+Keep a stable holding-ID mapping rather than matching by ticker alone. The
+source download may omit watch tiers, notes or grouping labels that the user
+maintains in Portfonia: preserve those current values unless the user's workflow
+explicitly changes them. Do not replace absent source fields with null/defaults.
+When mapping is ambiguous, stop the affected update instead of guessing an ID.
+The
+platform version protects concurrent platform edits, not source-file freshness.
+After an ambiguous timeout of a complete submission, reread and reconcile
+before sending another mutation. The planned 24-hour creation idempotency
+does not establish idempotency for complete submissions.
+
+The future Agent-only OpenAPI contract must describe these requirements and
+errors explicitly, including `minItems: 1` on the complete holdings array.
+Database-dependent checks still require server enforcement. A temporary
+valuation endpoint and complete-submission idempotency are proposals only;
+neither is approved or available.
+
 ## Limits, errors and token security
 
 Limits apply per account across all of its tokens, only to agent endpoints:
