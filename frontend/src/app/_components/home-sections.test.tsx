@@ -653,3 +653,22 @@ it("#741 uses every fixed replay, monthly and risk point without recalculation",
   expect(HOME_RISK_SAMPLE.deviation).toEqual({ status: "ok", delta: 1 });
   expect(HOME_RISK_SAMPLE.manual_valuation_share).toBe("0");
 });
+
+it("747 stacks heading tags under the three homepage headings below sm", () => {
+  const { container } = render(
+    <LocaleProvider routeLocale="en">
+      <HomeSections />
+    </LocaleProvider>,
+  );
+  for (const id of ["how", "preview", "faq"]) {
+    const section = container.querySelector(`#${id}`);
+    if (!(section instanceof HTMLElement)) throw new Error(`missing #${id}`);
+    const row = section.querySelector("h2")?.parentElement;
+    if (!(row instanceof HTMLElement)) throw new Error(`missing heading row #${id}`);
+    expect(row, id).toHaveClass("flex-col", "sm:flex-row");
+    const tag = row.querySelector("span");
+    if (!(tag instanceof HTMLElement)) throw new Error(`missing tag #${id}`);
+    expect(tag, id).toHaveClass("sm:whitespace-nowrap");
+    expect(tag.classList.contains("whitespace-nowrap"), id).toBe(false);
+  }
+});
