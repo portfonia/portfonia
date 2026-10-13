@@ -25,7 +25,8 @@ const expected = {
             "Holdings upload from CSV, Excel or Markdown, with row-level editing",
             "Portfolio overview: allocation, performance against benchmarks, volatility and risk views",
             "Report history on the web, with Markdown or PDF download",
-            "Your AI agent can read your report history"
+            "Your AI agent can read your report history",
+            "Up to 30 saved holding rows, including cash and watched rows"
           ]
         },
         {
@@ -37,7 +38,8 @@ const expected = {
           "features": [
             "A briefing every weekday, Monday to Friday",
             "Your AI agent can read your daily holding snapshots",
-            "Your AI agent can read intelligence related to your holdings"
+            "Your AI agent can read intelligence related to your holdings",
+            "Up to 50 saved holding rows while Advanced is active, including cash and watched rows"
           ]
         },
         {
@@ -52,14 +54,15 @@ const expected = {
             "Tail risk (VaR / CVaR)",
             "Historical stress scenarios: five past market shocks",
             "Style exposure",
-            "Tracking against your reference: a portfolio you define, with tracking error"
+            "Tracking against your reference: a portfolio you define, with tracking error",
+            "Up to 100 saved holding rows while Jade is active, including cash and watched rows"
           ]
         }
       ],
       "footnote": "1 credit = US$1."
     },
     "jadeBody": "Jade \u2014 9.99 credits per month. Includes everything in the Advanced plan. You choose the Weekly, Mon / Wed / Fri, or Daily briefing schedule and can change it at any time on the Jade page. Jade includes five portfolio risk tools: holdings replay, tail risk (VaR / CVaR), historical stress scenarios, style exposure, and tracking against your reference.",
-    "lastUpdated": "Last updated: 2026-10-11",
+    "lastUpdated": "Last updated: 2026-10-13",
     "description": "Weekly, Mon/Wed/Fri, or weekday daily briefings, and Jade portfolio risk tools, paid with prepaid credits from US$10. Unused purchased credits are refundable within 120 days."
   },
   "zh-Hans": {
@@ -78,7 +81,8 @@ const expected = {
             "\u901a\u8fc7 CSV\u3001Excel \u6216 Markdown \u4e0a\u4f20\u6301\u4ed3\uff0c\u53ef\u9010\u884c\u7f16\u8f91",
             "\u6295\u8d44\u7ec4\u5408\u6982\u89c8\uff1a\u8d44\u4ea7\u914d\u7f6e\u3001\u76f8\u5bf9\u57fa\u51c6\u7684\u8868\u73b0\u3001\u6ce2\u52a8\u4e0e\u98ce\u9669\u89c6\u56fe",
             "\u7f51\u9875\u67e5\u770b\u5386\u53f2\u62a5\u544a\uff0c\u53ef\u4e0b\u8f7d Markdown \u6216 PDF",
-            "AI\u667a\u80fd\u4f53\u53ef\u8bfb\u53d6\u60a8\u7684\u5386\u53f2\u62a5\u544a"
+            "AI\u667a\u80fd\u4f53\u53ef\u8bfb\u53d6\u60a8\u7684\u5386\u53f2\u62a5\u544a",
+            "\u6700\u591a\u4fdd\u5b58 30 \u6761\u6301\u4ed3\uff0c\u73b0\u91d1\u548c\u89c2\u5bdf\u4e2d\u7684\u6301\u4ed3\u4e5f\u8ba1\u5165"
           ]
         },
         {
@@ -90,7 +94,8 @@ const expected = {
           "features": [
             "\u6bcf\u4e2a\u5de5\u4f5c\u65e5\uff08\u5468\u4e00\u81f3\u5468\u4e94\uff09\u4e00\u5c01\u7b80\u62a5",
             "AI\u667a\u80fd\u4f53\u53ef\u8bfb\u53d6\u60a8\u7684\u9010\u65e5\u6301\u4ed3\u5feb\u7167",
-            "AI\u667a\u80fd\u4f53\u53ef\u8bfb\u53d6\u4e0e\u60a8\u6301\u4ed3\u76f8\u5173\u7684\u60c5\u62a5"
+            "AI\u667a\u80fd\u4f53\u53ef\u8bfb\u53d6\u4e0e\u60a8\u6301\u4ed3\u76f8\u5173\u7684\u60c5\u62a5",
+            "\u8fdb\u9636\u6709\u6548\u671f\u95f4\u6700\u591a\u4fdd\u5b58 50 \u6761\u6301\u4ed3\uff0c\u73b0\u91d1\u548c\u89c2\u5bdf\u4e2d\u7684\u6301\u4ed3\u4e5f\u8ba1\u5165"
           ]
         },
         {
@@ -105,14 +110,15 @@ const expected = {
             "\u5c3e\u90e8\u98ce\u9669\uff08VaR / CVaR\uff09",
             "\u5386\u53f2\u60c5\u666f\u538b\u529b\u6d4b\u8bd5\uff1a\u4e94\u6b21\u5386\u53f2\u5e02\u573a\u51b2\u51fb",
             "\u98ce\u683c\u655e\u53e3",
-            "\u4e0e\u81ea\u5b9a\u53c2\u7167\u7684\u8ddf\u8e2a\u6bd4\u8f83\uff1a\u81ea\u5df1\u5b9a\u4e49\u53c2\u7167\u7ec4\u5408\uff0c\u8ba1\u7b97\u8ddf\u8e2a\u8bef\u5dee"
+            "\u4e0e\u81ea\u5b9a\u53c2\u7167\u7684\u8ddf\u8e2a\u6bd4\u8f83\uff1a\u81ea\u5df1\u5b9a\u4e49\u53c2\u7167\u7ec4\u5408\uff0c\u8ba1\u7b97\u8ddf\u8e2a\u8bef\u5dee",
+            "\u6da6\u7389\u6709\u6548\u671f\u95f4\u6700\u591a\u4fdd\u5b58 100 \u6761\u6301\u4ed3\uff0c\u73b0\u91d1\u548c\u89c2\u5bdf\u4e2d\u7684\u6301\u4ed3\u4e5f\u8ba1\u5165"
           ]
         }
       ],
       "footnote": "1 credit = 1 \u7f8e\u5143\u3002"
     },
     "jadeBody": "\u6da6\u7389\u2014\u2014\u6bcf\u6708 9.99 credits\u3002\u5305\u542b\u8fdb\u9636\u5957\u9910\u7684\u5168\u90e8\u529f\u80fd\u3002\u60a8\u53ef\u9009\u62e9\u6bcf\u5468\u3001\u9694\u65e5\uff08\u5468\u4e00\u3001\u5468\u4e09\u3001\u5468\u4e94\uff09\u6216\u6bcf\u65e5\u7b80\u62a5\uff0c\u5e76\u968f\u65f6\u5728\u6da6\u7389\u5e73\u53f0\u8c03\u6574\u3002\u6da6\u7389\u5305\u542b\u4e94\u9879\u6295\u8d44\u7ec4\u5408\u98ce\u9669\u5de5\u5177\uff1a\u6301\u4ed3\u56de\u653e\u3001\u5c3e\u90e8\u98ce\u9669\uff08VaR / CVaR\uff09\u3001\u5386\u53f2\u60c5\u666f\u538b\u529b\u6d4b\u8bd5\u3001\u98ce\u683c\u655e\u53e3\u3001\u4e0e\u81ea\u5b9a\u53c2\u7167\u7684\u8ddf\u8e2a\u6bd4\u8f83\u3002",
-    "lastUpdated": "\u6700\u540e\u66f4\u65b0\uff1a2026-10-11",
+    "lastUpdated": "\u6700\u540e\u66f4\u65b0\uff1a2026-10-13",
     "description": "\u6bcf\u5468\u3001\u9694\u65e5\uff08\u5468\u4e00\u3001\u5468\u4e09\u3001\u5468\u4e94\uff09\u6216\u5de5\u4f5c\u65e5\u6bcf\u65e5\u7b80\u62a5\uff0c\u4ee5\u53ca\u6da6\u7389\u7ec4\u5408\u98ce\u9669\u5de5\u5177\uff0c\u4ee5 US$10 \u8d77\u7684\u9884\u4ed8\u670d\u52a1\u70b9\u6570\u652f\u4ed8\u3002\u8d2d\u4e70\u540e 120 \u5929\u5185\uff0c\u672a\u4f7f\u7528\u7684\u5df2\u8d2d\u70b9\u6570\u53ef\u7533\u8bf7\u9000\u6b3e\u3002"
   },
   "zh-Hant": {
@@ -131,7 +137,8 @@ const expected = {
             "\u900f\u904e CSV\u3001Excel \u6216 Markdown \u4e0a\u50b3\u6301\u5009\uff0c\u53ef\u9010\u5217\u7de8\u8f2f",
             "\u6295\u8cc7\u7d44\u5408\u6982\u89bd\uff1a\u8cc7\u7522\u914d\u7f6e\u3001\u76f8\u5c0d\u57fa\u6e96\u7684\u8868\u73fe\u3001\u6ce2\u52d5\u8207\u98a8\u96aa\u6aa2\u8996",
             "\u7db2\u9801\u6aa2\u8996\u6b77\u53f2\u5831\u544a\uff0c\u53ef\u4e0b\u8f09 Markdown \u6216 PDF",
-            "AI \u667a\u80fd\u9ad4\u53ef\u8b80\u53d6\u60a8\u7684\u6b77\u53f2\u5831\u544a"
+            "AI \u667a\u80fd\u9ad4\u53ef\u8b80\u53d6\u60a8\u7684\u6b77\u53f2\u5831\u544a",
+            "\u6700\u591a\u5132\u5b58 30 \u7b46\u6301\u5009\uff0c\u73fe\u91d1\u8207\u89c0\u5bdf\u4e2d\u7684\u6301\u5009\u4e5f\u8a08\u5165"
           ]
         },
         {
@@ -143,7 +150,8 @@ const expected = {
           "features": [
             "\u6bcf\u500b\u5de5\u4f5c\u65e5\uff08\u9031\u4e00\u81f3\u9031\u4e94\uff09\u4e00\u5c01\u7c21\u5831",
             "AI \u667a\u80fd\u9ad4\u53ef\u8b80\u53d6\u60a8\u7684\u9010\u65e5\u6301\u5009\u5feb\u7167",
-            "AI \u667a\u80fd\u9ad4\u53ef\u8b80\u53d6\u8207\u60a8\u6301\u5009\u76f8\u95dc\u7684\u60c5\u5831"
+            "AI \u667a\u80fd\u9ad4\u53ef\u8b80\u53d6\u8207\u60a8\u6301\u5009\u76f8\u95dc\u7684\u60c5\u5831",
+            "\u9032\u968e\u6709\u6548\u671f\u9593\u6700\u591a\u5132\u5b58 50 \u7b46\u6301\u5009\uff0c\u73fe\u91d1\u8207\u89c0\u5bdf\u4e2d\u7684\u6301\u5009\u4e5f\u8a08\u5165"
           ]
         },
         {
@@ -158,14 +166,15 @@ const expected = {
             "\u5c3e\u90e8\u98a8\u96aa\uff08VaR / CVaR\uff09",
             "\u6b77\u53f2\u60c5\u5883\u58d3\u529b\u6e2c\u8a66\uff1a\u4e94\u6b21\u6b77\u53f2\u5e02\u5834\u885d\u64ca",
             "\u98a8\u683c\u66dd\u96aa",
-            "\u8207\u81ea\u8a02\u53c3\u7167\u7684\u8ffd\u8e64\u6bd4\u8f03\uff1a\u81ea\u884c\u5b9a\u7fa9\u53c3\u7167\u7d44\u5408\uff0c\u8a08\u7b97\u8ffd\u8e64\u8aa4\u5dee"
+            "\u8207\u81ea\u8a02\u53c3\u7167\u7684\u8ffd\u8e64\u6bd4\u8f03\uff1a\u81ea\u884c\u5b9a\u7fa9\u53c3\u7167\u7d44\u5408\uff0c\u8a08\u7b97\u8ffd\u8e64\u8aa4\u5dee",
+            "\u6f64\u7389\u6709\u6548\u671f\u9593\u6700\u591a\u5132\u5b58 100 \u7b46\u6301\u5009\uff0c\u73fe\u91d1\u8207\u89c0\u5bdf\u4e2d\u7684\u6301\u5009\u4e5f\u8a08\u5165"
           ]
         }
       ],
       "footnote": "1 credit = 1 \u7f8e\u5143\u3002"
     },
     "jadeBody": "\u6f64\u7389\u2014\u2014\u6bcf\u6708 9.99 credits\u3002\u6db5\u84cb\u9032\u968e\u65b9\u6848\u7684\u6240\u6709\u529f\u80fd\u3002\u60a8\u53ef\u9078\u64c7\u6bcf\u9031\u3001\u9694\u65e5\uff08\u9031\u4e00\u3001\u9031\u4e09\u3001\u9031\u4e94\uff09\u6216\u6bcf\u65e5\u7c21\u5831\uff0c\u4e26\u96a8\u6642\u81f3\u6f64\u7389\u5e73\u53f0\u8b8a\u66f4\u3002\u6f64\u7389\u5305\u542b\u4e94\u9805\u6295\u8cc7\u7d44\u5408\u98a8\u96aa\u5de5\u5177\uff1a\u6301\u5009\u56de\u653e\u3001\u5c3e\u90e8\u98a8\u96aa\uff08VaR / CVaR\uff09\u3001\u6b77\u53f2\u60c5\u5883\u58d3\u529b\u6e2c\u8a66\u3001\u98a8\u683c\u66dd\u96aa\u3001\u8207\u81ea\u8a02\u53c3\u7167\u7684\u8ffd\u8e64\u6bd4\u8f03\u3002",
-    "lastUpdated": "\u6700\u5f8c\u66f4\u65b0\uff1a2026-10-11",
+    "lastUpdated": "\u6700\u5f8c\u66f4\u65b0\uff1a2026-10-13",
     "description": "\u6bcf\u9031\u3001\u9694\u65e5\uff08\u9031\u4e00\u3001\u9031\u4e09\u3001\u9031\u4e94\uff09\u6216\u5de5\u4f5c\u65e5\u6bcf\u65e5\u7c21\u5831\uff0c\u4ee5\u53ca\u6f64\u7389\u7d44\u5408\u98a8\u96aa\u5de5\u5177\uff0c\u4ee5 US$10 \u8d77\u7684\u9810\u4ed8\u670d\u52d9\u9ede\u6578\u652f\u4ed8\u3002\u8cfc\u8cb7\u5f8c 120 \u5929\u5167\uff0c\u672a\u4f7f\u7528\u7684\u5df2\u8cfc\u9ede\u6578\u53ef\u7533\u8acb\u9000\u6b3e\u3002"
   }
 } as const;
@@ -199,7 +208,7 @@ it("A2 English cards preserve order, exact prices, leads and feature counts", ()
   cards.forEach((card, i) => {
     const plan = catalogs.en.pricingPlans.plans[i];
     expect(within(card).getAllByRole("listitem").map(li => li.textContent)).toEqual(plan.features);
-    expect(within(card).getAllByRole("listitem")).toHaveLength([5, 3, 6][i]);
+    expect(within(card).getAllByRole("listitem")).toHaveLength([6, 4, 7][i]);
     expect(Array.from(card.querySelectorAll("p")).map(p => p.textContent)).toEqual([...plan.prices, ...(plan.lead ? [plan.lead] : [])]);
   });
   expect(catalogs.en.pricingPlans).toEqual(expected.en.pricingPlans);

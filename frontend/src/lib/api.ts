@@ -145,6 +145,11 @@ export class ApiError extends Error {
   }
 }
 
+export function holdingWriteError(err: unknown, failed: string, cap: string): string {
+  if (err instanceof ApiError && err.message === "holding_cap") return cap;
+  return `${failed}: ${err instanceof ApiError ? err.message : String(err)}`;
+}
+
 async function readError(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as { detail?: unknown };
@@ -900,10 +905,13 @@ export async function listReports(query: Record<string, string>): Promise<Report
   return res.json() as Promise<ReportListPage>;
 }
 
+export type ApiTokenPermission = "read_only" | "holdings_write";
+
 export interface ApiToken {
   id: string;
   name: string;
   prefix: string;
+  permission: ApiTokenPermission;
   created_at: string;
   expires_at: string | null;
   last_used_at: string | null;
@@ -915,6 +923,7 @@ export interface CreatedApiToken {
   id: string;
   name: string;
   prefix: string;
+  permission: ApiTokenPermission;
   created_at: string;
   expires_at: string | null;
 }
@@ -925,8 +934,16 @@ export async function listApiTokens(): Promise<ApiToken[]> {
   return response.json() as Promise<ApiToken[]>;
 }
 
-export async function createApiToken(name: string, expires_on: string | null): Promise<CreatedApiToken> {
-  const response = await fetch("/api/me/api-tokens", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, expires_on }) });
+export async function createApiToken(
+  name: string,
+  expires_on: string | null,
+  permission: ApiTokenPermission,
+): Promise<CreatedApiToken> {
+  const response = await fetch("/api/me/api-tokens", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, expires_on, permission }),
+  });
   if (!response.ok) await throwOnHttpError(response);
   return response.json() as Promise<CreatedApiToken>;
 }

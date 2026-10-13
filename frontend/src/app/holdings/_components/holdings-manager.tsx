@@ -9,6 +9,7 @@ import { useLocale } from "@/app/_components/locale-provider";
 import {
   ApiError,
   confirmHoldings,
+  holdingWriteError,
   downloadHoldingsTemplate,
   exportHoldings,
   uploadHoldings,
@@ -127,9 +128,7 @@ export function HoldingsManager({
       setPreview(null);
     } catch (err) {
       if (isNextRedirectError(err)) throw err;
-      setError(
-        `${t("errorSaveFailed")}: ${err instanceof ApiError ? err.message : String(err)}`,
-      );
+      setError(holdingWriteError(err, t("errorSaveFailed"), t("errorHoldingCap")));
     } finally {
       setSaving(false);
       setIssuesConfirmOpen(false);

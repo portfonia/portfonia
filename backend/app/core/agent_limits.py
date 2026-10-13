@@ -41,7 +41,17 @@ def _refuse(seconds: int) -> None:
     raise HTTPException(429, RATE_LIMIT_DETAIL, headers={"Retry-After": str(max(1, seconds))})
 
 
-def enforce_agent_limits(user_id: str, endpoint: str, now: datetime) -> None:
+# Future single-row holdings writes. Whole-book GET/PUT and validate stay on
+# the older burst and per-endpoint hour counters.
+_SINGLE_ROW_WRITES = {
+    ("POST", "/agent/v1/holdings"),
+    ("PUT", "/agent/v1/holdings/{holding_id}"),
+    ("PATCH", "/agent/v1/holdings/{holding_id}"),
+    ("DELETE", "/agent/v1/holdings/{holding_id}"),
+}
+
+
+def enforce_agent_limits(user_id: str, method: str, route: str, now: datetime) -> None:
     store = get_backend()
     try:
         quiet = quiet_retry_after(now)
@@ -50,10 +60,18 @@ def enforce_agent_limits(user_id: str, endpoint: str, now: datetime) -> None:
         locked = store.ttl(f"agent:lock:{user_id}")
         if locked > 0:
             _refuse(locked)
+        if (method, route) in _SINGLE_ROW_WRITES:
+            if store.incr_with_ttl(f"agent:single:minute:{user_id}", 60) > 30:
+                store.set_ttl(f"agent:lock:{user_id}", 900)
+                _refuse(900)
+            hour = f"agent:single:hour:{user_id}"
+            if store.incr_with_ttl(hour, 3600) > 100:
+                _refuse(store.ttl(hour))
+            return
         if store.incr_with_ttl(f"agent:burst:{user_id}", 60) > 10:
             store.set_ttl(f"agent:lock:{user_id}", 900)
             _refuse(900)
-        hour = f"agent:hour:{endpoint}:{user_id}"
+        hour = f"agent:hour:{route}:{user_id}"
         if store.incr_with_ttl(hour, 3600) > 20:
             _refuse(store.ttl(hour))
     except RateLimitUnavailable:

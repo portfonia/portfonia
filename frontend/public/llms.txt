@@ -9,7 +9,9 @@
 
 ## Planned holdings management (not available yet)
 
-- [Strict future holdings contract](https://portfonia.com/agent.md#planned-holdings-management-strict-contract-not-available-yet): Complete submissions must account for every existing ID and explicitly list deletions; empty submissions and deleting the last holding are rejected. Read the version, retry, permission, quota and source-download rules before building a future pipeline. Current Agent endpoints remain read-only; this is not an availability announcement.
+Web and file saves limit stored rows to 30 on Briefing, 50 while Advanced is active, and 100 while Jade is active. Cash and watched rows count. A new API token is read-only unless holdings write is chosen at creation, and that choice cannot be changed later. Holdings routes, their schema and OpenAPI are not available. Current Agent endpoints remain read-only.
+
+- [Strict future holdings contract](https://portfonia.com/agent.md#planned-holdings-management-strict-contract-not-available-yet): Complete submissions must account for every existing ID and explicitly list deletions; empty submissions and deleting the last holding are rejected. Read the version, retry, permission, quota and source-download rules before building a future pipeline. Token permission, web and file row caps, and the single-row rate-limit profile are already in effect. They do not make the holdings routes available.
 
 ## Guides
 

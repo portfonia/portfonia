@@ -197,15 +197,21 @@ The holdings contract must enforce these rules:
 - Creation requires an idempotency key. Successful results are retained for
   24 hours; matching retries return the original result, changed content under
   the same key is a conflict. Preserve the key and original request on retries.
-- Write permission and an active Advanced/Jade entitlement are required.
-  Existing tokens remain read-only; new tokens will default to read-only.
-- Planned single-row writes share 30 requests/minute and 100/hour across
-  POST/PUT/PATCH/DELETE and all tokens. Request 31/minute triggers a 15-minute
-  account lock. Other calls retain their limits and scheduled quiet windows.
-- Planned caps are Basic 30, Advanced 50 and Jade 100 stored rows, including
-  cash/watch-only rows, across web/import/API writers. Existing over-limit rows
-  are not automatically deleted; reads/edits/reductions remain allowed, but
-  additions are blocked until compliant. No active Advanced/Jade means Basic.
+- Holdings calls require holdings-write permission and an active Advanced or
+  Jade subscription. Permission is chosen when the token is created and cannot
+  be changed; create a new token and revoke the old one. New tokens default to
+  read-only. A holdings-write token can be created now. Holdings routes and
+  their schema are not available yet.
+- When single-row holdings writes are available, POST `/agent/v1/holdings` and
+  PUT, PATCH and DELETE `/agent/v1/holdings/{holding_id}` share 30 requests per
+  minute and 100 per hour across the account's tokens. Request 31 in one minute
+  locks all token access for 15 minutes. Those calls do not use the older
+  10-per-minute or 20-per-endpoint-hour limits. The routes are not available yet.
+- Web and file saves enforce 30 rows on Briefing, 50 while Advanced is active,
+  and 100 while Jade is active. Cash and watched rows count. Weekly, Mon/Wed/Fri
+  and inactive subscriptions use 30. Rows already over the limit stay. Reads,
+  edits and reductions remain allowed. Additions are refused until the book is
+  within the cap. Agent holdings routes are not available yet.
 
 For a complete submission with existing rows A/B/C, retaining A/B and explicitly
 deleting C is valid; retaining only A and deleting C rejects because B is
@@ -238,6 +244,10 @@ Limits apply per account across all of its tokens, only to agent endpoints:
 - 20 requests per endpoint per hour (fixed window).
 - More than 10 requests across endpoints within one minute locks token
   access for 15 minutes.
+- When single-row holdings writes are available, those calls use a separate
+  shared limit of 30 per minute and 100 per hour instead of the two limits
+  above. Request 31 in one minute locks all token access for 15 minutes.
+  The holdings routes are not available yet.
 - Requests pause from five minutes before a heavy scheduled job's scheduled
   time until five minutes after it finishes. Heavy jobs include intelligence
   collection and scheduled briefings. Retries keep access paused. A schedule
@@ -257,8 +267,10 @@ attempt to bypass account limits by switching tokens.
 | 503 | Rate-limit protection is unavailable; access fails closed (`temporarily unavailable`). |
 
 At most five active tokens are allowed. A token unused for 60 days expires
-automatically; optional chosen expiry dates end at 23:59:59 ET. Tokens are
-shown only once when created. Keep them secret and revoke any token at the
+automatically; optional chosen expiry dates end at 23:59:59 ET. Each new token
+is read-only unless holdings write is chosen at creation. That choice is fixed.
+Holdings routes are not available yet. Tokens are shown only once when created.
+Keep them secret and revoke any token at the
 [AI Agent page](https://portfonia.com/agent).
 
 Requests are audited with time, user/token identifiers, endpoint, requested

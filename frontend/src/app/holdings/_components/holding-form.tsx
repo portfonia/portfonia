@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 
 import {
-  ApiError,
   createHolding,
+  holdingWriteError,
   updateHolding,
   WATCH_TIERS,
   type HoldingOut,
@@ -253,11 +253,11 @@ export function HoldingForm({
       router.push("/holdings/edit");
     } catch (err) {
       if (isNextRedirectError(err)) throw err;
-      setError(
-        `${initial ? t("errorUpdateFailed") : t("errorCreateFailed")}: ${
-          err instanceof ApiError ? err.message : String(err)
-        }`,
-      );
+      setError(holdingWriteError(
+        err,
+        initial ? t("errorUpdateFailed") : t("errorCreateFailed"),
+        t("errorHoldingCap"),
+      ));
     } finally {
       setSaving(false);
     }
@@ -275,6 +275,7 @@ export function HoldingForm({
         <p className="mt-1 text-sm text-muted-foreground">
           {initial ? t("editPageSubtitleForm") : t("newPageSubtitle")}
         </p>
+        <p className="mt-1 text-sm text-muted-foreground">{t("capNote")}</p>
       </header>
       {error && (
         <div className="mb-6 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">

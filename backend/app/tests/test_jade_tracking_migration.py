@@ -11,7 +11,7 @@ from app.core.config import get_settings
 
 def test_b2_migration(alembic_cfg: Config) -> None:
     script = ScriptDirectory.from_config(alembic_cfg)
-    assert script.get_heads() == ["d72900000001"]
+    assert script.get_heads() == ["d75300000001"]
     command.upgrade(alembic_cfg, "head")
     engine = create_engine(get_settings().database_url)
     try:

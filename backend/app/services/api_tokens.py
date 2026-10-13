@@ -37,7 +37,11 @@ def lookup_token(session: Session, plaintext: str) -> ApiToken | None:
 
 
 def new_token(
-    session: Session, user_id: UUID, name: str, expires_at: datetime | None
+    session: Session,
+    user_id: UUID,
+    name: str,
+    expires_at: datetime | None,
+    permission: str = "read_only",
 ) -> tuple[ApiToken, str]:
     plaintext = "pfa_" + secrets.token_urlsafe(32)
     row = ApiToken(
@@ -47,6 +51,7 @@ def new_token(
         token_prefix=plaintext[:12],
         created_at=now_et(),
         expires_at=expires_at,
+        permission=permission,
     )
     session.add(row)
     session.flush()

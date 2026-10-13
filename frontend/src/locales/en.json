@@ -80,6 +80,8 @@
   "holdings": {
     "pageTitle": "Holdings",
     "pageSubtitle": "Upload a file to import your holdings. Review, then save.",
+    "capNote": "Saved rows are limited by plan: 30 on Briefing, 50 while Advanced is active, and 100 while Jade is active. Cash and watched rows count. Rows already over the limit stay; delete or replace down to the limit before adding more.",
+    "errorHoldingCap": "This save would exceed your plan's holdings limit. Delete rows or replace the book with fewer rows, then try again. Existing rows were kept.",
     "viewPortfolioLink": "View portfolio overview",
     "currentHeading": "Current holdings",
     "emptyState": "No holdings yet. Upload a file to get started.",
@@ -1203,7 +1205,7 @@
     "deliveryVerified": "Reports will be sent to {deliveryEmail}.",
     "deliveryUnverified": "Reports will not be sent until {deliveryEmail} is verified.",
     "errorLoadFailed": "Could not load your account.",
-    "subscriptionPlans": "Portfonia sends scheduled briefings to subscribers. There are four plans: Weekly (0.99 credits per month), Mon/Wed/Fri (1.99 credits per month), the Advanced Daily plan (2.49 credits per month, weekdays, with AI Agent data access), and Jade (9.99 credits per month, portfolio risk tools, everything in Advanced, and a briefing schedule you choose). Subscribe to Jade on the Jade page.",
+    "subscriptionPlans": "Portfonia sends scheduled briefings to subscribers. There are four plans: Weekly (0.99 credits per month), Mon/Wed/Fri (1.99 credits per month), the Advanced Daily plan (2.49 credits per month, weekdays, with AI Agent data access), and Jade (9.99 credits per month, portfolio risk tools, everything in Advanced, and a briefing schedule you choose). Saved holding rows, including cash and watched rows, are limited to 30, 50 while Advanced is active, and 100 while Jade is active. Subscribe to Jade on the Jade page.",
     "subscriptionRequirements": "Until you subscribe, scheduled briefings are not sent and some features may be unavailable. You need a verified email address before you can subscribe.",
     "choosePlan": "Choose a plan"
   },
@@ -1239,7 +1241,7 @@
     "resellerNotice": "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.",
     "terms": {
       "title": "Terms of Service",
-      "lastUpdated": "Last updated: 2026-10-08",
+      "lastUpdated": "Last updated: 2026-10-13",
       "intro": "These Terms of Service govern your use of Portfonia. Please read them together with our Privacy Policy and Refund Policy.",
       "sections": [
         {
@@ -1287,7 +1289,7 @@
           "heading": "6. Acceptable Use",
           "body": [
             "You agree not to misuse the Service — including attempting to access another user's data, interfering with the Service's operation, or using the Service to build a competing product from its outputs.",
-            "API tokens let software you choose read your data. Keep them secret; you are responsible for any agent you give a token to. Portfonia applies the rate limits described on the AI Agent page and may revoke tokens to protect your account or the service."
+            "API tokens let software you choose read your data. New tokens are read-only unless you choose holdings write. Holdings routes are not available yet. Keep tokens secret; you are responsible for any agent you give a token to. Portfonia applies the rate limits described on the AI Agent page and may revoke tokens to protect your account or the service."
           ]
         },
         {
@@ -1337,7 +1339,7 @@
     },
     "privacy": {
       "title": "Privacy Policy",
-      "lastUpdated": "Last updated: 2026-10-08",
+      "lastUpdated": "Last updated: 2026-10-13",
       "intro": "Your privacy matters to us. This policy explains what we collect, why, and how it's protected.",
       "sections": [
         {
@@ -1387,7 +1389,7 @@
         {
           "heading": "7. AI Agent access",
           "body": [
-            "If you create an API token, we store a one-way hash of it together with its name and its creation, expiry and last-use times. Each request made with a token is logged with the time, the token used, the endpoint and dates requested, the result, and the IP address and User-Agent of the caller. We keep these logs for 90 days to protect your account and to detect misuse. When your holding snapshots are read through the API, we email you a notice at most once a day, with a link that revokes all your tokens. Data returned through the API is delivered to the agent you chose; how that agent stores or uses it is under your control."
+            "If you create an API token, we store a one-way hash of it together with its name, its permission (read-only or holdings-write), and its creation, expiry and last-use times. Each request made with a token is logged with the time, the token used, the endpoint and dates requested, the result, and the IP address and User-Agent of the caller. We keep these logs for 90 days to protect your account and to detect misuse. When your holding snapshots are read through the API, we email you a notice at most once a day, with a link that revokes all your tokens. Data returned through the API is delivered to the agent you chose; how that agent stores or uses it is under your control."
           ]
         },
         {
@@ -1430,7 +1432,7 @@
     },
     "pricing": {
       "title": "Pricing",
-      "lastUpdated": "Last updated: 2026-10-11",
+      "lastUpdated": "Last updated: 2026-10-13",
       "intro": "Portfonia is a software tool. You choose a briefing plan and pay for it with prepaid service credits.",
       "sections": [
         {
@@ -1440,7 +1442,7 @@
             "Mon / Wed / Fri briefing — 1.99 credits per month. Three personalized briefing emails per week (Monday, Wednesday, Friday).",
             "Daily briefing (Advanced) — 2.49 credits per month. One personalized briefing email every weekday (Monday to Friday), including market holidays.",
             "Jade — 9.99 credits per month. Includes everything in the Advanced plan. You choose the Weekly, Mon / Wed / Fri, or Daily briefing schedule and can change it at any time on the Jade page. Jade includes five portfolio risk tools: holdings replay, tail risk (VaR / CVaR), historical stress scenarios, style exposure, and tracking against your reference.",
-            "Weekly and Mon / Wed / Fri differ only in how often briefings are sent. Daily is the Advanced plan. Daily and Jade both let your AI agent read your daily holding snapshots and holding-related intelligence. Report history is available to AI agents on every plan."
+            "Weekly and Mon / Wed / Fri differ only in how often briefings are sent. Daily is the Advanced plan. Daily and Jade both let your AI agent read your daily holding snapshots and holding-related intelligence. Report history is available to AI agents on every plan. Saved holding rows, including cash and watched rows, are limited to 30 on Weekly and Mon / Wed / Fri, 50 while Advanced is active, and 100 while Jade is active."
           ]
         },
         {
@@ -1563,15 +1565,21 @@
   },
   "agent": {
     "title": "AI Agent",
-    "intro": "Your own AI agent can read your Portfonia reports, complete daily holding snapshots and intelligence through a personal API token. Access is read-only.",
+    "intro": "Your own AI agent can read your Portfonia reports, complete daily holding snapshots and intelligence through a personal API token. Current endpoints are read-only. A new token is read-only unless you choose holdings write. Holdings routes are not available yet.",
     "limitsTitle": "Access limits and notices",
-    "limits": "Limits are shared across all of your tokens: 20 requests per endpoint per hour. More than 10 requests within one minute locks token access for 15 minutes. A refused request returns a Retry-After value telling your agent when to try again.",
+    "limits": "Limits are shared across all of your tokens: 20 requests per endpoint per hour. More than 10 requests within one minute locks token access for 15 minutes. A refused request returns a Retry-After value telling your agent when to try again. When single-row holdings writes are available, those calls share a separate limit of 30 per minute and 100 per hour. Request 31 in one minute locks all token access for 15 minutes.",
     "quiet": "Requests pause from five minutes before a heavy scheduled job’s scheduled time until five minutes after it finishes, including intelligence collection and scheduled briefings.",
     "notice": "When your holding snapshots are read through the API, we email you a notice at most once per Eastern Time day. If you did not request the access, its link immediately revokes all of your API tokens without sign-in or confirmation.",
     "signIn": "Sign in",
     "signInNote": "to manage your API tokens.",
     "settingsTitle": "Token settings",
     "tokenRule": "You can have up to 5 active tokens. Tokens unused for 60 days expire automatically.",
+    "permissionLabel": "Permission",
+    "permissionNote": "The permission is fixed when the token is created. To change it, create a new token and revoke the old one. Holdings routes are not available yet. When they are, an active Advanced or Jade subscription is required.",
+    "permissions": {
+      "read_only": "Read-only",
+      "holdings_write": "Holdings write"
+    },
     "name": "Token name",
     "expiry": "Expiry date (optional)",
     "expiryNote": "Leave blank for no expiry date. Dates must be after today, Eastern Time; access expires at 23:59:59 ET on the chosen date.",
@@ -2039,7 +2047,8 @@
           "Holdings upload from CSV, Excel or Markdown, with row-level editing",
           "Portfolio overview: allocation, performance against benchmarks, volatility and risk views",
           "Report history on the web, with Markdown or PDF download",
-          "Your AI agent can read your report history"
+          "Your AI agent can read your report history",
+          "Up to 30 saved holding rows, including cash and watched rows"
         ]
       },
       {
@@ -2051,7 +2060,8 @@
         "features": [
           "A briefing every weekday, Monday to Friday",
           "Your AI agent can read your daily holding snapshots",
-          "Your AI agent can read intelligence related to your holdings"
+          "Your AI agent can read intelligence related to your holdings",
+          "Up to 50 saved holding rows while Advanced is active, including cash and watched rows"
         ]
       },
       {
@@ -2066,7 +2076,8 @@
           "Tail risk (VaR / CVaR)",
           "Historical stress scenarios: five past market shocks",
           "Style exposure",
-          "Tracking against your reference: a portfolio you define, with tracking error"
+          "Tracking against your reference: a portfolio you define, with tracking error",
+          "Up to 100 saved holding rows while Jade is active, including cash and watched rows"
         ]
       }
     ],

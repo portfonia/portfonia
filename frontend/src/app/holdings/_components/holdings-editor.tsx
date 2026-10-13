@@ -7,8 +7,8 @@ import { useTranslations } from "next-intl";
 import { ChevronDown, ChevronUp, GripVertical, Trash2 } from "lucide-react";
 
 import {
-  ApiError,
   deleteHolding,
+  holdingWriteError,
   reorderHoldings,
   updateHolding,
   WATCH_TIERS,
@@ -164,9 +164,7 @@ export function HoldingsEditor({
     } catch (err) {
       if (isNextRedirectError(err)) throw err;
       setHoldings(previous);
-      setError(
-        `${t("reorderFailed")}: ${err instanceof ApiError ? err.message : String(err)}`,
-      );
+      setError(holdingWriteError(err, t("reorderFailed"), t("errorHoldingCap")));
     } finally {
       setReordering(false);
     }
@@ -246,9 +244,7 @@ export function HoldingsEditor({
       setHoldings((prev) =>
         prev.map((h) => (h.id === id ? { ...h, [field]: previousValue } : h)),
       );
-      setError(
-        `${t("errorUpdateFailed")}: ${err instanceof ApiError ? err.message : String(err)}`,
-      );
+      setError(holdingWriteError(err, t("errorUpdateFailed"), t("errorHoldingCap")));
     } finally {
       setSavingCells((prev) => {
         const next = new Set(prev);
@@ -269,9 +265,7 @@ export function HoldingsEditor({
       setPendingDelete(null);
     } catch (err) {
       if (isNextRedirectError(err)) throw err;
-      setError(
-        `${t("errorDeleteFailed")}: ${err instanceof ApiError ? err.message : String(err)}`,
-      );
+      setError(holdingWriteError(err, t("errorDeleteFailed"), t("errorHoldingCap")));
     } finally {
       setDeletingId(null);
     }
@@ -321,6 +315,7 @@ export function HoldingsEditor({
           </Link>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">{t("editPageSubtitle")}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{t("capNote")}</p>
       </header>
 
       {onboardingIncomplete && (

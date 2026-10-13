@@ -1,7 +1,7 @@
 """Session-only personal API token settings."""
 
 from datetime import date, datetime, time
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -22,6 +22,7 @@ router = APIRouter(dependencies=[Depends(current_principal)])
 class TokenBody(BaseModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]
     expires_on: date | None = None
+    permission: Literal["read_only", "holdings_write"] = "read_only"
 
 
 class TokenOut(BaseModel):
@@ -32,6 +33,7 @@ class TokenOut(BaseModel):
     expires_at: datetime | None
     last_used_at: datetime | None
     status: str
+    permission: str
 
 
 class CreatedTokenOut(BaseModel):
@@ -41,6 +43,7 @@ class CreatedTokenOut(BaseModel):
     prefix: str
     created_at: datetime
     expires_at: datetime | None
+    permission: str
 
 
 @router.get("/api-tokens", response_model=list[TokenOut])
@@ -62,6 +65,7 @@ def list_tokens(
             expires_at=r.expires_at,
             last_used_at=r.last_used_at,
             status=token_status(r, now),
+            permission=r.permission,
         )
         for r in rows
     ]
@@ -86,7 +90,9 @@ def create_token(
     expires = (
         datetime.combine(body.expires_on, time(23, 59, 59), tzinfo=ET) if body.expires_on else None
     )
-    row, plaintext = new_token(session, principal.user_id, body.name, expires)
+    row, plaintext = new_token(
+        session, principal.user_id, body.name, expires, permission=body.permission
+    )
     session.commit()
     return CreatedTokenOut(
         token=plaintext,
@@ -95,6 +101,7 @@ def create_token(
         prefix=row.token_prefix,
         created_at=row.created_at,
         expires_at=row.expires_at,
+        permission=row.permission,
     )
 
 

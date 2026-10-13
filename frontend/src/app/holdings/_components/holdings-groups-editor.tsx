@@ -4,7 +4,7 @@ import { useId, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
-import { ApiError, updateHolding, type HoldingOut, type HoldingPatch } from "@/lib/api";
+import { holdingWriteError, updateHolding, type HoldingOut, type HoldingPatch } from "@/lib/api";
 import { isNextRedirectError } from "@/lib/next-redirect-error";
 import { Button } from "@/components/ui/button";
 import {
@@ -92,9 +92,7 @@ export function HoldingsGroupsEditor({
     } catch (err) {
       if (isNextRedirectError(err)) throw err;
       setHoldings((prev) => prev.map((h) => (h.id === id ? { ...h, [field]: previous } : h)));
-      setError(
-        `${t("errorUpdateFailed")}: ${err instanceof ApiError ? err.message : String(err)}`,
-      );
+      setError(holdingWriteError(err, t("errorUpdateFailed"), t("errorHoldingCap")));
     } finally {
       setSavingCells((prev) => {
         const next = new Set(prev);

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.models.upload_job import UploadJob
+from app.services import holdings_write
 from app.services.holdings_export import MANUAL_LISTED_PLACEHOLDER
 from app.tests.conftest import TEST_USER_ID, seed_user
 
@@ -537,8 +538,8 @@ def test_confirm_sparse_history_log_omits_ticker_list(
     it's always "sparse" — the log line must say how many, not which."""
     import logging as _logging
 
-    _logging.getLogger("app.routers.holdings").disabled = False
-    with caplog.at_level("INFO", logger="app.routers.holdings"):
+    _logging.getLogger("app.services.holdings_write").disabled = False
+    with caplog.at_level("INFO", logger="app.services.holdings_write"):
         resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_APPLE])
     assert resp.status_code == 200
     backfill_records = [r for r in caplog.records if "close bars" in r.getMessage()]
@@ -766,8 +767,8 @@ def test_confirm_fund_nav_log_omits_fund_code_list(
     """Concept §8.8: log how many funds, not which, plus user_id."""
     import logging as _logging
 
-    _logging.getLogger("app.routers.holdings").disabled = False
-    with caplog.at_level("INFO", logger="app.routers.holdings"):
+    _logging.getLogger("app.services.holdings_write").disabled = False
+    with caplog.at_level("INFO", logger="app.services.holdings_write"):
         resp = app_client.post("/holdings/confirm?mode=replace", json=[_PARSED_FUND])
     assert resp.status_code == 200
     nav_records = [r for r in caplog.records if "fund NAV" in r.getMessage()]
@@ -1508,14 +1509,15 @@ def test_patch_holding_locks_the_row_before_reading_it(app_client: TestClient) -
     the call carried `for_update=True` — mirrors the existing
     test_reorder_locks_before_assigning_position lock-call assertion
     pattern rather than simulating true concurrency."""
-    from app.routers import holdings as holdings_router
-
     created = app_client.post("/holdings", json=_PARSED_APPLE).json()
-    with patch("app.routers.holdings._own_holding", wraps=holdings_router._own_holding) as mock_own:
+    with patch(
+        "app.services.holdings_write.lock_user_book",
+        wraps=holdings_write.lock_user_book,
+    ) as mock_lock:
         resp = app_client.patch(f"/holdings/{created['id']}", json={"notes": "x"})
     assert resp.status_code == 200
     assert resp.json()["notes"] == "x"
-    mock_own.assert_called_once_with(ANY, TEST_USER_ID, uuid.UUID(created["id"]), for_update=True)
+    mock_lock.assert_called_once_with(ANY, TEST_USER_ID)
 
 
 def test_patch_ticker_clears_stale_price(app_client: TestClient, db_session: Session) -> None:
@@ -1792,7 +1794,9 @@ def test_patch_notes_only_still_clears_stale_price_when_write_defaults_rewrites_
 def test_reorder_locks_before_assigning_position(app_client: TestClient) -> None:
     a = app_client.post("/holdings", json=_PARSED_APPLE).json()
     b = app_client.post("/holdings", json=_PARSED_CASH).json()
-    with patch("app.routers.holdings._lock_user_holdings") as mock_lock:
+    with patch(
+        "app.services.holdings_write.lock_user_book", wraps=holdings_write.lock_user_book
+    ) as mock_lock:
         resp = app_client.patch("/holdings/reorder", json={"ids": [b["id"], a["id"]]})
     assert resp.status_code == 200
     mock_lock.assert_called()
@@ -1898,7 +1902,7 @@ def test_confirm_replace_persistence_failure_rolls_back_and_does_not_enqueue(
     created = app_client.post("/holdings", json=_PARSED_APPLE).json()
     with (
         patch(
-            "app.routers.holdings._insert_from_rows",
+            "app.services.holdings_write.insert_from_rows",
             side_effect=RuntimeError("persist failed"),
         ),
         patch("app.tasks.capture_tasks.backfill_ohlcv_task") as mock_ohlcv,

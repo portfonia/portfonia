@@ -15,6 +15,7 @@ export function HoldingsHeading() {
         </Link>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">{t("pageSubtitle")}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{t("capNote")}</p>
     </header>
   );
 }

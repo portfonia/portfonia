@@ -12,7 +12,7 @@ vi.mock("@/lib/api", () => ({ listApiTokens: mocks.list, createApiToken: mocks.c
 import { AgentBody } from "./agent-body";
 import { RevokeResult } from "./revoke/revoke-result";
 
-const stored = { id: "id-1", name: "My agent", prefix: "pfa_12345678", created_at: "2026-10-04T12:00:00-04:00", expires_at: null, last_used_at: null, status: "active" };
+const stored = { id: "id-1", name: "My agent", prefix: "pfa_12345678", permission: "read_only" as const, created_at: "2026-10-04T12:00:00-04:00", expires_at: null, last_used_at: null, status: "active" };
 function wrapper(children: React.ReactNode) {
   return <NextIntlClientProvider locale="en" messages={en}>{children}</NextIntlClientProvider>;
 }
@@ -36,9 +36,11 @@ it("acceptance_16 show once, copy and revoke update the list", async () => {
   const view = render(wrapper(<AgentBody />));
   await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(1));
   await user.type(screen.getByLabelText("Token name"), "My agent");
+  expect(screen.getByRole("radio", { name: "Read-only" })).toBeChecked();
   await user.click(screen.getByRole("button", { name: "Create token" }));
   expect(await screen.findByText("pfa_full_secret_shown_once")).toBeInTheDocument();
-  expect(mocks.create).toHaveBeenCalledWith("My agent", null);
+  expect(mocks.create).toHaveBeenCalledWith("My agent", null, "read_only");
+  expect(screen.getByRole("radio", { name: "Read-only" })).toBeChecked();
   await user.click(screen.getByRole("button", { name: "Copy token" }));
   expect(await navigator.clipboard.readText()).toBe("pfa_full_secret_shown_once");
   await user.click(screen.getByRole("button", { name: "Hide token" }));

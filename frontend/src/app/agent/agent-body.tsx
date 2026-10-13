@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useSession } from "@/hooks/use-session";
-import { listApiTokens, createApiToken, revokeApiToken, ApiError, type ApiToken } from "@/lib/api";
+import { listApiTokens, createApiToken, revokeApiToken, ApiError, type ApiToken, type ApiTokenPermission } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -64,7 +64,9 @@ function TokenSettings() {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [expires, setExpires] = useState("");
+  const [permission, setPermission] = useState<ApiTokenPermission>("read_only");
   const [shown, setShown] = useState<string | null>(null);
+  const [shownPermission, setShownPermission] = useState<ApiTokenPermission | null>(null);
   const [selected, setSelected] = useState<ApiToken | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,8 +83,8 @@ function TokenSettings() {
     if (pending) return;
     setPending(true); setError(null); setCopied(false); setShown(null);
     try {
-      const result = await createApiToken(name, expires || null);
-      setShown(result.token); setName(""); setExpires("");
+      const result = await createApiToken(name, expires || null, permission);
+      setShown(result.token); setShownPermission(result.permission); setName(""); setExpires(""); setPermission("read_only");
       setTokens(await listApiTokens());
     } catch (err) {
       setError(err instanceof ApiError && err.status === 409 ? t("tokenLimit") : t("error"));
@@ -94,7 +96,7 @@ function TokenSettings() {
     setPending(true); setError(null);
     try {
       await revokeApiToken(selected.id);
-      setSelected(null); setShown(null);
+      setSelected(null); setShown(null); setShownPermission(null);
       setTokens(await listApiTokens());
     } catch { setError(t("error")); }
     finally { setPending(false); }
@@ -114,18 +116,30 @@ function TokenSettings() {
       <label htmlFor="agent-token-expiry">{t("expiry")}</label>
       <Input id="agent-token-expiry" type="date" value={expires} onChange={event => setExpires(event.target.value)} />
       <p className="text-xs text-foreground/70">{t("expiryNote")}</p>
+      <fieldset className="flex flex-col gap-2">
+        <legend>{t("permissionLabel")}</legend>
+        {(["read_only", "holdings_write"] as const).map(value => (
+          <label key={value} className="flex items-center gap-2 text-sm">
+            <input type="radio" name="agent-token-permission" value={value} checked={permission === value} onChange={() => setPermission(value)} />
+            {t(`permissions.${value}`)}
+          </label>
+        ))}
+      </fieldset>
+      <p className="text-xs text-foreground/70">{t("permissionNote")}</p>
       <Button type="submit" disabled={pending || loading || !name.trim()}>{t("create")}</Button>
     </form>
     {error && <p role="alert" className="text-destructive">{error}</p>}
     {shown && <div className="rounded-lg border border-border p-4 flex flex-col gap-3">
       <p>{t("showOnce")}</p>
+      {shownPermission && <p>{t(`permissions.${shownPermission}`)}</p>}
       <code className="break-all select-all">{shown}</code>
-      <div className="flex gap-2"><Button onClick={() => void copy()}>{copied ? t("copied") : t("copy")}</Button><Button variant="outline" onClick={() => setShown(null)}>{t("hide")}</Button></div>
+      <div className="flex gap-2"><Button onClick={() => void copy()}>{copied ? t("copied") : t("copy")}</Button><Button variant="outline" onClick={() => { setShown(null); setShownPermission(null); }}>{t("hide")}</Button></div>
     </div>}
     {loading ? <p>{t("loading")}</p> : tokens.length === 0 ? <p>{t("empty")}</p> : <ul className="flex flex-col gap-3">
       {tokens.map(token => <li key={token.id} className="rounded-lg border border-border p-4 flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3"><span className="font-medium">{token.name}</span><Button variant="outline" disabled={pending} onClick={() => setSelected(token)}>{t("revoke")}</Button></div>
         <code>{token.prefix}</code>
+        <p>{t(`permissions.${token.permission}`)}</p>
         <p>{t(`statuses.${token.status}`)}</p>
         <dl className="text-sm text-foreground/70 grid grid-cols-2 gap-1">
           <dt>{t("created")}</dt><dd>{formatTime(token.created_at, t("never"))}</dd>

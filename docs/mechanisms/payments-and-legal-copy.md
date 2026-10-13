@@ -147,6 +147,7 @@ No open owner decisions remain for this copy.
 | Locale key | Change |
 |---|---|
 | `pricingPlans`, `legal.pricing.sections[0].body[3]`, `legal.pricing.lastUpdated`, `seo.pages.pricing.description` | #731: three-plan comparison summary, five shipped Jade risk tools, Pricing dated 2026-10-11 and updated SEO description |
+| `pricingPlans.plans[].features`, `legal.pricing.sections[0].body[4]`, `welcome.subscriptionPlans`, `legal.pricing.lastUpdated`, `legal.terms.lastUpdated`, `legal.privacy.lastUpdated` | #753: plan row caps 30/50/100 and token permission wording; Pricing, Terms and Privacy dated 2026-10-13 |
 | `profile.inviteHeading`, `profile.inviteBody`, `profile.referralThanks`, `profile.referralEmailRequired`, `profile.referralDailyLimit`, `profile.referralError` | #675: referral email form, thank-you dialog and submission errors; remove `invitePlaceholder` |
 | `profile.deleteAccountNegativeBalance` | #675: negative cash deletion refusal with info@portfonia.com |
 | `legal.terms.sections[3].body`, `legal.terms.lastUpdated` | #675: referral paragraph before reseller notice, dated 2026-10-05 in all three locales |
@@ -312,7 +313,7 @@ existing text for them verbatim.
      purchase is also subject to Paddle's Buyer Terms.
 5. **Your Holdings Data** *(unchanged; was §5)*
 6. **Acceptable Use** — existing paragraph unchanged, followed by:
-   "API tokens let software you choose read your data. Keep them secret; you are responsible for any agent you give a token to. Portfonia applies the rate limits described on the AI Agent page and may revoke tokens to protect your account or the service." (#651)
+   "API tokens let software you choose read your data. New tokens are read-only unless you choose holdings write. Holdings routes are not available yet. Keep tokens secret; you are responsible for any agent you give a token to. Portfonia applies the rate limits described on the AI Agent page and may revoke tokens to protect your account or the service." (#651, permission sentence #753)
 7. **Intellectual Property** — Portfonia and its original content,
    features, and functionality are owned by Portfonia. Reports generated
    for your account are yours to use personally; they are not licensed for
@@ -366,7 +367,7 @@ Removed: old §4 "Regional Restriction" (U.S. tax residents).
    and other personal data are removed. Credit and transaction records
    are kept, no longer linked to your email address, for accounting and
    tax purposes."
-7. **AI Agent access** (#651) — "If you create an API token, we store a one-way hash of it together with its name and its creation, expiry and last-use times. Each request made with a token is logged with the time, the token used, the endpoint and dates requested, the result, and the IP address and User-Agent of the caller. We keep these logs for 90 days to protect your account and to detect misuse. When your holding snapshots are read through the API, we email you a notice at most once a day, with a link that revokes all your tokens. Data returned through the API is delivered to the agent you chose; how that agent stores or uses it is under your control."
+7. **AI Agent access** (#651, permission clause #753) — "If you create an API token, we store a one-way hash of it together with its name, its permission (read-only or holdings-write), and its creation, expiry and last-use times. Each request made with a token is logged with the time, the token used, the endpoint and dates requested, the result, and the IP address and User-Agent of the caller. We keep these logs for 90 days to protect your account and to detect misuse. When your holding snapshots are read through the API, we email you a notice at most once a day, with a link that revokes all your tokens. Data returned through the API is delivered to the agent you chose; how that agent stores or uses it is under your control."
 8. **Your Rights** — "You can review and update your holdings and profile
    information directly in the Service. You can request deletion
    of your account by contacting us; deletion removes your holdings,
