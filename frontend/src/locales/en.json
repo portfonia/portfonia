@@ -1090,11 +1090,19 @@
       "analysisItems": [
         {
           "heading": "TSMC — 21.7% of the portfolio, the single largest position",
-          "body": "At 21.7%, TSMC is above the 20% single-holding high threshold for stocks. Its +7.64% move on 07-30 coincided with the semiconductor rebound after Microsoft’s results. [Probable] Its exposure spans the AI-capex theme and the rate path discussed in section 2. [Probable]"
+          "paragraphs": [
+            "TSMC is the largest position at 21.7%, above the 20% single-stock high-concentration threshold. Its +7.64% rise on 07-30 occurred after Microsoft's earnings release; the timing alone does not establish new orders or a TSMC-specific catalyst.",
+            "The company-specific background predates this window: on 07-16, TSMC attributed Q2 performance to demand for leading-edge processes, which accounted for 77% of wafer revenue at 7nm and below. [Established] The documented business channel is demand for those processes reaching TSMC through wafer production; Microsoft's cloud growth does not quantify its share of that demand. [Probable]",
+            "Expansion also has a cash and margin dimension. The earlier Q2 disclosures show operating cash generation alongside factory investment, while management's Q3 gross-margin guidance of 65-67% is below Q2's 67.7%, despite higher revenue guidance. [Established] More sales therefore do not establish a uniform improvement in production economics. [Probable] Next observables are the revenue mix, factory spending and gross margin in subsequent disclosures; the guidance is not an achieved result."
+          ]
         },
         {
           "heading": "Microsoft — 8.3% of the portfolio",
-          "body": "Microsoft was +15.51% on 07-30 after fiscal Q4 results, with revenue of $90.01B and Azure growth of +43%. [Established] That single session helps explain its 20-day annualized volatility of 60.2% and its +16.4% distance above the 50-day average. [Probable]"
+          "paragraphs": [
+            "Microsoft's 8.3% position rose +15.51% on 07-30 after its 07-29 fiscal Q4 release. Revenue was $90.01B; Azure and other cloud services grew 43% year on year. [Established] This is a documented operating development alongside the price move, rather than an explanation inferred from the price chart.",
+            "The business channel is cloud-service demand reaching Microsoft's revenue: Microsoft Cloud generated $59.3B, up 27% year on year. Commercial remaining performance obligations of $678B describe contracted revenue still to be recognized, not revenue already earned this quarter. [Established] Realized cloud revenue and the conversion of that contracted balance are distinct observables; the backlog alone does not settle the pace of future growth. [Probable]",
+            "Capacity expansion has a cash counterpart: quarterly cash additions to property and equipment were $35.8B, versus $17.1B a year earlier. [Established] This is not a measure of AI spending alone or of investment returns. The next disclosures can show cloud growth alongside infrastructure spending and cash generation; that comparison tests how demand and investment are developing together. [Probable] Microsoft's smaller weight than TSMC's gives the direct position a different portfolio scale, without implying independence between the two businesses."
+          ]
         }
       ]
     },

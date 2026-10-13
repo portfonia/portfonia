@@ -119,6 +119,20 @@ events, anchored to the 2026-07-31 briefing date. Its provenance, product formul
 and derivation scripts are recorded in [issue #741 Exploration](https://github.com/portfonia/portfonia/issues/741#issuecomment-6120455248).
 Use that documented method when regenerating its derived figures.
 
+Issue #750 keeps that portfolio, date, and numeric tables. Homepage §3 stays
+two holdings, TSMC then Microsoft, and shows the full authored analysis.
+Depth is not cut back to a price recap. The additional primary sources for
+that copy are the Microsoft FY26 Q4 release of 29 July 2026
+(https://www.microsoft.com/en-us/investor/earnings/fy-2026-q4/press-release-webcast),
+the TSMC Q2 release of 16 July 2026 (https://pr.tsmc.com/english/news/3326),
+and the TSMC 16 July 2026 earnings presentation filed as an SEC exhibit
+(https://www.sec.gov/Archives/edgar/data/1046179/000104617926000451/a2q26presentatione.htm).
+The 16 July TSMC disclosures are prior context. The 29 July Microsoft release
+is the window disclosure. The August-hosted TSMC transcript is not a source
+for this sample. Cash-flow additions to property and equipment are not
+lease-inclusive capital expenditure, and contracted remaining performance
+obligations are not revenue already recognized.
+
 ## Evidence and implementation tracking
 
 Use explicit states rather than an undifferentiated "done":

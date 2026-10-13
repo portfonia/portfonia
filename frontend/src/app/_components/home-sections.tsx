@@ -265,7 +265,9 @@ export function HomeSections() {
               {t.preview.analysisItems.map((item, i) => (
                 <div key={item.heading} className={i > 0 ? "mt-4 space-y-2" : "space-y-2"}>
                   <p className="text-sm font-medium text-foreground/85">{item.heading}</p>
-                  <p className="text-sm leading-relaxed text-foreground/70">{item.body}</p>
+                  {item.paragraphs.map((paragraph) => (
+                    <p key={paragraph} className="text-sm leading-relaxed text-foreground/70">{paragraph}</p>
+                  ))}
                 </div>
               ))}
             </div>
