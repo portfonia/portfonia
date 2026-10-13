@@ -281,9 +281,12 @@ The owner answered the original six questions on 2026-10-13:
 
 1. Reject an empty holdings array and direct the user to clear holdings in
    the UI. Deletions must be explicit in JSON; omission must never delete
-   an existing ID. The proposed envelope is `{version, holdings, delete_ids}`.
-   Whether omitted existing IDs cause rejection, how ordering works, and
-   whether single-row DELETE may remove the last row still need confirmation.
+   an existing ID. The confirmed envelope is `{version, holdings, delete_ids}`.
+   Every old ID must appear exactly once in retained holdings or deletions;
+   missing/overlapping IDs reject the entire transaction. Array order applies
+   to retained/new rows. Single-row DELETE rejects deletion of the last row,
+   with the same instruction to clear holdings in the UI. Serialize that check
+   to prevent concurrent deletions from clearing the book.
 2. Default new tokens to read-only; keep permissions immutable; allow all
    signed-in users to create either permission, while checking subscription
    entitlement on each holdings call.
@@ -309,13 +312,10 @@ The owner answered the original six questions on 2026-10-13:
    hourly 429/Retry-After. Other calls keep their existing limits, and the
    account-wide lock and heavy-task quiet windows still apply.
 
-R2 (editable fields), R3 (single-row minute/hour counters) and R4 (holding caps
-and transitions) are owner-confirmed. Only R1 (explicit-delete envelope,
-omission/order and last-row deletion) remains a product question.
-The author recommends rejecting omitted IDs in complete submissions: given
+R1/R2/R3/R4 are all owner-confirmed. Reject omitted IDs in complete submissions: given
 existing rows A/B/C, submit A/B plus `delete_ids: [C]` to retain/update A/B
 and delete C. Submitting A plus `delete_ids: [C]` leaves B unexplained and
-should reject the whole request without writing. Use single-row PATCH to
+must reject the whole request without writing. Use single-row PATCH to
 edit A alone. These symbolic IDs illustrate intent, not runnable UUID payloads.
 
 Basic 30, Advanced 50 and Jade 100 holding rows are confirmed next-scope
@@ -369,6 +369,40 @@ decimal precision, stable IDs, ordering, complete/partial replacement, empty
 collection semantics, validation, conflict rereads, idempotent retries and
 errors. Include stock, fund, cash, manual valuation and watch-only examples.
 Do not advertise unimplemented routes in current public documentation.
+Public agent.md and llms.txt may carry an explicitly unavailable future-contract
+section; they must retain current endpoint availability and prevent readers
+from calling planned routes as though they were implemented. At implementation,
+the human guide and Agent schema must repeat the strict deletion, completeness,
+last-row, version, idempotency, permission and quota rules. Declare `minItems: 1`
+in the schema and document cross-row/database checks and their errors; schema
+alone does not enforce them.
+
+### User-built synchronization pipelines and unselected proposals
+
+The owner's goal is institution downloads processed by a user's own agent
+on the user's schedule. Portfonia provides the personal API, not institution
+login/download automation or integrations specific to an agent product.
+Document stable source/account/row-to-holding-ID mapping, retaining other
+institutions' rows and user-maintained fields absent from the source (watch
+tiers, notes and grouping labels), checking source completeness/freshness, and validating
+then reconciling writes. A platform version cannot detect an old broker file.
+After an ambiguous bulk-write timeout, reread/reconcile rather than blindly
+changing the version and retrying; creation idempotency does not cover PUT.
+
+Optional, unselected proposals are recorded in the product note: temporary
+valuation and complete-submission idempotency, and source-reference/freshness
+metadata if client-side mapping/checks prove insufficient. Do not make these
+first-release requirements without the owner's selection. Ambiguous row mapping
+must stop the affected update rather than guess a holding ID.
+
+A proposed `POST /agent/v1/holdings/value-preview` would price candidate rows
+using stored closes/FX and supplied manual values without saving, capturing or
+calling an LLM. The existing calculator excludes rows with missing prices/FX
+from its total, so a preview must expose per-row coverage, dates and missing
+reasons, a priced subtotal and a null complete total when incomplete. The
+author proposes Advanced/Jade access, read-only-token support, plan-sized input,
+a separate 10/user/hour quota with existing quiet windows/account locks and
+metadata-only audit. Neither the endpoint nor its policy is owner-approved.
 
 Acceptance must prove old/read-only tokens cannot write, subscription expiry
 removes holdings access, IDs/watch tiers survive read-edit-submit, invalid
