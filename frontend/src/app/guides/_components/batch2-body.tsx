@@ -2,13 +2,66 @@
 
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipContentProps } from "recharts";
 import { Button } from "@/components/ui/button";
 import { LanguageLinks } from "@/app/_components/language-links";
 import { useLocale, useLocalizedHref } from "@/app/_components/locale-provider";
 import { BENCHMARK_COLORS, PORTFOLIO_COLOR } from "@/app/portfolio/performance/_components/performance-colors";
 import { formatTickPct } from "@/app/portfolio/performance/_components/performance-format";
 import type { StressExample, StyleExample, TrackingExample } from "../_lib/example-batch2";
+
+const UNAVAILABLE = "\u2014";
+type CurveKey = "portfolio" | "spy" | "styleMix" | "balanced";
+
+function seriesRow(payload: TooltipContentProps["payload"] | undefined, keys: readonly CurveKey[]): Record<string, unknown> | null {
+  if (!payload) return null;
+  for (const item of payload) {
+    if (typeof item.dataKey !== "string" || !keys.includes(item.dataKey as CurveKey)) continue;
+    const row: unknown = item.payload;
+    if (typeof row === "object" && row !== null) return row as Record<string, unknown>;
+  }
+  return null;
+}
+
+function entryText(row: Record<string, unknown>, key: string, format: (value: number) => string): string {
+  const value = row[key];
+  return typeof value === "number" && Number.isFinite(value) ? format(value) : UNAVAILABLE;
+}
+
+function BatchTooltip({ active, label, payload, firstKey, secondKey, firstName, secondName, firstStroke, secondStroke, formatValue, formatDate }: {
+  active?: boolean;
+  label?: unknown;
+  payload?: TooltipContentProps["payload"];
+  firstKey: CurveKey;
+  secondKey: CurveKey;
+  firstName: string;
+  secondName: string;
+  firstStroke: string;
+  secondStroke: string;
+  formatValue: (value: number) => string;
+  formatDate: (stamp: number) => string;
+}) {
+  const series = [
+    { key: firstKey, name: firstName, color: firstStroke },
+    { key: secondKey, name: secondName, color: secondStroke },
+  ];
+  const row = seriesRow(payload, [firstKey, secondKey]);
+  const parsed = typeof label === "number" || typeof label === "string" ? Number(label) : Number.NaN;
+  const stamp = Number.isFinite(parsed) ? parsed : typeof row?.time === "number" ? row.time : Number.NaN;
+  if (!active || !row || !Number.isFinite(stamp)) return null;
+  return <div className="public-curve-tooltip max-w-full break-words rounded-lg border px-3 py-2 text-sm shadow-lg" style={{ background: "var(--card)", color: "var(--foreground)", borderColor: "var(--border)" }}>
+    <p className="mb-1 font-medium tabular-nums">{formatDate(stamp)}</p>
+    <ul className="flex flex-col gap-1">
+      {series.map((item) => <li key={item.key} className="flex items-center justify-between gap-4">
+        <span className="flex min-w-0 items-center gap-2">
+          <span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
+          <span className="break-words">{item.name}</span>
+        </span>
+        <span className="shrink-0 tabular-nums">{entryText(row, item.key, formatValue)}</span>
+      </li>)}
+    </ul>
+  </div>;
+}
 
 type Props = { kind: "stress"; example: StressExample } | { kind: "style"; example: StyleExample } | { kind: "tracking"; example: TrackingExample };
 const symbols = ["IWF", "IWD", "IWM", "EFA", "EEM", "2800.HK", "510300.SS", "AGG", "TLT", "GLD", "DBC", "VNQ", "BIL"];
@@ -86,6 +139,7 @@ export function Batch2Body(props: Props) {
             <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
             <XAxis type="number" dataKey="time" domain={["dataMin", "dataMax"]} tickFormatter={v => date.format(new Date(Number(v)))} minTickGap={24} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
             <YAxis width={48} tickFormatter={isStyle ? formatTickPct : v => percent.format(v)} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
+            <Tooltip isAnimationActive={false} cursor={{ stroke: "var(--foreground)" }} wrapperStyle={{ maxWidth: "100%" }} content={(props) => <BatchTooltip active={props.active} label={props.label} payload={props.payload} firstKey={firstKey} secondKey={secondKey} firstName={firstName} secondName={secondName} firstStroke={firstStroke} secondStroke={secondStroke} formatValue={isStyle ? formatTickPct : (value) => percent.format(value)} formatDate={(stamp) => date.format(new Date(stamp))} />} />
             <Line dataKey={firstKey} name={firstName} stroke={firstStroke} strokeWidth={2.5} dot={false} isAnimationActive={false} />
             <Line dataKey={secondKey} name={secondName} stroke={secondStroke} strokeWidth={1.5} dot={false} isAnimationActive={false} />
             {isStress && props.kind === "stress" && <>

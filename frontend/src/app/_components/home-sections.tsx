@@ -100,9 +100,9 @@ export function HomeSections() {
 
       <section id="how" className="px-6 py-16 sm:py-20">
         <div className="mx-auto max-w-4xl">
-          <div className="mb-10 flex items-baseline justify-between gap-6 border-b border-white/10 pb-5">
+          <div className="mb-10 flex flex-col gap-2 border-b border-white/10 pb-5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
             <h2 className="font-serif text-2xl sm:text-3xl">{t.how.heading}</h2>
-            <span className="whitespace-nowrap font-mono text-xs uppercase tracking-wide text-foreground/45">
+            <span className="font-mono text-xs uppercase tracking-wide text-foreground/45 sm:whitespace-nowrap">
               {t.how.tag}
             </span>
           </div>
@@ -171,9 +171,9 @@ export function HomeSections() {
 
       <section id="preview" className="px-6 py-16 sm:py-20">
         <div className="mx-auto max-w-4xl">
-          <div className="mb-10 flex items-baseline justify-between gap-6 border-b border-white/10 pb-5">
+          <div className="mb-10 flex flex-col gap-2 border-b border-white/10 pb-5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
             <h2 className="font-serif text-2xl sm:text-3xl">{t.preview.heading}</h2>
-            <span className="whitespace-nowrap font-mono text-xs uppercase tracking-wide text-foreground/45">
+            <span className="font-mono text-xs uppercase tracking-wide text-foreground/45 sm:whitespace-nowrap">
               {t.preview.tag}
             </span>
           </div>
@@ -359,9 +359,9 @@ export function HomeSections() {
 
       <section id="faq" className="px-6 py-16 sm:py-20">
         <div className="mx-auto max-w-4xl">
-          <div className="mb-10 flex items-baseline justify-between gap-6 border-b border-white/10 pb-5">
+          <div className="mb-10 flex flex-col gap-2 border-b border-white/10 pb-5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
             <h2 className="font-serif text-2xl sm:text-3xl">{t.faq.heading}</h2>
-            <span className="whitespace-nowrap font-mono text-xs uppercase tracking-wide text-foreground/45">
+            <span className="font-mono text-xs uppercase tracking-wide text-foreground/45 sm:whitespace-nowrap">
               {t.faq.tag}
             </span>
           </div>
