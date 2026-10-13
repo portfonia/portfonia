@@ -11,13 +11,14 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.models.user import User
-from app.schemas.holdings import HoldingPatch, ParsedRow, validate_cash_wmf
+from app.schemas.holdings import HoldingPatch, ParsedRow
 from app.services.accounts import resolve_accounts_for_holdings
 from app.services.holding_ordering import sorted_holdings
 from app.services.holding_parser import (
@@ -433,25 +434,11 @@ def update_holding(
     merged = _holding_dict(holding)
     merged.update(updates)
     try:
-        validate_cash_wmf(
-            name=str(merged["name"]),
-            asset_type=merged.get("asset_type"),
-            ticker=merged.get("ticker"),
-            fund_code=merged.get("fund_code"),
-            pricing_mode=merged.get("pricing_mode"),
-            current_value=merged.get("current_value"),
-        )
-    except ValueError as exc:
-        raise RequestValidationError(
-            [
-                {
-                    "type": "value_error",
-                    "loc": ("body",),
-                    "msg": str(exc),
-                    "input": None,
-                }
-            ]
-        ) from exc
+        # Validate a copy: ParsedRow coerces amounts to float, while the
+        # shared writer must retain the original Decimal values exactly.
+        ParsedRow.model_validate(merged.copy())
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
     data = apply_write_defaults(merged)
     account_fields_changed = any(key in updates for key in ("broker", "account", "portfolio"))
     ticker_changed = data.get("ticker") != holding.ticker

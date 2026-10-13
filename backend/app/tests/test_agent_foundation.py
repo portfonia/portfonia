@@ -191,12 +191,14 @@ def test_plan_caps_count_every_row_and_keep_over_limit_books(
     listed = app_client.get("/holdings").json()
     target = listed[0]
     assert app_client.patch(f"/holdings/{target['id']}", json={"notes": "kept"}).status_code == 200
+    version_before_replace = _version(db_session)
     rejected = app_client.post(
         "/holdings/confirm?mode=replace",
         json=[{**_ROW, "name": f"New {index}"} for index in range(40)],
     )
     assert rejected.status_code == 409
     assert _count(db_session) == 100
+    assert _version(db_session) == version_before_replace
     cleared = app_client.post("/holdings/confirm?mode=replace", json=[])
     assert cleared.status_code == 200
     assert cleared.json() == []
@@ -204,6 +206,45 @@ def test_plan_caps_count_every_row_and_keep_over_limit_books(
     assert one.status_code == 201
     assert app_client.delete(f"/holdings/{one.json()['id']}").status_code == 204
     assert app_client.get("/holdings").json() == []
+
+
+@pytest.mark.parametrize(
+    "patch_body",
+    [{"name": None}, {"currency": None}, {"pricing_mode": None}],
+)
+def test_patch_rejects_invalid_merged_row_without_changes(
+    app_client: TestClient, db_session: Session, patch_body: dict[str, object]
+) -> None:
+    seed_user(db_session, TEST_USER_ID)
+    created = app_client.post("/holdings", json=_ROW)
+    assert created.status_code == 201
+    before = app_client.get("/holdings").json()
+    version_before = _version(db_session)
+    rejected = app_client.patch(f"/holdings/{created.json()['id']}", json=patch_body)
+    assert rejected.status_code == 422, rejected.text
+    assert app_client.get("/holdings").json() == before
+    assert _version(db_session) == version_before
+
+
+@pytest.mark.parametrize("subscription_type, cap", [("daily", 50), ("weekly", 30), ("mwf", 30)])
+def test_active_subscription_holding_cap_boundary(
+    app_client: TestClient, db_session: Session, subscription_type: str, cap: int
+) -> None:
+    seed_user(db_session, TEST_USER_ID)
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.subscription_status = "active"
+    user.subscription_type = subscription_type
+    _add_rows(db_session, cap - 1)
+    db_session.commit()
+    assert app_client.post("/holdings", json=_ROW).status_code == 201
+    assert _count(db_session) == cap
+    version_before = _version(db_session)
+    rejected = app_client.post("/holdings", json=_ROW)
+    assert rejected.status_code == 409
+    assert rejected.json() == {"detail": "holding_cap"}
+    assert _count(db_session) == cap
+    assert _version(db_session) == version_before
 
 
 def test_collection_version_bumps_once_per_real_change(
