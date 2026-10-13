@@ -116,6 +116,73 @@ it("#743 uses the owner-approved Simplified Chinese wording", () => {
   expect(h.productPreviews.startCtaBody).toBe("你已经看到示例简报如何把事件与组合联系起来。录入你的持仓，获取基于你自己持仓的简报。");
 });
 
+const ANALYSIS_HEADINGS = {
+  en: [
+    "TSMC — 21.7% of the portfolio, the single largest position",
+    "Microsoft — 8.3% of the portfolio",
+  ],
+  es: [
+    "TSMC: 21.7% de la cartera, la mayor posición individual",
+    "Microsoft: 8.3% de la cartera",
+  ],
+  "zh-Hans": [
+    "台积电 — 占组合 21.7%，第一大单一持仓",
+    "微软 — 占组合 8.3%",
+  ],
+  "zh-Hant": [
+    "台積電 — 占組合 21.7%，最大單一持倉",
+    "微軟 — 占組合 8.3%",
+  ],
+} as const;
+
+const EN_ANALYSIS_PARAGRAPHS = [
+  [
+    "TSMC is the largest position at 21.7%, above the 20% single-stock high-concentration threshold. Its +7.64% rise on 07-30 occurred after Microsoft's earnings release; the timing alone does not establish new orders or a TSMC-specific catalyst.",
+    "The company-specific background predates this window: on 07-16, TSMC attributed Q2 performance to demand for leading-edge processes, which accounted for 77% of wafer revenue at 7nm and below. [Established] The documented business channel is demand for those processes reaching TSMC through wafer production; Microsoft's cloud growth does not quantify its share of that demand. [Probable]",
+    "Expansion also has a cash and margin dimension. The earlier Q2 disclosures show operating cash generation alongside factory investment, while management's Q3 gross-margin guidance of 65-67% is below Q2's 67.7%, despite higher revenue guidance. [Established] More sales therefore do not establish a uniform improvement in production economics. [Probable] Next observables are the revenue mix, factory spending and gross margin in subsequent disclosures; the guidance is not an achieved result.",
+  ],
+  [
+    "Microsoft's 8.3% position rose +15.51% on 07-30 after its 07-29 fiscal Q4 release. Revenue was $90.01B; Azure and other cloud services grew 43% year on year. [Established] This is a documented operating development alongside the price move, rather than an explanation inferred from the price chart.",
+    "The business channel is cloud-service demand reaching Microsoft's revenue: Microsoft Cloud generated $59.3B, up 27% year on year. Commercial remaining performance obligations of $678B describe contracted revenue still to be recognized, not revenue already earned this quarter. [Established] Realized cloud revenue and the conversion of that contracted balance are distinct observables; the backlog alone does not settle the pace of future growth. [Probable]",
+    "Capacity expansion has a cash counterpart: quarterly cash additions to property and equipment were $35.8B, versus $17.1B a year earlier. [Established] This is not a measure of AI spending alone or of investment returns. The next disclosures can show cloud growth alongside infrastructure spending and cash generation; that comparison tests how demand and investment are developing together. [Probable] Microsoft's smaller weight than TSMC's gives the direct position a different portfolio scale, without implying independence between the two businesses.",
+  ],
+] as const;
+
+const ANALYSIS_LABEL_KEYS = [
+  [[], ["established", "probable"], ["established", "probable"]],
+  [["established"], ["established", "probable"], ["established", "probable"]],
+] as const;
+
+it.each(LOCALES.map(item => item.value))("#750 %s keeps two holdings and replaces the single body with three paragraphs", locale => {
+  const home = catalogs[locale].home;
+  const items = home.preview.analysisItems;
+  expect(items).toHaveLength(2);
+  expect(items.map(item => item.heading)).toEqual([...ANALYSIS_HEADINGS[locale]]);
+  items.forEach((item, index) => {
+    expect(item).not.toHaveProperty("body");
+    expect(item.paragraphs).toHaveLength(3);
+    item.paragraphs.forEach(paragraph => expect(paragraph.trim()).not.toBe(""));
+    const labels = item.paragraphs.map(paragraph => paragraph.match(/\[[^\]]+\]/g) ?? []);
+    const expected = ANALYSIS_LABEL_KEYS[index].map(keys => keys.map(key => `[${home.how.tiers[key]}]`));
+    expect(labels).toEqual(expected);
+  });
+  const tsmc = items[0].paragraphs.join("\n");
+  const microsoft = items[1].paragraphs.join("\n");
+  for (const figure of ["21.7%", "20%", "+7.64%", "07-30", "07-16", "77%", "65-67%", "67.7%"]) {
+    expect(tsmc).toContain(figure);
+  }
+  for (const figure of ["8.3%", "+15.51%", "07-29", "07-30", "$90.01B", "43%", "$59.3B", "27%", "$678B", "$35.8B", "$17.1B"]) {
+    expect(microsoft).toContain(figure);
+  }
+  expect(items[0].paragraphs[0]).not.toContain("07-16");
+  expect(items[0].paragraphs[1]).toContain("07-16");
+  expect(microsoft).not.toContain("60.2%");
+  expect(tsmc).not.toMatch(/section 2|sección 2|第二节|第二節/);
+  if (locale === "en") {
+    expect(items.map(item => item.paragraphs)).toEqual(EN_ANALYSIS_PARAGRAPHS.map(paragraphs => [...paragraphs]));
+  }
+});
+
 it("#743 ships the hand-authored Traditional Chinese wording", () => {
   const h = catalogs["zh-Hant"].home;
   expect(h.preview.macro.overview).toContain("Hammack、Kashkari 與 Logan 主張升息 25 個基點");

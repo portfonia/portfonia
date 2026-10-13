@@ -1090,11 +1090,19 @@
       "analysisItems": [
         {
           "heading": "TSMC: 21.7% de la cartera, la mayor posición individual",
-          "body": "Con 21.7%, TSMC supera el umbral alto de 20% para una posición individual en acciones. Su movimiento de +7.64% el 07-30 coincidió con el repunte de semiconductores posterior a los resultados de Microsoft. [Probable] Su exposición abarca el gasto de capital en IA y la trayectoria de tasas descrita en la sección 2. [Probable]"
+          "paragraphs": [
+            "TSMC es la mayor posición, con 21.7%, por encima del umbral de alta concentración de 20% para una acción individual. Su alza de +7.64% el 07-30 ocurrió después de la publicación de resultados de Microsoft; el momento por sí solo no establece nuevos pedidos ni un catalizador específico de TSMC.",
+            "El antecedente específico de la compañía es anterior a esta ventana: el 07-16, TSMC atribuyó el desempeño del Q2 a la demanda de procesos de nodo avanzado, que representaron el 77% de los ingresos por obleas en 7 nm y procesos más avanzados. [Established] El canal de negocio documentado es la demanda de esos procesos que llega a TSMC mediante la producción de obleas; el crecimiento de la nube de Microsoft no cuantifica su participación en esa demanda. [Probable]",
+            "La expansión también tiene una dimensión de efectivo y de margen. Las divulgaciones anteriores del Q2 muestran generación de efectivo operativo junto con inversión en fábricas, mientras que la guía de margen bruto del Q3 de la dirección, de 65-67%, está por debajo del 67.7% del Q2, pese a una guía de ingresos más alta. [Established] Por tanto, más ventas no establecen una mejora uniforme de la economía de producción. [Probable] Los siguientes observables son la mezcla de ingresos, el gasto en fábricas y el margen bruto en divulgaciones posteriores; la guía no es un resultado ya alcanzado."
+          ]
         },
         {
           "heading": "Microsoft: 8.3% de la cartera",
-          "body": "Microsoft registró +15.51% el 07-30 después de sus resultados del Q4 fiscal, con ingresos de $90.01B y crecimiento de Azure de +43%. [Established] Esa sesión ayuda a explicar la volatilidad anualizada de 20 días de 60.2% y la distancia de +16.4% sobre el promedio de 50 días. [Probable]"
+          "paragraphs": [
+            "La posición de Microsoft, de 8.3%, subió +15.51% el 07-30 después de su publicación del Q4 fiscal del 07-29. Los ingresos fueron de $90.01B; Azure y otros servicios en la nube crecieron 43% interanual. [Established] Se trata de un desarrollo operativo documentado junto al movimiento de precio, no de una explicación inferida del gráfico de precios.",
+            "El canal de negocio es la demanda de servicios en la nube que llega a los ingresos de Microsoft: Microsoft Cloud generó $59.3B, un 27% más interanual. Las obligaciones de desempeño comerciales restantes de $678B describen ingresos contratados que todavía están por reconocerse, no ingresos ya obtenidos en este trimestre. [Established] Los ingresos de nube realizados y la conversión de ese saldo contratado son observables distintos; ese saldo por sí solo no fija el ritmo del crecimiento futuro. [Probable]",
+            "La expansión de capacidad tiene una contrapartida de efectivo: las adiciones trimestrales de efectivo a propiedades, planta y equipo fueron de $35.8B, frente a $17.1B un año antes. [Established] Esto no mide por sí solo el gasto en IA ni el retorno de la inversión. Las próximas divulgaciones pueden mostrar el crecimiento de la nube junto con el gasto en infraestructura y la generación de efectivo; esa comparación examina cómo evolucionan juntos la demanda y la inversión. [Probable] El menor peso de Microsoft frente al de TSMC da a la posición directa una escala distinta en la cartera, sin implicar independencia entre los dos negocios."
+          ]
         }
       ]
     },

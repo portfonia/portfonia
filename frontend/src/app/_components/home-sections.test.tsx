@@ -1,5 +1,6 @@
 import expectedData from "./home-real-data.fixture.json";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { catalogs, type Locale } from "@/locales";
@@ -652,6 +653,37 @@ it("#741 uses every fixed replay, monthly and risk point without recalculation",
   expect(HOME_RISK_SAMPLE.risk).toEqual({ status: "ok", label: "caution" });
   expect(HOME_RISK_SAMPLE.deviation).toEqual({ status: "ok", delta: 1 });
   expect(HOME_RISK_SAMPLE.manual_valuation_share).toBe("0");
+});
+
+it.each(LOCALES)("#750 static HTML shows every %s analysis paragraph in its holding", locale => {
+  const html = renderToStaticMarkup(
+    <LocaleProvider routeLocale={locale}>
+      <HomeSections />
+    </LocaleProvider>,
+  );
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const preview = doc.querySelector("#preview");
+  if (!(preview instanceof HTMLElement)) throw new Error("missing #preview");
+  expect(preview.querySelector("details, summary")).toBeNull();
+  expect(preview.innerHTML).not.toMatch(/line-clamp|truncate|overflow-hidden|max-h-|read-more/);
+  const items = catalogs[locale].home.preview.analysisItems;
+  for (const item of items) {
+    const heading = [...preview.querySelectorAll("p")].find(node => node.textContent === item.heading);
+    if (!(heading instanceof HTMLElement)) throw new Error(`missing heading ${item.heading}`);
+    const block = heading.parentElement;
+    if (!(block instanceof HTMLElement)) throw new Error("missing holding block");
+    expect(block.classList.contains("space-y-2")).toBe(true);
+    expect(block.className).not.toMatch(/line-clamp|truncate|overflow-hidden|max-h-/);
+    const paragraphs = [...block.children].filter(node => node.tagName === "P");
+    expect(paragraphs).toHaveLength(4);
+    expect(paragraphs.map(node => node.textContent)).toEqual([item.heading, ...item.paragraphs]);
+    expect(paragraphs[0]?.className).toContain("text-sm font-medium text-foreground/85");
+    for (const paragraph of paragraphs.slice(1)) {
+      expect(paragraph.className).toContain("text-sm leading-relaxed text-foreground/70");
+    }
+    expect(paragraphs[1]?.textContent).toBe(item.paragraphs[0]);
+    expect(paragraphs.at(-1)?.textContent).toBe(item.paragraphs[2]);
+  }
 });
 
 it("747 stacks heading tags under the three homepage headings below sm", () => {
