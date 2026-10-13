@@ -178,17 +178,18 @@ Jade 100 as part of the next Agent holdings-management scope. These are
 planned limits; this documentation change adds no enforcement. Distinguish
 Jade before the broader Advanced predicate because Jade satisfies both.
 The [Agent mechanism](agent-api.md#confirmed-decisions-and-remaining-product-questions)
-records the associated scope and outstanding R4 product decision.
+records the associated scope and the owner-confirmed R4 product decision.
 
-The author proposes applying the caps to web, file-confirm and Agent writes,
+The owner confirmed applying the caps to web, file-confirm and Agent writes,
 counting each stored row including watch-only and cash holdings, assigning
 inactive/unsubscribed users the Basic cap, and preserving existing or
-downgraded over-limit rows. Proposed over-limit behavior permits reads,
+downgraded over-limit rows. Over-limit behavior permits reads,
 edits of existing rows and reductions, while blocking additions until the
-count is within the cap. Those rules are not yet owner-approved. Before
-implementation, finalize plan mapping, counting and transition behavior
-in the Agent product-control note, then publish the agreed limits on the
-relevant public plan and holdings surfaces.
+count is within the cap. Weekly and Mon/Wed/Fri also use the Basic cap;
+active cancel-pending subscriptions keep their entitlement until expiry.
+Implement serialized final-count checks across the writer paths and publish
+these agreed limits on the relevant public plan and holdings surfaces with
+the eventual implementation. This documentation does not enforce the caps.
 
 ### Merged report dispatch
 

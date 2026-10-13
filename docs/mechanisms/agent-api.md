@@ -287,11 +287,12 @@ The owner answered the original six questions on 2026-10-13:
 2. Default new tokens to read-only; keep permissions immutable; allow all
    signed-in users to create either permission, while checking subscription
    entitlement on each holdings call.
-3. The owner requested editable fields throughout, no automatic synchronization,
-   and uniqueness by holding ID. The precise user/system-field boundary is
-   unresolved: IDs, timestamps, captured prices and capture support are
-   server-owned today, as is automatic `asset_class`. Decimal strings and
-   unknown-field rejection remain part of the authored schema proposal.
+3. The owner confirmed that all user-input fields are editable, with no
+   automatic synchronization and uniqueness by holding ID. System fields
+   (IDs, timestamps, captured prices, internal account IDs and capture support)
+   remain server-owned. Automatic `asset_class` cannot be overridden.
+   Decimal strings and unknown-field rejection belong to the authored technical
+   schema proposal, whose exact format is to be specified in detailed design.
 4. Make every web, import-confirm and Agent holdings mutation update the
    collection version; require the read version on all Agent writes.
 5. Require an idempotency key for creation, retain successful results for
@@ -300,27 +301,31 @@ The owner answered the original six questions on 2026-10-13:
    version; persist the creation and idempotency result in one transaction.
 6. Share the existing daily snapshot-read notice with current-holdings GET;
    send at most one separate modification notice per day after successful
-   writes. The owner approved the limit framework but increased the single-row
-   burst threshold to more than 30 requests per minute. Its counter scope and
-   hourly quota remain unresolved; do not retain a conflicting global
-   10/minute limit on the same single-row requests without owner agreement.
+   writes. The owner confirmed a separate shared single-row write bucket of
+   30 requests/minute and 100/hour, combining POST/PUT/PATCH/DELETE across all
+   tokens of the user. These calls no longer consume the old global 10/minute
+   bucket or the old 20/endpoint/hour quota. Request 31 within the minute
+   triggers the existing 15-minute account lock; request 101 in the hour gets
+   hourly 429/Retry-After. Other calls keep their existing limits, and the
+   account-wide lock and heavy-task quiet windows still apply.
 
-The product note groups the remaining decisions as R1 (explicit-delete envelope,
-omission/order and last-row deletion), R2 (editable fields and automatic
-classification), R3 (single-row minute/hour counters), and R4 (cap application,
-row counting, inactive users and existing/downgraded over-limit users).
-The author recommends rejecting omitted IDs in complete submissions, keeping
-server metadata immutable, and a shared single-row write bucket of 30/minute
-and 100/hour. The latter hourly value is a proposal, not an approved limit.
-Other calls retain the existing limits; the 15-minute account lock and heavy
-task quiet windows are proposed to remain unchanged.
+R2 (editable fields), R3 (single-row minute/hour counters) and R4 (holding caps
+and transitions) are owner-confirmed. Only R1 (explicit-delete envelope,
+omission/order and last-row deletion) remains a product question.
+The author recommends rejecting omitted IDs in complete submissions: given
+existing rows A/B/C, submit A/B plus `delete_ids: [C]` to retain/update A/B
+and delete C. Submitting A plus `delete_ids: [C]` leaves B unexplained and
+should reject the whole request without writing. Use single-row PATCH to
+edit A alone. These symbolic IDs illustrate intent, not runnable UUID payloads.
 
 Basic 30, Advanced 50 and Jade 100 holding rows are confirmed next-scope
-limits, not existing enforcement. The author recommends applying them to
+limits, not existing enforcement. The owner confirmed applying them to
 web, import and Agent writers, counting every stored row (including watches
 and cash), treating inactive subscriptions as Basic, preserving existing
 over-limit rows and allowing reads/edits/decreases while blocking additions
-until compliant. Those application and downgrade rules require R4 approval.
+until compliant. Weekly/Mon-Wed-Fri and inactive/unsubscribed users fall under
+Basic; active cancel-pending subscriptions retain their current entitlement
+until lifecycle expiry. Evaluate Jade first because it also satisfies Advanced.
 Final-count checks belong inside the serialized user transaction so concurrent
 creation cannot bypass the cap. See also the subscription mechanism's planned
 holding-cap section.
