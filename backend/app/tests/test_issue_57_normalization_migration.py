@@ -24,7 +24,7 @@ from unittest.mock import patch
 from sqlalchemy.orm import Session
 
 from app.models.holding import Holding
-from app.routers.holdings import _tickers_with_sparse_history
+from app.services.holdings_write import tickers_with_sparse_history as _tickers_with_sparse_history
 from app.services.portfolio_calculator import compute_portfolio
 from app.services.price_capture import capture_prices
 from app.services.technical_position import compute_technical_position

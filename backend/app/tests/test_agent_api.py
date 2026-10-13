@@ -53,7 +53,10 @@ def test_acceptance_01_show_once_hash_only(app_client: TestClient, db_session: S
         "expires_at",
         "last_used_at",
         "status",
+        "permission",
     }
+    assert response.json()[0]["permission"] == "read_only"
+    assert body["permission"] == "read_only"
 
 
 def test_acceptance_02_limit_and_revoke(app_client: TestClient, db_session: Session) -> None:

@@ -184,10 +184,10 @@ it.each(LOCALE_VALUES)("%s referral copy and Terms preserve the required layout 
   }
   expect(catalog.profile.inviteBody).not.toMatch(/\d|%/);
   expect(catalog.profile.deleteAccountNegativeBalance).toContain("info@portfonia.com");
-  const expectedUpdated = locale === "en" ? "Last updated: 2026-10-08"
-    : locale === "es" ? "Última actualización: 2026-10-08"
-    : locale === "zh-Hans" ? "\u6700\u540e\u66f4\u65b0\uff1a2026-10-08"
-      : "\u6700\u5f8c\u66f4\u65b0\uff1a2026-10-08";
+  const expectedUpdated = locale === "en" ? "Last updated: 2026-10-13"
+    : locale === "es" ? "Última actualización: 2026-10-13"
+    : locale === "zh-Hans" ? "\u6700\u540e\u66f4\u65b0\uff1a2026-10-13"
+      : "\u6700\u5f8c\u66f4\u65b0\uff1a2026-10-13";
   expect(catalog.legal.terms.lastUpdated).toBe(expectedUpdated);
   expect(catalog.legal.terms.sections[3].body[7]).not.toMatch(/\d|%/);
   expect(catalog.legal.terms.sections[3].body[8]).toContain("{resellerNotice}");

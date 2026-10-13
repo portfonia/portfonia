@@ -17,6 +17,7 @@ class AgentPrincipal:
     user_id: UUID
     token_id: UUID
     user: User
+    permission: str
 
 
 def agent_principal(request: Request, session: Session = Depends(get_session)) -> AgentPrincipal:
@@ -35,4 +36,9 @@ def agent_principal(request: Request, session: Session = Depends(get_session)) -
         raise HTTPException(401, "unauthorized")
     token.last_used_at = now
     session.commit()
-    return AgentPrincipal(user_id=token.user_id, token_id=token.id, user=user)
+    return AgentPrincipal(
+        user_id=token.user_id,
+        token_id=token.id,
+        user=user,
+        permission=token.permission,
+    )

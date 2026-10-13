@@ -4,7 +4,17 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, Date, Numeric, SmallInteger, Text, func, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Date,
+    Numeric,
+    SmallInteger,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -60,6 +70,7 @@ class User(Base):
         ),
         CheckConstraint("subscription_anchor_day BETWEEN 1 AND 31", name="subscription_anchor_day"),
         CheckConstraint("credit_gift_balance >= 0", name="credit_gift_balance"),
+        CheckConstraint("holdings_version >= 0", name="holdings_version"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -115,4 +126,7 @@ class User(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    holdings_version: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("0"), default=0
     )

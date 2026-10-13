@@ -37,6 +37,15 @@ or revoked credentials, then commits `last_used_at` for accepted credentials.
 Browser idle and absolute lifetime checks are not called. API tokens cannot
 authenticate web or Ops routes; session JWTs cannot authenticate agent routes.
 
+Issue #753 adds non-null `api_tokens.permission`, constrained to `read_only`
+or `holdings_write`, default and backfill `read_only` (migration
+`d75300000001`). Create accepts optional `permission` and defaults to
+`read_only`. List and create responses include `permission`. There is no
+route that changes it. Existing rows stay read-only. Any signed-in user may
+create either mode. `AgentPrincipal` carries the stored permission. Unknown
+values return 422. Holdings Agent routes are not registered; when they are,
+holdings calls still require an active Advanced or Jade subscription.
+
 ## Request limits and scheduled quiet windows
 
 The agent router evaluates these checks after authentication and before
@@ -44,10 +53,17 @@ query validation or endpoint entitlement:
 
 1. Quiet window.
 2. Existing `agent:lock:{user_id}` (remaining TTL).
-3. `agent:burst:{user_id}`: fixed 60-second window from its first increment;
-   the eleventh request sets a 900-second lock and returns 429.
-4. `agent:hour:{endpoint}:{user_id}`: 20 per 3600-second fixed window.
-5. Endpoint entitlement, via `is_advanced(user)` for snapshots and intelligence (403
+3. For the future single-row pairs `POST /agent/v1/holdings` and
+   `PUT`/`PATCH`/`DELETE /agent/v1/holdings/{holding_id}` only (#753):
+   `agent:single:minute:{user_id}` allows 30 per 60 seconds; request 31 sets
+   the same 900-second account lock. `agent:single:hour:{user_id}` allows 100
+   per 3600 seconds and returns 429 with the remaining TTL on request 101.
+   These calls do not increment the burst or per-endpoint hour counters.
+   The routes are not registered.
+4. Otherwise, `agent:burst:{user_id}`: fixed 60-second window from its first
+   increment; the eleventh request sets a 900-second lock and returns 429.
+5. Otherwise, `agent:hour:{endpoint}:{user_id}`: 20 per 3600-second fixed window.
+6. Endpoint entitlement, via `is_advanced(user)` for snapshots and intelligence (403
    `subscription_required`).
 
 Limits combine all tokens belonging to the same user. Every 429 has a
@@ -257,15 +273,15 @@ documentation change, and no new issue has been opened:
 | C: conflict protection | Collection version returned on reads and required on writes |
 | D: safe retries for creation | Idempotency key on holding creation |
 | G: machine-readable Agent contract | Public Agent-only OpenAPI schema |
-| Plan-specific holding caps | Basic 30, Advanced 50, Jade 100 rows |
+| Plan-specific holding caps | Basic 30, Advanced 50, Jade 100 rows; web and file writers enforce this (#753). Agent routes do not exist yet |
 
 All current-holdings capabilities target active Advanced subscribers,
 including Daily and Jade, using the existing `is_advanced` entitlement.
-New token creation will offer read-only or holdings-write permission.
-Existing tokens remain read-only. Permission-aware token creation, lists,
-authentication and UI are future implementation work; the current model and
-creation body contain no permission field. The approved write scope does
-not authorize token calls to web or Ops routes.
+Token permission, the shared web/file writer, the collection version and the
+single-row limit profile shipped in #753, described above and in the
+subscription mechanism. Holdings routes, idempotency, valuation and the
+OpenAPI schema did not. The approved write scope does not authorize token
+calls to web or Ops routes.
 
 The JSON path must preserve existing holding IDs and fully read/write
 `watch_tier` (`null`, `watch`, `focus`, `critical`), including zero-share
@@ -297,7 +313,11 @@ The owner answered the original six questions on 2026-10-13:
    Decimal strings and unknown-field rejection belong to the authored technical
    schema proposal, whose exact format is to be specified in detailed design.
 4. Make every web, import-confirm and Agent holdings mutation update the
-   collection version; require the read version on all Agent writes.
+   collection version; require the read version on all Agent writes. Web and
+   file writers increment `users.holdings_version` once per successful change
+   of normalized user fields, membership or order (#753). No-op normalized
+   edits and price/NAV/FX capture do not. Agent reads and writes do not exist
+   yet, so the version is not on a public holdings response.
 5. Require an idempotency key for creation, retain successful results for
    24 hours, replay matching requests and reject changed content under the
    same key. Recognize committed replays before rejecting the original stale
@@ -310,7 +330,10 @@ The owner answered the original six questions on 2026-10-13:
    bucket or the old 20/endpoint/hour quota. Request 31 within the minute
    triggers the existing 15-minute account lock; request 101 in the hour gets
    hourly 429/Retry-After. Other calls keep their existing limits, and the
-   account-wide lock and heavy-task quiet windows still apply.
+   account-wide lock and heavy-task quiet windows still apply. The limit
+   profile is enforced for those method and route templates (#753). The
+   holdings routes, notices for holdings writes, and version-on-read contract
+   are not implemented.
 
 R1/R2/R3/R4 are all owner-confirmed. Reject omitted IDs in complete submissions: given
 existing rows A/B/C, submit A/B plus `delete_ids: [C]` to retain/update A/B
@@ -318,17 +341,16 @@ and delete C. Submitting A plus `delete_ids: [C]` leaves B unexplained and
 must reject the whole request without writing. Use single-row PATCH to
 edit A alone. These symbolic IDs illustrate intent, not runnable UUID payloads.
 
-Basic 30, Advanced 50 and Jade 100 holding rows are confirmed next-scope
-limits, not existing enforcement. The owner confirmed applying them to
-web, import and Agent writers, counting every stored row (including watches
-and cash), treating inactive subscriptions as Basic, preserving existing
-over-limit rows and allowing reads/edits/decreases while blocking additions
-until compliant. Weekly/Mon-Wed-Fri and inactive/unsubscribed users fall under
-Basic; active cancel-pending subscriptions retain their current entitlement
-until lifecycle expiry. Evaluate Jade first because it also satisfies Advanced.
-Final-count checks belong inside the serialized user transaction so concurrent
-creation cannot bypass the cap. See also the subscription mechanism's planned
-holding-cap section.
+Basic 30, active Advanced 50 and active Jade 100 holding rows are enforced by
+`services/holdings_write.py` for web and file writers (#753). The count
+includes every stored row, including watches and cash. Weekly, Mon/Wed/Fri,
+no subscription, and expired, cancelled or inactive users use Basic. An
+active cancel-pending subscription keeps the higher cap until expiry. Jade
+is evaluated before Advanced. Rows already over the cap are not deleted;
+reads, edits and reductions remain, and an addition, including a file replace
+that rebuilds IDs, must finish at or under the cap. The refusal is HTTP 409
+`holding_cap`. Agent holdings routes are not registered; when they are, they
+use this same writer. See the subscription mechanism.
 
 The authored validation proposal covers complete replacement, creation,
 single-row replacement and PATCH. It applies the corresponding operation's

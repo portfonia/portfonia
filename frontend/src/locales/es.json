@@ -80,6 +80,8 @@
   "holdings": {
     "pageTitle": "Posiciones",
     "pageSubtitle": "Suba un archivo para importar sus posiciones. Revise y luego guarde.",
+    "capNote": "Las filas guardadas tienen un límite según el plan: 30 en Briefing, 50 mientras Advanced está activo y 100 mientras Jade está activo. El efectivo y las posiciones en observación cuentan. Las filas que ya superan el límite se conservan; elimínelas o reemplácelas hasta quedar dentro del límite antes de añadir más.",
+    "errorHoldingCap": "Este guardado superaría el límite de posiciones de su plan. Elimine filas o reemplace el conjunto por uno más pequeño e inténtelo de nuevo. Las filas existentes se conservaron.",
     "viewPortfolioLink": "Ver resumen de la cartera",
     "currentHeading": "Posiciones actuales",
     "emptyState": "Aún no hay posiciones. Suba un archivo para comenzar.",
@@ -1203,7 +1205,7 @@
     "deliveryVerified": "Los informes se enviarán a {deliveryEmail}.",
     "deliveryUnverified": "Los informes no se enviarán hasta verificar {deliveryEmail}.",
     "errorLoadFailed": "No se pudo cargar su cuenta.",
-    "subscriptionPlans": "Portfonia envía resúmenes programados a suscriptores. Hay cuatro planes: semanal (0.99 créditos al mes), Lun/Mié/Vie (1.99), diario Advanced (2.49, días laborables y acceso a datos para agentes de IA) y Jade (9.99, herramientas de riesgo de cartera, todo lo incluido en Advanced y un calendario de resúmenes que usted elige). Suscríbase a Jade en la página Jade.",
+    "subscriptionPlans": "Portfonia envía resúmenes programados a suscriptores. Hay cuatro planes: semanal (0.99 créditos al mes), Lun/Mié/Vie (1.99), diario Advanced (2.49, días laborables y acceso a datos para agentes de IA) y Jade (9.99, herramientas de riesgo de cartera, todo lo incluido en Advanced y un calendario de resúmenes que usted elige). Las posiciones guardadas, incluido el efectivo y las posiciones en observación, se limitan a 30, 50 mientras Advanced está activo y 100 mientras Jade está activo. Suscríbase a Jade en la página Jade.",
     "subscriptionRequirements": "Hasta suscribirse, no se envían resúmenes programados y algunas funciones pueden no estar disponibles. Necesita un correo verificado para suscribirse.",
     "choosePlan": "Elegir un plan"
   },
@@ -1239,7 +1241,7 @@
     "resellerNotice": "Nuestro proceso de pedidos se realiza mediante nuestro revendedor en línea Paddle.com. Paddle.com es el comerciante registrado (Merchant of Record) para todos nuestros pedidos. Paddle atiende todas las consultas de servicio al cliente y gestiona las devoluciones.",
     "terms": {
       "title": "Términos de servicio",
-      "lastUpdated": "Última actualización: 2026-10-08",
+      "lastUpdated": "Última actualización: 2026-10-13",
       "intro": "Estos Términos de servicio rigen su uso de Portfonia. Léalos junto con nuestra Política de privacidad y Política de reembolsos.",
       "sections": [
         {
@@ -1287,7 +1289,7 @@
           "heading": "6. Uso aceptable",
           "body": [
             "Acepta no hacer uso indebido del Servicio, incluyendo intentar acceder a datos de otro usuario, interferir con su funcionamiento o construir un producto competidor a partir de sus resultados.",
-            "Los tokens de API permiten que el software que elija lea sus datos. Manténgalos secretos; usted es responsable de los agentes a los que entregue un token. Portfonia aplica los límites descritos en Agente de IA y puede revocar tokens para proteger su cuenta o el servicio."
+            "Los tokens de API permiten que el software que elija lea sus datos. Un token nuevo es de solo lectura salvo que elija escritura de posiciones. Las rutas de posiciones aún no están disponibles. Manténgalos secretos; usted es responsable de los agentes a los que entregue un token. Portfonia aplica los límites descritos en Agente de IA y puede revocar tokens para proteger su cuenta o el servicio."
           ]
         },
         {
@@ -1337,7 +1339,7 @@
     },
     "privacy": {
       "title": "Política de privacidad",
-      "lastUpdated": "Última actualización: 2026-10-08",
+      "lastUpdated": "Última actualización: 2026-10-13",
       "intro": "Su privacidad nos importa. Esta política explica qué recopilamos, por qué y cómo lo protegemos.",
       "sections": [
         {
@@ -1387,7 +1389,7 @@
         {
           "heading": "7. Acceso de agentes de IA",
           "body": [
-            "Si crea un token de API, almacenamos su hash irreversible, nombre y fechas de creación, vencimiento y último uso. Cada solicitud registra hora, token, endpoint y fechas solicitadas, resultado, IP y User-Agent del solicitante. Conservamos estos registros 90 días para proteger su cuenta y detectar uso indebido. Cuando se leen instantáneas de posiciones por API, le enviamos un aviso por correo como máximo una vez al día, con un enlace que revoca todos sus tokens. Los datos de la API se entregan al agente que usted elige; usted controla cómo los almacena o usa ese agente."
+            "Si crea un token de API, almacenamos su hash irreversible, su nombre, su permiso (solo lectura o escritura de posiciones) y las fechas de creación, vencimiento y último uso. Cada solicitud registra hora, token, endpoint y fechas solicitadas, resultado, IP y User-Agent del solicitante. Conservamos estos registros 90 días para proteger su cuenta y detectar uso indebido. Cuando se leen instantáneas de posiciones por API, le enviamos un aviso por correo como máximo una vez al día, con un enlace que revoca todos sus tokens. Los datos de la API se entregan al agente que usted elige; usted controla cómo los almacena o usa ese agente."
           ]
         },
         {
@@ -1430,7 +1432,7 @@
     },
     "pricing": {
       "title": "Precios",
-      "lastUpdated": "Última actualización: 2026-10-11",
+      "lastUpdated": "Última actualización: 2026-10-13",
       "intro": "Portfonia es una herramienta de software. Usted elige un plan de resúmenes y lo paga con créditos de servicio prepagados.",
       "sections": [
         {
@@ -1440,7 +1442,7 @@
             "Resumen Lun / Mié / Vie: 1.99 créditos al mes. Tres correos personalizados por semana (lunes, miércoles y viernes).",
             "Resumen diario (Advanced): 2.49 créditos al mes. Un correo personalizado cada día de lunes a viernes, incluidos festivos bursátiles.",
             "Jade: 9.99 créditos al mes. Incluye todo el plan Advanced. Elija resúmenes semanales, Lun / Mié / Vie o diarios y cambie el calendario cuando quiera en Jade. Incluye cinco herramientas de riesgo: simulación histórica de posiciones, riesgo de cola (VaR / CVaR), escenarios de estrés histórico, exposición por estilo y seguimiento frente a su referencia.",
-            "Semanal y Lun / Mié / Vie solo difieren en frecuencia. Diario es el plan Advanced. Diario y Jade permiten que su agente de IA lea instantáneas diarias e información relacionada con posiciones. El historial de informes está disponible para agentes en todos los planes."
+            "Semanal y Lun / Mié / Vie solo difieren en frecuencia. Diario es el plan Advanced. Diario y Jade permiten que su agente de IA lea instantáneas diarias e información relacionada con posiciones. El historial de informes está disponible para agentes en todos los planes. Las posiciones guardadas, incluido el efectivo y las posiciones en observación, se limitan a 30 en Semanal y Lun / Mié / Vie, 50 mientras Advanced está activo y 100 mientras Jade está activo."
           ]
         },
         {
@@ -1563,15 +1565,21 @@
   },
   "agent": {
     "title": "Agente de IA",
-    "intro": "Su agente de IA puede leer informes de Portfonia, instantáneas diarias completas e información mediante un token personal de API. El acceso es de solo lectura.",
+    "intro": "Su agente de IA puede leer informes de Portfonia, instantáneas diarias completas e información mediante un token personal de API. Los endpoints actuales son de solo lectura. Un token nuevo es de solo lectura salvo que elija escritura de posiciones. Las rutas de posiciones aún no están disponibles.",
     "limitsTitle": "Límites de acceso y avisos",
-    "limits": "Los límites se comparten entre todos sus tokens: 20 solicitudes por endpoint por hora. Más de 10 en un minuto bloquean el acceso 15 minutos. Una solicitud rechazada devuelve Retry-After para indicar cuándo reintentar.",
+    "limits": "Los límites se comparten entre todos sus tokens: 20 solicitudes por endpoint por hora. Más de 10 en un minuto bloquean el acceso 15 minutos. Una solicitud rechazada devuelve Retry-After para indicar cuándo reintentar. Cuando existan escrituras de una sola posición, esas llamadas compartirán otro límite de 30 por minuto y 100 por hora. La solicitud 31 en un minuto bloquea todo el acceso por token durante 15 minutos.",
     "quiet": "Las solicitudes se pausan desde cinco minutos antes de la hora programada de una tarea pesada hasta cinco minutos después de terminar, incluidas la recopilación de información y los resúmenes programados.",
     "notice": "Cuando se leen sus instantáneas por API, enviamos un aviso como máximo una vez al día, hora del Este. Si no solicitó el acceso, su enlace revoca inmediatamente todos sus tokens sin inicio de sesión ni confirmación.",
     "signIn": "Inicie sesión",
     "signInNote": "para gestionar sus tokens de API.",
     "settingsTitle": "Configuración de tokens",
     "tokenRule": "Puede tener hasta 5 tokens activos. Los no utilizados durante 60 días vencen automáticamente.",
+    "permissionLabel": "Permiso",
+    "permissionNote": "El permiso queda fijo al crear el token. Para cambiarlo, cree un token nuevo y revoque el anterior. Las rutas de posiciones aún no están disponibles. Cuando lo estén, se requerirá una suscripción Advanced o Jade activa.",
+    "permissions": {
+      "read_only": "Solo lectura",
+      "holdings_write": "Escritura de posiciones"
+    },
     "name": "Nombre del token",
     "expiry": "Fecha de vencimiento (opcional)",
     "expiryNote": "Deje vacío para no fijar vencimiento. La fecha debe ser posterior a hoy, hora del Este; el acceso vence a las 23:59:59 ET del día elegido.",
@@ -2039,7 +2047,8 @@
           "Carga de posiciones desde CSV, Excel o Markdown, con edición por fila",
           "Resumen de cartera: distribución, rendimiento frente a índices, volatilidad y riesgo",
           "Historial de informes en la web, con descarga Markdown o PDF",
-          "Su agente de IA puede leer el historial de informes"
+          "Su agente de IA puede leer el historial de informes",
+          "Hasta 30 posiciones guardadas, incluidas efectivo y posiciones en observación"
         ]
       },
       {
@@ -2051,7 +2060,8 @@
         "features": [
           "Un resumen cada día de lunes a viernes",
           "Su agente de IA puede leer instantáneas diarias de posiciones",
-          "Su agente de IA puede leer información relacionada con sus posiciones"
+          "Su agente de IA puede leer información relacionada con sus posiciones",
+          "Hasta 50 posiciones guardadas mientras Advanced está activo, incluidas efectivo y posiciones en observación"
         ]
       },
       {
@@ -2066,7 +2076,8 @@
           "Riesgo de cola (VaR / CVaR)",
           "Escenarios de estrés histórico: cinco crisis pasadas",
           "Exposición por estilo",
-          "Seguimiento frente a su referencia: una cartera definida por usted y su error de seguimiento"
+          "Seguimiento frente a su referencia: una cartera definida por usted y su error de seguimiento",
+          "Hasta 100 posiciones guardadas mientras Jade está activo, incluidas efectivo y posiciones en observación"
         ]
       }
     ],

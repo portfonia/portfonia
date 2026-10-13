@@ -9,12 +9,18 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
 
+TOKEN_PERMISSIONS = ("read_only", "holdings_write")
+
 
 class ApiToken(Base):
     __tablename__ = "api_tokens"
     __table_args__ = (
         CheckConstraint("length(trim(name)) BETWEEN 1 AND 50", name="name"),
         CheckConstraint("revoked_by IN ('user', 'email_link', 'ops')", name="revoked_by"),
+        CheckConstraint(
+            "permission IN (" + ", ".join(f"'{item}'" for item in TOKEN_PERMISSIONS) + ")",
+            name="permission",
+        ),
     )
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
@@ -32,3 +38,6 @@ class ApiToken(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     revoked_by: Mapped[str | None] = mapped_column(Text)
+    permission: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'read_only'"), default="read_only"
+    )

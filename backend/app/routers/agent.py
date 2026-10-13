@@ -20,7 +20,12 @@ from app.tasks.notification_tasks import send_api_access_notice_task
 
 
 def agent_limits(request: Request, principal: AgentPrincipal = Depends(agent_principal)) -> None:
-    enforce_agent_limits(str(principal.user_id), request.scope["route"].path, api_tokens.now_et())
+    enforce_agent_limits(
+        str(principal.user_id),
+        request.method,
+        request.scope["route"].path,
+        api_tokens.now_et(),
+    )
 
 
 def advanced_access(

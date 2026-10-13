@@ -1,5 +1,6 @@
+import math
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Literal, get_args
 from uuid import UUID
 
@@ -58,6 +59,61 @@ VALID_ASSET_TYPES: tuple[str, ...] = get_args(AssetTypeValue)
 # position weight. NULL = not watched (unchanged real-weight behavior).
 WatchTier = Literal["watch", "focus", "critical"]
 VALID_WATCH_TIERS: tuple[str, ...] = get_args(WatchTier)
+
+
+def parse_holding_amount(value: object) -> Decimal | None:
+    """Finite nonnegative amount. Strings and Decimals keep exact digits."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError("amount must be a finite non-negative decimal")
+    if isinstance(value, Decimal):
+        amount = value
+    elif isinstance(value, int):
+        amount = Decimal(value)
+    elif isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("amount must be a finite non-negative decimal")
+        amount = Decimal(str(value))
+    elif isinstance(value, str):
+        try:
+            amount = Decimal(value)
+        except InvalidOperation as exc:
+            raise ValueError("amount must be a finite non-negative decimal") from exc
+    else:
+        raise ValueError("amount must be a finite non-negative decimal")
+    if not amount.is_finite() or amount < 0:
+        raise ValueError("amount must be a finite non-negative decimal")
+    return amount
+
+
+def validate_cash_wmf(
+    *,
+    name: str,
+    asset_type: str | None,
+    ticker: str | None,
+    fund_code: str | None,
+    pricing_mode: str | None,
+    current_value: object,
+) -> None:
+    if asset_type not in ("cash", "wmf"):
+        return
+    if ticker or fund_code:
+        raise ValueError(
+            f"cash/wmf row {name!r} has a ticker/fund_code "
+            f"({ticker or fund_code!r}) — cash/wmf products carry no "
+            "real instrument identifier; the amount belongs in current_value"
+        )
+    if pricing_mode != "manual":
+        raise ValueError(
+            f"cash/wmf row {name!r} has pricing_mode={pricing_mode!r} "
+            "— cash/wmf has no fetchable price and must be priced manually"
+        )
+    if current_value is None:
+        raise ValueError(
+            f"cash/wmf row {name!r} is missing current_value — cash/wmf "
+            "rows are valued from current_value only, never shares"
+        )
 
 
 class IssueRow(BaseModel):
@@ -180,23 +236,14 @@ class ParsedRow(BaseModel):
         # current_value, and its auto branch has no ticker/fund_code to
         # fetch a price for). The original version of this guard only
         # checked ticker/fund_code, which left both of these open.
-        if self.asset_type in ("cash", "wmf"):
-            if self.ticker or self.fund_code:
-                raise ValueError(
-                    f"cash/wmf row {self.name!r} has a ticker/fund_code "
-                    f"({self.ticker or self.fund_code!r}) — cash/wmf products carry no "
-                    "real instrument identifier; the amount belongs in current_value"
-                )
-            if self.pricing_mode != "manual":
-                raise ValueError(
-                    f"cash/wmf row {self.name!r} has pricing_mode={self.pricing_mode!r} "
-                    "— cash/wmf has no fetchable price and must be priced manually"
-                )
-            if self.current_value is None:
-                raise ValueError(
-                    f"cash/wmf row {self.name!r} is missing current_value — cash/wmf "
-                    "rows are valued from current_value only, never shares"
-                )
+        validate_cash_wmf(
+            name=self.name,
+            asset_type=self.asset_type,
+            ticker=self.ticker,
+            fund_code=self.fund_code,
+            pricing_mode=self.pricing_mode,
+            current_value=self.current_value,
+        )
         return self
 
 
@@ -284,9 +331,9 @@ class HoldingPatch(BaseModel):
     ticker: str | None = None
     fund_code: str | None = None
     currency: str | None = None
-    shares: float | None = Field(default=None, ge=0, allow_inf_nan=False)
-    avg_cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
-    current_value: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    shares: Decimal | None = None
+    avg_cost: Decimal | None = None
+    current_value: Decimal | None = None
     pricing_mode: PricingMode | None = None
     asset_type: AssetTypeValue | None = None
     market: Literal["US", "HK", "A-Share", "UK", "Europe", "Japan", "Korea", "Other"] | None = None
@@ -299,6 +346,11 @@ class HoldingPatch(BaseModel):
     # routers/holdings.py's update_holding) without touching the holding
     # row otherwise (Requirements item 4).
     watch_tier: WatchTier | None = None
+
+    @field_validator("shares", "avg_cost", "current_value", mode="before")
+    @classmethod
+    def _amount(cls, value: object) -> Decimal | None:
+        return parse_holding_amount(value)
 
     @field_validator("currency")
     @classmethod

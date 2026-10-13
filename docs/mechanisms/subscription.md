@@ -171,25 +171,21 @@ subscription-type CHECKs. It performs no data or balance mutation. Downgrade
 restores the old CHECKs and fails if a row still contains `daily`; there is no
 automatic conversion. No dependency or Settings field is added.
 
-### Planned holding caps (owner decision, 2026-10-13)
+### Holding row caps (issue #753)
 
-The owner selected maximum holding counts of Basic 30, Advanced 50 and
-Jade 100 as part of the next Agent holdings-management scope. These are
-planned limits; this documentation change adds no enforcement. Distinguish
-Jade before the broader Advanced predicate because Jade satisfies both.
+Web and file holding writes enforce Basic 30, active Advanced 50 and active
+Jade 100 stored rows. Jade is checked before Advanced because Jade also
+satisfies `is_advanced`. Every stored row counts, including cash and watched
+rows. Weekly, Mon/Wed/Fri, no subscription, and expired, cancelled or inactive
+users are Basic. An active cancel-pending subscription keeps the higher cap
+until expiry. Rows already over the cap stay. Reads, edits and reductions
+remain available. An addition, including a file replace that creates new row
+IDs, must finish at or under the cap and otherwise returns HTTP 409
+`holding_cap`. The check runs inside the locked user transaction in
+`services/holdings_write.py`. Agent holdings routes are not registered.
 The [Agent mechanism](agent-api.md#confirmed-decisions-and-remaining-product-questions)
-records the associated scope and the owner-confirmed R4 product decision.
-
-The owner confirmed applying the caps to web, file-confirm and Agent writes,
-counting each stored row including watch-only and cash holdings, assigning
-inactive/unsubscribed users the Basic cap, and preserving existing or
-downgraded over-limit rows. Over-limit behavior permits reads,
-edits of existing rows and reductions, while blocking additions until the
-count is within the cap. Weekly and Mon/Wed/Fri also use the Basic cap;
-active cancel-pending subscriptions keep their entitlement until expiry.
-Implement serialized final-count checks across the writer paths and publish
-these agreed limits on the relevant public plan and holdings surfaces with
-the eventual implementation. This documentation does not enforce the caps.
+records the same rule. Public Pricing, Welcome, Terms, holdings pages and
+the Agent reference state these caps.
 
 ### Merged report dispatch
 

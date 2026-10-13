@@ -1,22 +1,17 @@
 import logging
-from collections.abc import Sequence
-from datetime import UTC, datetime
-from decimal import Decimal
-from typing import Any, Literal
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, status
-from fastapi.exceptions import RequestValidationError
 from fastapi.responses import Response
-from pydantic import ValidationError
-from sqlalchemy import delete, func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
 from app.core.deps import Principal, current_principal
 from app.models.holding import Holding
-from app.models.price_snapshot import PriceSnapshot
 from app.models.upload_job import UploadJob
+from app.models.user import User
 from app.schemas.holdings import (
     HoldingOut,
     HoldingPatch,
@@ -24,17 +19,9 @@ from app.schemas.holdings import (
     ReorderIn,
     UploadJobOut,
 )
-from app.services import holding_parser
-from app.services.accounts import resolve_accounts_for_holdings
+from app.services import holding_parser, holdings_write
 from app.services.holding_ordering import sorted_holdings as _sorted_holdings
-from app.services.holding_parser import (
-    _classify_asset_class,
-    apply_confirmed_exchange_suffix,
-    normalize_ticker_and_currency,
-)
 from app.services.holdings_export import holdings_export_filename, render_export, render_template
-from app.services.instrument_symbols import normalize_legacy_ticker
-from app.services.markets import is_capture_supported, resolve_holding_market
 from app.tasks.holdings_tasks import parse_holdings_upload
 
 logger = logging.getLogger(__name__)
@@ -42,7 +29,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-_MIN_BARS_FOR_TECHNICAL = 50
 # A holdings file is a few dozen to a few thousand rows of text/spreadsheet
 # data — this is generous headroom, not a realistic size, meant only to stop
 # an oversized upload from being read fully into memory and handed to
@@ -63,339 +49,11 @@ _UPLOAD_READ_CHUNK_BYTES = 64 * 1024
 _MAX_TEXT_BYTES = 100 * 1024
 
 
-def _tickers_with_sparse_history(
-    session: Session, user_id: UUID, only: set[str] | None = None
-) -> list[str]:
-    """Return this user's auto-priced tickers with < _MIN_BARS_FOR_TECHNICAL close bars.
-
-    price_snapshots is a global store (no user_id); the *fetch* still writes
-    shared rows. The *trigger* is this confirm's book — another user's sparse
-    name must not fire a 420-day job here (issue #194).
-    """
-    holdings = session.scalars(
-        select(Holding).where(
-            Holding.user_id == user_id,
-            Holding.ticker.is_not(None),
-            Holding.pricing_mode == "auto",
-        )
-    ).all()
-    tickers = {h.ticker for h in holdings if h.ticker and is_capture_supported(h)}
-    if only is not None:
-        tickers &= only
-    if not tickers:
-        return []
-    # price_snapshots is keyed by the normalized ticker (issue #204: e.g.
-    # "0700.HK" for a holding whose raw ticker is the un-padded "700.HK")
-    # — querying by the raw ticker never matches, so every confirm
-    # re-enqueued a fresh 420-day backfill for a ticker that already had a
-    # full year of history.
-    normalized_to_raw: dict[str, str] = {normalize_legacy_ticker(t): t for t in tickers}
-    bar_counts: dict[str, int] = {
-        row[0]: row[1]
-        for row in session.execute(
-            select(PriceSnapshot.ticker, func.count().label("bars"))
-            .where(
-                PriceSnapshot.ticker.in_(normalized_to_raw),
-                PriceSnapshot.session_node == "close",
-                PriceSnapshot.close.is_not(None),
-            )
-            .group_by(PriceSnapshot.ticker)
-        ).all()
-    }
-    sparse = sorted(
-        t
-        for t in tickers
-        if bar_counts.get(normalize_legacy_ticker(t), 0) < _MIN_BARS_FOR_TECHNICAL
-    )
-    if sparse:
-        # Concept §8.8: application logs record user_id, never holdings
-        # content — a ticker list is holdings-derived (issue #129 §2.2 D).
-        logger.info(
-            "confirm_holdings: user_id=%s triggered backfill for %d ticker(s) with < %d close bars",
-            user_id,
-            len(sparse),
-            _MIN_BARS_FOR_TECHNICAL,
-        )
-    return sparse
-
-
-def _fund_codes_without_close(
-    session: Session, user_id: UUID, only: set[str] | None = None
-) -> list[str]:
-    """Return this user's auto-priced fund_codes with no captured close.
-
-    price_snapshots is global; if any user (or a prior scheduled run) already
-    wrote a close under this fund_code, this confirm reuses it. §4.4 technical
-    position skips funds (no ticker), so one close is enough for valuation —
-    unlike tickers, which backfill when they have < 50 bars (issue #196).
-    """
-    holdings = session.scalars(
-        select(Holding).where(
-            Holding.user_id == user_id,
-            Holding.fund_code.is_not(None),
-            Holding.pricing_mode == "auto",
-        )
-    ).all()
-    codes = {h.fund_code for h in holdings if h.fund_code}
-    if only is not None:
-        codes &= only
-    if not codes:
-        return []
-    cached = set(
-        session.scalars(
-            select(PriceSnapshot.ticker)
-            .where(
-                PriceSnapshot.ticker.in_(codes),
-                PriceSnapshot.session_node == "close",
-                PriceSnapshot.close.is_not(None),
-            )
-            .distinct()
-        ).all()
-    )
-    missing = sorted(c for c in codes if c not in cached)
-    if missing:
-        # Concept §8.8: count + user_id, never the fund_code list.
-        logger.info(
-            "confirm_holdings: user_id=%s triggered fund NAV capture for %d fund(s) with no close snapshot",
-            user_id,
-            len(missing),
-        )
-    return missing
-
-
-def _enqueue_confirm_capture(
-    task: Any,
-    *args: object,
-    label: str,
-    user_id: UUID,
-    log_prefix: str,
-) -> None:
-    """Fire-and-forget after holdings are already committed.
-
-    A broker blip must not turn a successful confirm into a 500 — the write
-    is done; the daily capture beat covers a missed enqueue. Unlike
-    upload_holdings (PR #82), there is no pending job row that would be
-    stuck without the task. `log_prefix` is the caller label (confirm /
-    create / update) so PATCH/POST do not log as confirm_holdings.
-    """
-    try:
-        task.delay(*args)
-    except Exception:
-        first = args[0] if args else []
-        count = len(first) if isinstance(first, list) else 1
-        logger.exception(
-            "%s: user_id=%s failed to enqueue %s for %d identifier(s)",
-            log_prefix,
-            user_id,
-            label,
-            count,
-        )
-
-
-def _lock_user_holdings(session: Session, user_id: UUID) -> None:
-    """Serialize concurrent inserts so max(position) cannot collide.
-
-    Locks this user's holding rows (`FOR UPDATE`). An empty book has nothing
-    to lock, so also lock the user row — two first-inserts must not both
-    read max=None and land on position 0.
-    """
-    from app.models.user import User
-
-    session.execute(select(User).where(User.id == user_id).with_for_update())
-    session.scalars(select(Holding).where(Holding.user_id == user_id).with_for_update()).all()
-
-
-def _next_position(session: Session, user_id: UUID) -> int:
-    current = session.scalar(select(func.max(Holding.position)).where(Holding.user_id == user_id))
-    if current is None:
-        return 0
-    return int(current) + 1
-
-
-def _own_holding(
-    session: Session, user_id: UUID, holding_id: UUID, *, for_update: bool = False
-) -> Holding:
-    if for_update:
-        # PR #321 review round 3: update_holding's read-modify-write was
-        # unlocked — create/confirm/reorder all take _lock_user_holdings,
-        # PATCH did not. Harmless while the only client sent the whole
-        # form, but issue #319's inline edit makes two single-field
-        # PATCHes on the same row (e.g. tabbing shares -> pricing_mode
-        # before the first response lands) an ordinary interaction: each
-        # would merge against a stale pre-edit row, and the later commit
-        # could silently drop the earlier field for every non-money
-        # column (_MONEY_FIELDS below already guards shares/avg_cost/
-        # current_value specifically, but pricing_mode/asset_type/market/
-        # broker/etc. are unconditionally rewritten from the merged view
-        # on every PATCH). A row-level lock, not the broader
-        # _lock_user_holdings (that would serialize PATCHes across a
-        # user's entire book, not just this one holding), closes the gap.
-        # Scope the lock to this user's own row in the WHERE clause itself
-        # (round-4 review): filtering by id alone would take a FOR UPDATE
-        # lock on another user's row before the ownership check below ever
-        # runs, on a mere guessed UUID.
-        holding = session.scalar(
-            select(Holding)
-            .where(Holding.id == holding_id, Holding.user_id == user_id)
-            .with_for_update()
-        )
-    else:
-        holding = session.get(Holding, holding_id)
-    if holding is None or holding.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Holding not found.")
-    return holding
-
-
 def _report_locale(session: Session, user_id: UUID) -> str:
-    from app.models.user import User
-
     user = session.get(User, user_id)
     if user is None or user.locale not in ("en", "zh", "zh-Hant"):
         return "en"
     return user.locale
-
-
-def _apply_write_defaults(data: dict[str, Any]) -> dict[str, Any]:
-    if (
-        data.get("asset_type") in ("cash", "wmf")
-        and not data.get("ticker")
-        and not data.get("fund_code")
-    ):
-        data["market"] = "Other"
-    # Same HK-normalize + suffix-currency correction as the file-import path
-    # (holding_parser._postprocess), run before AND after force-suffix for
-    # the same reason: before canonicalizes a ticker already suffixed by the
-    # caller, after canonicalizes a suffix apply_confirmed_exchange_suffix
-    # just added. Without this, an API write of "700"+HKD stored "700.HK"
-    # while the identical file-import input stored "0700.HK" — a divergence
-    # that silently misses ticker_themes/config-YAML lookups keyed on the
-    # canonical form (PR #310 round 5 review).
-    normalize_ticker_and_currency(data, emit_note=False)
-    apply_confirmed_exchange_suffix(data, emit_note=False)
-    normalize_ticker_and_currency(data, emit_note=False)
-    # Recompute capture support server-side so a client cannot enable
-    # speculative yfinance by forging capture_supported=True (issue #311).
-    # Suffix first so a declared-UK "VOD" resolves as "VOD.L", not as a
-    # bare-US ticker (declared market/currency, not the ticker string
-    # itself, drives this — issue #417 removed the one ticker-specific
-    # shortcut this module used to have).
-    resolved_market, capture_ok = resolve_holding_market(
-        ticker=data.get("ticker"),
-        declared_market=data.get("market"),
-        fund_code=data.get("fund_code"),
-        asset_type=data.get("asset_type"),
-        pricing_mode=data.get("pricing_mode") or "auto",
-    )
-    data["market"] = resolved_market
-    # Mirrors _postprocess: a row apply_confirmed_exchange_suffix left
-    # ambiguously-suffixed is still bare as far as resolve_holding_market's
-    # ticker-based inference is concerned, so its "no suffix = US" default
-    # would otherwise win regardless of the real (persisted) market — never
-    # capture-ready without a real suffix (PR #310 round 6 review).
-    if data.pop("_suffix_ambiguous", False):
-        capture_ok = False
-    data["capture_supported"] = capture_ok
-    data["asset_class"] = _classify_asset_class(data)
-    return data
-
-
-def _row_to_holding_data(row: ParsedRow, now: datetime, position: int) -> dict[str, Any]:
-    data = row.model_dump(exclude={"issues", "confidence"})
-    data = _apply_write_defaults(data)
-    for field in ("shares", "avg_cost", "current_value"):
-        if data[field] is not None:
-            data[field] = Decimal(str(data[field]))
-    if data["pricing_mode"] == "manual":
-        data["last_manual_update"] = now
-    data["position"] = position
-    return data
-
-
-def _insert_from_rows(
-    session: Session,
-    user_id: UUID,
-    rows: list[ParsedRow],
-    *,
-    start_position: int,
-    archive_unreferenced: bool,
-) -> list[Holding]:
-    parsed: list[dict[str, Any]] = []
-    now = datetime.now(tz=UTC)
-    for idx, row in enumerate(rows):
-        parsed.append(_row_to_holding_data(row, now, start_position + idx))
-    account_ids = resolve_accounts_for_holdings(
-        session,
-        user_id,
-        [(d["broker"], d["account"], d["portfolio"]) for d in parsed],
-        archive_unreferenced=archive_unreferenced,
-    )
-    holdings = [
-        Holding(user_id=user_id, account_id=account_id, **data)
-        for data, account_id in zip(parsed, account_ids, strict=True)
-    ]
-    session.add_all(holdings)
-    return holdings
-
-
-def _enqueue_sparse_for(
-    session: Session,
-    user_id: UUID,
-    holdings: Sequence[Holding],
-    *,
-    log_prefix: str,
-) -> None:
-    tickers = {h.ticker for h in holdings if h.ticker and h.pricing_mode == "auto"}
-    if tickers:
-        sparse = _tickers_with_sparse_history(session, user_id, only=tickers)
-        if sparse:
-            from app.tasks.capture_tasks import backfill_ohlcv_task
-
-            _enqueue_confirm_capture(
-                backfill_ohlcv_task,
-                sparse,
-                label="ohlcv backfill",
-                user_id=user_id,
-                log_prefix=log_prefix,
-            )
-    codes = {h.fund_code for h in holdings if h.fund_code and h.pricing_mode == "auto"}
-    if codes:
-        missing = _fund_codes_without_close(session, user_id, only=codes)
-        if missing:
-            from app.tasks.capture_tasks import backfill_fund_navs_task
-
-            _enqueue_confirm_capture(
-                backfill_fund_navs_task,
-                missing,
-                label="fund NAV capture",
-                user_id=user_id,
-                log_prefix=log_prefix,
-            )
-
-
-_MONEY_FIELDS = ("shares", "avg_cost", "current_value")
-
-
-def _holding_as_row_dict(holding: Holding) -> dict[str, Any]:
-    return {
-        "name": holding.name,
-        "ticker": holding.ticker,
-        "fund_code": holding.fund_code,
-        "currency": holding.currency,
-        "shares": float(holding.shares) if holding.shares is not None else None,
-        "avg_cost": float(holding.avg_cost) if holding.avg_cost is not None else None,
-        "current_value": (
-            float(holding.current_value) if holding.current_value is not None else None
-        ),
-        "pricing_mode": holding.pricing_mode,
-        "asset_type": holding.asset_type,
-        "asset_class": holding.asset_class,
-        "market": holding.market,
-        "broker": holding.broker,
-        "account": holding.account,
-        "portfolio": holding.portfolio,
-        "notes": holding.notes,
-        "watch_tier": holding.watch_tier,
-    }
 
 
 @router.post("/upload", response_model=UploadJobOut, status_code=status.HTTP_202_ACCEPTED)
@@ -503,63 +161,12 @@ def confirm_holdings(
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> list[Holding]:
-    """Persist parsed rows. Default mode is append (issue #92) — safer than
-    silently replacing the whole book. Frontend always sends mode explicitly.
+    """Persist parsed rows. Append is the default.
 
-    Issue #424 Requirements item 1: watch_tier is settable ONLY via
-    single-row POST/PATCH /holdings/{id} (or the #421 UI), never this bulk
-    dialect — stripped here, not inside `_row_to_holding_data`/
-    `_insert_from_rows`, because `create_holding` (single-row POST
-    /holdings) shares those same helpers and must keep allowing a
-    client-supplied watch_tier (PR #427 review 5174404148: the review's
-    suggested fix location would have broken that path).
+    File confirm strips watch_tier inside the shared writer. Single-row
+    create still accepts a client watch_tier.
     """
-    rows = [row.model_copy(update={"watch_tier": None}) for row in rows]
-    user_id = principal.user_id
-    if mode == "replace":
-        session.execute(delete(Holding).where(Holding.user_id == user_id))
-        start = 0
-        archive = True
-    else:
-        _lock_user_holdings(session, user_id)
-        start = _next_position(session, user_id)
-        archive = False
-    inserted = _insert_from_rows(
-        session,
-        user_id,
-        rows,
-        start_position=start,
-        archive_unreferenced=archive,
-    )
-    session.commit()
-    if mode == "replace":
-        tickers_needing_backfill = _tickers_with_sparse_history(session, user_id)
-        if tickers_needing_backfill:
-            from app.tasks.capture_tasks import backfill_ohlcv_task
-
-            _enqueue_confirm_capture(
-                backfill_ohlcv_task,
-                tickers_needing_backfill,
-                label="ohlcv backfill",
-                user_id=user_id,
-                log_prefix="confirm_holdings",
-            )
-        fund_codes_needing_nav = _fund_codes_without_close(session, user_id)
-        if fund_codes_needing_nav:
-            from app.tasks.capture_tasks import backfill_fund_navs_task
-
-            _enqueue_confirm_capture(
-                backfill_fund_navs_task,
-                fund_codes_needing_nav,
-                label="fund NAV capture",
-                user_id=user_id,
-                log_prefix="confirm_holdings",
-            )
-    else:
-        _enqueue_sparse_for(session, user_id, inserted, log_prefix="confirm_holdings")
-    return _sorted_holdings(
-        session.scalars(select(Holding).where(Holding.user_id == user_id)).all()
-    )
+    return holdings_write.confirm_holdings(session, principal.user_id, rows, mode)
 
 
 @router.get("", response_model=list[HoldingOut])
@@ -580,20 +187,7 @@ def create_holding(
     principal: Principal = Depends(current_principal),
 ) -> Holding:
     """Create one holding from a structured body. Does not call the LLM."""
-    user_id = principal.user_id
-    _lock_user_holdings(session, user_id)
-    inserted = _insert_from_rows(
-        session,
-        user_id,
-        [row],
-        start_position=_next_position(session, user_id),
-        archive_unreferenced=False,
-    )
-    session.commit()
-    _enqueue_sparse_for(session, user_id, inserted, log_prefix="create_holding")
-    holding = inserted[0]
-    session.refresh(holding)
-    return holding
+    return holdings_write.create_holding(session, principal.user_id, row)
 
 
 @router.patch("/reorder", response_model=list[HoldingOut])
@@ -602,21 +196,7 @@ def reorder_holdings(
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> list[Holding]:
-    user_id = principal.user_id
-    _lock_user_holdings(session, user_id)
-    existing = list(session.scalars(select(Holding).where(Holding.user_id == user_id)).all())
-    existing_ids = {h.id for h in existing}
-    incoming = body.ids
-    if len(incoming) != len(existing_ids) or set(incoming) != existing_ids:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="ids must be a permutation of all of this user's holding ids.",
-        )
-    by_id = {h.id: h for h in existing}
-    for idx, holding_id in enumerate(incoming):
-        by_id[holding_id].position = idx
-    session.commit()
-    return [by_id[i] for i in incoming]
+    return holdings_write.reorder_holdings(session, principal.user_id, body.ids)
 
 
 @router.get("/export")
@@ -666,58 +246,7 @@ def update_holding(
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> Holding:
-    holding = _own_holding(session, principal.user_id, holding_id, for_update=True)
-    updates = patch.model_dump(exclude_unset=True)
-    if not updates:
-        return holding
-    merged = _holding_as_row_dict(holding)
-    merged.update(updates)
-    # Re-run ParsedRow validation (cash/wmf boundary, currency, asset_class)
-    # on the merged state so a partial patch cannot leave an illegal row.
-    try:
-        parsed = ParsedRow.model_validate(merged)
-    except ValidationError as exc:
-        raise RequestValidationError(exc.errors()) from exc
-    data = _apply_write_defaults(parsed.model_dump(exclude={"issues", "confidence"}))
-    account_fields_changed = any(k in updates for k in ("broker", "account", "portfolio"))
-    # Compare against what _apply_write_defaults actually produced, not just
-    # whether the client's PATCH body mentioned "ticker": it force-suffixes
-    # a ticker (apply_confirmed_exchange_suffix) even on a patch that never
-    # touches the field, e.g. a notes-only edit on a legacy unsuffixed row.
-    # Comparing `updates["ticker"]` missed that case entirely — stale price
-    # survived, the round-1 regression reopened through a different door
-    # (PR #310 round 5 review; that round's backfill enqueue is gone, #435).
-    ticker_changed = data.get("ticker") != holding.ticker
-    fund_changed = data.get("fund_code") != holding.fund_code
-    for field, value in data.items():
-        if field in _MONEY_FIELDS:
-            # Untouched EncryptedDecimal columns must not round-trip through
-            # float (PR #310). Only rewrite money fields actually present
-            # in HoldingPatch.
-            if field not in updates:
-                continue
-            if value is not None:
-                value = Decimal(str(value))
-        setattr(holding, field, value)
-    if data["pricing_mode"] == "manual":
-        holding.last_manual_update = datetime.now(tz=UTC)
-    if ticker_changed or fund_changed:
-        holding.market_price = None
-        holding.price_as_of = None
-        holding.price_fetched_at = None
-    if account_fields_changed:
-        account_ids = resolve_accounts_for_holdings(
-            session,
-            principal.user_id,
-            [(holding.broker, holding.account, holding.portfolio)],
-            archive_unreferenced=False,
-        )
-        holding.account_id = account_ids[0]
-    session.commit()
-    if ticker_changed or fund_changed:
-        _enqueue_sparse_for(session, principal.user_id, [holding], log_prefix="update_holding")
-    session.refresh(holding)
-    return holding
+    return holdings_write.update_holding(session, principal.user_id, holding_id, patch)
 
 
 @router.delete("/{holding_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -726,7 +255,5 @@ def delete_holding(
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> Response:
-    holding = _own_holding(session, principal.user_id, holding_id)
-    session.delete(holding)
-    session.commit()
+    holdings_write.delete_holding(session, principal.user_id, holding_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
