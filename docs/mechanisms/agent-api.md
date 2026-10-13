@@ -228,6 +228,124 @@ Terms adds token-holder duties to the end of section 6, Acceptable Use.
 The Chinese copy is implementation-authored for owner review in the PR.
 
 Review, merge, deployment and production data work require separate owner
-instructions. Deploy together with #650/#652. The Ops reference note update
-is deferred until authorized post-deployment work; this PR changes no Obsidian
-note and no infrastructure.
+instructions. Historical #651 delivery plan: deploy together with #650/#652,
+and defer the Ops reference update to authorized post-deployment work.
+The original implementation PR changed no Obsidian note or infrastructure.
+That historical plan does not describe the status of the current Ops note.
+
+## Product control and planned holdings management (2026-10-13)
+
+The owner-selected Obsidian product-control note is `AI_Agent.md` in the
+project's existing Docs folder. It owns user-facing Agent requirements,
+decisions, design proposals, development status and the migrated stage-D
+decision history. The Ring 2 development note keeps a stage index. The Ops
+reference continues to own administrative audit and token-revocation calls.
+This mechanism documents shipped code separately from planned behavior.
+
+The owner approved the following next scope; none is implemented by this
+documentation change, and no new issue has been opened:
+
+| Capability | Proposed Agent route or protocol |
+|---|---|
+| Read all current holdings | `GET /agent/v1/holdings` |
+| Submit the complete target holdings collection | `PUT /agent/v1/holdings` |
+| Replace one holding's writable fields | `PUT /agent/v1/holdings/{id}` |
+| Delete one holding | `DELETE /agent/v1/holdings/{id}` |
+| Add one holding | `POST /agent/v1/holdings` |
+| A: partial update | `PATCH /agent/v1/holdings/{id}` |
+| B: validation without saving | `POST /agent/v1/holdings/validate` |
+| C: conflict protection | Collection version returned on reads and required on writes |
+| D: safe retries for creation | Idempotency key on holding creation |
+
+All current-holdings capabilities target active Advanced subscribers,
+including Daily and Jade, using the existing `is_advanced` entitlement.
+New token creation will offer read-only or holdings-write permission.
+Existing tokens remain read-only. Permission-aware token creation, lists,
+authentication and UI are future implementation work; the current model and
+creation body contain no permission field. The approved write scope does
+not authorize token calls to web or Ops routes.
+
+The JSON path must preserve existing holding IDs and fully read/write
+`watch_tier` (`null`, `watch`, `focus`, `critical`), including zero-share
+watched rows. It cannot simply reuse file-import replacement: current
+`confirm_holdings(mode="replace")` deletes/recreates IDs and strips
+`watch_tier`. This extension does not itself change file-import semantics.
+Use holding IDs rather than ticker identity; several rows may describe the
+same instrument in different accounts.
+
+### Proposed flow and outstanding owner decisions
+
+The product note contains six grouped questions. The following remain
+proposals until the owner answers them:
+
+1. Complete PUT updates owned IDs, inserts rows without IDs, removes omitted
+   rows, applies array order and treats an empty array as clearing all rows;
+   the transaction succeeds or rolls back as a whole.
+2. Default new tokens to read-only; keep permissions immutable; allow all
+   signed-in users to create either permission, while checking subscription
+   entitlement on each holdings call.
+3. Accept existing editable fields and watch tiers, decimal strings for
+   amounts/shares, reject unknown fields and avoid automatic ticker merging.
+   Separate server-owned metadata from the writable payload in GET and docs.
+4. Make every web, import-confirm and Agent holdings mutation update the
+   collection version; require the read version on all Agent writes.
+5. Require an idempotency key for creation, retain successful results for
+   24 hours, replay matching requests and reject changed content under the
+   same key. Recognize committed replays before rejecting the original stale
+   version; persist the creation and idempotency result in one transaction.
+6. Share the existing daily snapshot-read notice with current-holdings GET;
+   send at most one separate modification notice per day after successful
+   writes; retain existing endpoint/hour, burst and quiet-window limits.
+
+The authored validation proposal covers complete replacement, creation,
+single-row replacement and PATCH. It applies the corresponding operation's
+rules, returns normalization and field/row errors, and does not save holdings,
+increment their version, enqueue captures or send access/modification notices.
+Normal authentication bookkeeping, request limits and audit still apply.
+Validation does not reserve a version or guarantee a later write succeeds.
+Exact envelopes, DELETE response, error contracts and replay representation
+must be finished before an implementation issue is ready.
+
+The implementation flow should use shared holdings services rather than call
+HTTP handlers that independently commit. After authentication, existing limits,
+entitlement and write permission, validate input, lock the user, check the
+version and row ownership, normalize/write the complete transaction and
+increment the version. Commit before existing necessary capture enqueueing.
+Stored snapshot history remains unchanged; JSON handling calls no parser LLM.
+
+Affected modules include `models/api_token.py`, `services/api_tokens.py`,
+`routers/api_tokens.py`, `core/agent_auth.py`, `routers/agent.py`, holding
+schemas/services and web writers, migrations for permissions/versioning and
+idempotency, and the Agent token UI. Preserve current instrument normalization,
+account resolution, encrypted decimal handling, ordering and price invalidation.
+This is holdings-record management, not broker integration or trade execution.
+
+### Backlog, documentation and acceptance
+
+E (a dedicated reorder endpoint) and F (current capability lookup) are owner-
+selected backlog. G (an Agent-only OpenAPI schema for tools that generate
+callable functions from machine-readable definitions) is undecided, not
+selected backlog or first-release scope. It describes interfaces; it does
+not expose user data or authorize calls. The existing Markdown reference
+remains the first-release documentation format.
+
+Extend `/agent.md` with writable/read-only fields, types, null/default behavior,
+decimal precision, stable IDs, ordering, complete/partial replacement, empty
+collection semantics, validation, conflict rereads, idempotent retries and
+errors. Include stock, fund, cash, manual valuation and watch-only examples.
+Do not advertise unimplemented routes in current public documentation.
+
+Acceptance must prove old/read-only tokens cannot write, subscription expiry
+removes holdings access, IDs/watch tiers survive read-edit-submit, invalid
+bulk input rolls back, foreign/duplicate IDs are rejected, web edits conflict
+with stale API writes, concurrent/retried creation yields one ID, validation
+has no holdings side effects, and decimals retain precision. Run the project
+code gates and independent review during implementation. No issue, code,
+migration, merge, deployment or production action is authorized by this
+docs-only delivery.
+
+Public surfaces affected by the future implementation: Agent explanation and
+token creation/list UI in all four UI locales, `/agent.md`, `/llms.txt`, and
+Pricing/Terms/Privacy statements that describe Agent access (verify the
+inventory during detailed design). This documentation PR changes no public
+capability claims.
