@@ -1,4 +1,5 @@
 from app.models.account import Account
+from app.models.agent_idempotency import AgentIdempotency
 from app.models.api_audit_log import ApiAuditLog
 from app.models.api_token import ApiToken
 from app.models.base import Base
@@ -29,6 +30,7 @@ from app.models.waitlist_entry import WaitlistEntry
 
 __all__ = [
     "Account",
+    "AgentIdempotency",
     "ApiAuditLog",
     "ApiToken",
     "Base",

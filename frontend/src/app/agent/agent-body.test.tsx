@@ -98,3 +98,10 @@ it("polish_660_acceptance_6 aligns page typography", () => {
     expect(screen.getByText(label).closest('[data-slot="card"]')).toHaveClass("text-sm");
   }
 });
+
+it.each(["en", "es", "zh-Hans", "zh-Hant"] as const)("754 current holdings endpoints are visible in %s", (locale) => {
+  render(<NextIntlClientProvider locale={locale} messages={catalogs[locale]}><AgentBody /></NextIntlClientProvider>);
+  for (const endpoint of ["GET /agent/v1/holdings", "PUT /agent/v1/holdings", "POST /agent/v1/holdings", "POST /agent/v1/holdings/validate", "PUT /agent/v1/holdings/{holding_id}", "PATCH /agent/v1/holdings/{holding_id}", "DELETE /agent/v1/holdings/{holding_id}"]) {
+    expect(screen.getByText(endpoint)).toBeInTheDocument();
+  }
+});

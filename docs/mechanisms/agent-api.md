@@ -1,8 +1,10 @@
 # Personal agent API access (#651, #652)
 
 A user's own agent can read reports on every plan and complete daily holding
-snapshots and intelligence on an active Advanced plan (Daily or Jade).
-The public `/agent` page explains all three endpoints and provides token
+snapshots, intelligence and current holdings on an active Advanced plan (Daily or Jade).
+Issue #754 adds holdings management with a holdings-write token and read-only
+validation. See the current-holdings contract below.
+The public `/agent` page explains the implemented endpoints and provides token
 settings after session verification. Get started links to it for guests and
 signed-in users. `/llms.txt` points to the English `/agent.md` API reference
 and the human guide; both static files are public without a session. The
@@ -43,8 +45,8 @@ or `holdings_write`, default and backfill `read_only` (migration
 `read_only`. List and create responses include `permission`. There is no
 route that changes it. Existing rows stay read-only. Any signed-in user may
 create either mode. `AgentPrincipal` carries the stored permission. Unknown
-values return 422. Holdings Agent routes are not registered; when they are,
-holdings calls still require an active Advanced or Jade subscription.
+values return 422. Holdings calls require an active Advanced or Jade subscription (#754);
+mutations additionally require holdings_write permission.
 
 ## Request limits and scheduled quiet windows
 
@@ -53,17 +55,16 @@ query validation or endpoint entitlement:
 
 1. Quiet window.
 2. Existing `agent:lock:{user_id}` (remaining TTL).
-3. For the future single-row pairs `POST /agent/v1/holdings` and
+3. For the single-row pairs `POST /agent/v1/holdings` and
    `PUT`/`PATCH`/`DELETE /agent/v1/holdings/{holding_id}` only (#753):
    `agent:single:minute:{user_id}` allows 30 per 60 seconds; request 31 sets
    the same 900-second account lock. `agent:single:hour:{user_id}` allows 100
    per 3600 seconds and returns 429 with the remaining TTL on request 101.
    These calls do not increment the burst or per-endpoint hour counters.
-   The routes are not registered.
 4. Otherwise, `agent:burst:{user_id}`: fixed 60-second window from its first
    increment; the eleventh request sets a 900-second lock and returns 429.
 5. Otherwise, `agent:hour:{endpoint}:{user_id}`: 20 per 3600-second fixed window.
-6. Endpoint entitlement, via `is_advanced(user)` for snapshots and intelligence (403
+6. Endpoint entitlement, via `is_advanced(user)` for snapshots, intelligence and holdings (403
    `subscription_required`).
 
 Limits combine all tokens belonging to the same user. Every 429 has a
@@ -249,199 +250,180 @@ and defer the Ops reference update to authorized post-deployment work.
 The original implementation PR changed no Obsidian note or infrastructure.
 That historical plan does not describe the status of the current Ops note.
 
-## Product control and planned holdings management (2026-10-13)
+## Current holdings management (#754)
 
-The owner-selected Obsidian product-control note is `AI_Agent.md` in the
-project's existing Docs folder. It owns user-facing Agent requirements,
-decisions, design proposals, development status and the migrated stage-D
-decision history. The Ring 2 development note keeps a stage index. The Ops
-reference continues to own administrative audit and token-revocation calls.
-This mechanism documents shipped code separately from planned behavior.
+The owner-selected product note is the existing `AI_Agent.md` in the project
+Docs folder. It owns product decisions; this mechanism records implementation.
+The #753-#755 batch remains subject to separate merge, migration and deployment
+authorization. This PR implements #754; no production operation is implied.
 
-The owner approved the following next scope; none is implemented by this
-documentation change, and no new issue has been opened:
+### Transport and behavior
 
-| Capability | Proposed Agent route or protocol |
-|---|---|
-| Read all current holdings | `GET /agent/v1/holdings` |
-| Submit the complete target holdings collection | `PUT /agent/v1/holdings` |
-| Replace one holding's writable fields | `PUT /agent/v1/holdings/{id}` |
-| Delete one holding | `DELETE /agent/v1/holdings/{id}` |
-| Add one holding | `POST /agent/v1/holdings` |
-| A: partial update | `PATCH /agent/v1/holdings/{id}` |
-| B: validation without saving | `POST /agent/v1/holdings/validate` |
-| C: conflict protection | Collection version returned on reads and required on writes |
-| D: safe retries for creation | Idempotency key on holding creation |
-| G: machine-readable Agent contract | Public Agent-only OpenAPI schema |
-| Plan-specific holding caps | Basic 30, Advanced 50, Jade 100 rows; web and file writers enforce this (#753). Agent routes do not exist yet |
+These routes manage the caller's current holdings records. They do not access
+broker accounts or execute trades. GET and validation accept either token
+permission; every mutation requires `holdings_write`. All holdings calls require
+an active Advanced or Jade subscription. Report/snapshot/intelligence routes
+remain read-only. Cached valuation preview and the Agent-only OpenAPI discovery
+URL are not available yet; use this reference for the implemented routes.
 
-All current-holdings capabilities target active Advanced subscribers,
-including Daily and Jade, using the existing `is_advanced` entitlement.
-Token permission, the shared web/file writer, the collection version and the
-single-row limit profile shipped in #753, described above and in the
-subscription mechanism. Holdings routes, idempotency, valuation and the
-OpenAPI schema did not. The approved write scope does not authorize token
-calls to web or Ops routes.
+| Method / path | Body and result |
+| --- | --- |
+| `GET /agent/v1/holdings` | No body. 200 complete book. |
+| `PUT /agent/v1/holdings` | `{version, holdings, delete_ids}`. 200 complete book. Idempotency-Key required. |
+| `POST /agent/v1/holdings` | `{version, holding}`. 201 `{version, holding}`. Idempotency-Key required. |
+| `PUT /agent/v1/holdings/{holding_id}` | `{version, holding}`. 200 `{version, holding}`. |
+| `PATCH /agent/v1/holdings/{holding_id}` | `{version, changes}`. 200 `{version, holding}`. |
+| `DELETE /agent/v1/holdings/{holding_id}` | No body; `If-Match: "<version>"`. 200 `{version, deleted_id}`. |
+| `POST /agent/v1/holdings/validate` | Discriminated operation below. 200 validation result; no saving. |
 
-The JSON path must preserve existing holding IDs and fully read/write
-`watch_tier` (`null`, `watch`, `focus`, `critical`), including zero-share
-watched rows. It cannot simply reuse file-import replacement: current
-`confirm_holdings(mode="replace")` deletes/recreates IDs and strips
-`watch_tier`. This extension does not itself change file-import semantics.
-Use holding IDs rather than ticker identity; several rows may describe the
-same instrument in different accounts.
+A complete book is `{version: string, holdings: [record], metadata: [metadata]}`.
+Each record contains its stable UUID `id` plus the writable fields below.
+Metadata is separate, keyed by `id`: `asset_class`, `capture_supported`,
+`last_manual_update` (timestamp/null), `created_at`, `updated_at` and
+`position` (integer/null). `holdings` can be reused directly in complete PUT;
+never copy `metadata` into the write body. Empty GET is legal. Same tickers in
+separate accounts retain separate IDs; zero-share watched rows remain included.
 
-### Confirmed decisions and remaining product questions
+Required writable fields: nonempty string `name`, supported uppercase `currency`
+and `pricing_mode` (`auto` or `manual`). Optional fields default to null:
+`ticker`, `fund_code`, `shares`, `avg_cost`, `current_value`, `asset_type`,
+`market`, `broker`, `account`, `portfolio`, `notes`, `watch_tier`.
+Unknown keys, system timestamps, captured prices, `asset_class`, capture support
+and internal account IDs cannot be submitted. Optional identity/grouping/notes
+fields are strings/null. Currency accepts USD, CNY, CNH, HKD, GBP, EUR, JPY,
+SGD, AUD, CAD, CHF, KRW, TWD, MOP and NZD. `asset_type` is stock/etf/fund/cash/wmf/other
+or null; `market` is US/HK/A-Share/UK/Europe/Japan/Korea/Other or null;
+`watch_tier` is watch/focus/critical or null.
 
-The owner answered the original six questions on 2026-10-13:
+Amounts are null or JSON strings matching `^(0|[1-9][0-9]*)(\.[0-9]+)?$`.
+Numbers, signs, exponent notation, NaN and infinity are rejected. Values pass
+directly through Decimal and encrypted storage without float conversion.
+Responses use fixed-point decimal strings, with fractional trailing zeros
+removed. Cash and WMF must have manual pricing, a non-null current_value and
+no ticker or fund_code. Other missing inputs are not fabricated. Existing
+instrument/market/currency normalization applies; identity changes clear stale
+stored prices. System capture does not change the holdings-input version.
 
-1. Reject an empty holdings array and direct the user to clear holdings in
-   the UI. Deletions must be explicit in JSON; omission must never delete
-   an existing ID. The confirmed envelope is `{version, holdings, delete_ids}`.
-   Every old ID must appear exactly once in retained holdings or deletions;
-   missing/overlapping IDs reject the entire transaction. Array order applies
-   to retained/new rows. Single-row DELETE rejects deletion of the last row,
-   with the same instruction to clear holdings in the UI. Serialize that check
-   to prevent concurrent deletions from clearing the book.
-2. Default new tokens to read-only; keep permissions immutable; allow all
-   signed-in users to create either permission, while checking subscription
-   entitlement on each holdings call.
-3. The owner confirmed that all user-input fields are editable, with no
-   automatic synchronization and uniqueness by holding ID. System fields
-   (IDs, timestamps, captured prices, internal account IDs and capture support)
-   remain server-owned. Automatic `asset_class` cannot be overridden.
-   Decimal strings and unknown-field rejection belong to the authored technical
-   schema proposal, whose exact format is to be specified in detailed design.
-4. Make every web, import-confirm and Agent holdings mutation update the
-   collection version; require the read version on all Agent writes. Web and
-   file writers increment `users.holdings_version` once per successful change
-   of normalized user fields, membership or order (#753). No-op normalized
-   edits and price/NAV/FX capture do not. Agent reads and writes do not exist
-   yet, so the version is not on a public holdings response.
-5. Require an idempotency key for creation, retain successful results for
-   24 hours, replay matching requests and reject changed content under the
-   same key. Recognize committed replays before rejecting the original stale
-   version; persist the creation and idempotency result in one transaction.
-6. Share the existing daily snapshot-read notice with current-holdings GET;
-   send at most one separate modification notice per day after successful
-   writes. The owner confirmed a separate shared single-row write bucket of
-   30 requests/minute and 100/hour, combining POST/PUT/PATCH/DELETE across all
-   tokens of the user. These calls no longer consume the old global 10/minute
-   bucket or the old 20/endpoint/hour quota. Request 31 within the minute
-   triggers the existing 15-minute account lock; request 101 in the hour gets
-   hourly 429/Retry-After. Other calls keep their existing limits, and the
-   account-wide lock and heavy-task quiet windows still apply. The limit
-   profile is enforced for those method and route templates (#753). The
-   holdings routes, notices for holdings writes, and version-on-read contract
-   are not implemented.
+Complete PUT requires every existing ID exactly once in `holdings` or
+`delete_ids`. Lists must be unique and disjoint. Omission never deletes:
+A/B/C -> holdings A/B + delete C succeeds; A + delete C fails because B is
+unaccounted for, with no writes. Retained rows keep their IDs; new rows omit
+`id` or set it null. Submitted array order sets positions 0..n-1. At least
+one holding is required. Single DELETE cannot remove the last row; clear in
+the browser UI. Ownership errors never disclose another user's row existence.
 
-R1/R2/R3/R4 are all owner-confirmed. Reject omitted IDs in complete submissions: given
-existing rows A/B/C, submit A/B plus `delete_ids: [C]` to retain/update A/B
-and delete C. Submitting A plus `delete_ids: [C]` leaves B unexplained and
-must reject the whole request without writing. Use single-row PATCH to
-edit A alone. These symbolic IDs illustrate intent, not runnable UUID payloads.
+Single PUT replaces all writable fields and clears omitted optional fields to
+null/defaults. PATCH retains omitted fields; explicit null clears nullable
+fields only. Required fields cannot be null. Empty PATCH is a no-op. New single
+rows append; single updates retain order. Whole and single changes are atomic,
+including account resolution. Normalized no-ops retain their version and
+system timestamps. Manual creation/value changes update the manual timestamp.
 
-Basic 30, active Advanced 50 and active Jade 100 holding rows are enforced by
-`services/holdings_write.py` for web and file writers (#753). The count
-includes every stored row, including watches and cash. Weekly, Mon/Wed/Fri,
-no subscription, and expired, cancelled or inactive users use Basic. An
-active cancel-pending subscription keeps the higher cap until expiry. Jade
-is evaluated before Advanced. Rows already over the cap are not deleted;
-reads, edits and reductions remain, and an addition, including a file replace
-that rebuilds IDs, must finish at or under the cap. The refusal is HTTP 409
-`holding_cap`. Agent holdings routes are not registered; when they are, they
-use this same writer. See the subscription mechanism.
+Every write requires the current canonical nonnegative integer string version
+(`"0"`, `"1"`, etc.), in the body except DELETE's quoted If-Match header.
+Do not combine version sources. A stale version returns 409 version_conflict
+with `current_version`; reread and reconcile, rather than blindly replacing
+the version in an old payload. Basic/Advanced/Jade caps are 30/50/100 stored
+rows, counting cash and watches. Existing over-limit books remain readable and
+editable/reducible; operations introducing rows must end within the cap.
 
-The authored validation proposal covers complete replacement, creation,
-single-row replacement and PATCH. It applies the corresponding operation's
-rules, returns normalization and field/row errors, and does not save holdings,
-increment their version, enqueue captures or send access/modification notices.
-Normal authentication bookkeeping, request limits and audit still apply.
-Validation does not reserve a version or guarantee a later write succeeds.
-Exact envelopes, DELETE response, error contracts and replay representation
-must be finished before an implementation issue is ready.
+POST and whole PUT require a trimmed 1-128-character ASCII Idempotency-Key
+using letters, digits, `.`, `_`, `:` or `-`. Keys are shared across the user's
+tokens, independently for creation and complete replacement. Preserve the
+original key, version and payload for a retry. Successful results are retained
+for 24 absolute hours: identical canonical content returns the original status,
+body, IDs and version with `Idempotency-Replayed: true`, before stale-version
+checking. Decimal spelling/default omission and JSON key order are canonicalized;
+array order remains significant. Different content under the same key returns
+409 idempotency_conflict. At exact expiry the key can be reused. Failed attempts
+do not reserve a key. Authentication, current entitlement and limits still
+apply to replay. Its old version is intentional; reread before another write.
 
-The implementation flow should use shared holdings services rather than call
-HTTP handlers that independently commit. After authentication, existing limits,
-entitlement and write permission, validate input, lock the user, check the
-version and row ownership, normalize/write the complete transaction and
-increment the version. Commit before existing necessary capture enqueueing.
-Stored snapshot history remains unchanged; JSON handling calls no parser LLM.
+Validation accepts exactly one of:
 
-Affected modules include `models/api_token.py`, `services/api_tokens.py`,
-`routers/api_tokens.py`, `core/agent_auth.py`, `routers/agent.py`, holding
-schemas/services and web writers, migrations for permissions/versioning and
-idempotency, and the Agent token UI. Preserve current instrument normalization,
-account resolution, encrypted decimal handling, ordering and price invalidation.
-This is holdings-record management, not broker integration or trade execution.
+```text
+{operation:"replace_all", version, holdings, delete_ids}
+{operation:"create", version, holding}
+{operation:"replace", version, holding_id, holding}
+{operation:"patch", version, holding_id, changes}
+```
 
-### Backlog, documentation and acceptance
+It returns `{valid:true, version, normalized:<same operation shape>}` or
+`{valid:false, version, errors:[{code,path,message}]}` for domain errors,
+including stale version, cap, incomplete collection and unavailable IDs.
+The response version is the current version. PATCH normalization returns the
+merged writable fields (empty changes remain empty). Structural malformed JSON,
+unknown fields and invalid field types return 422. Validation reads a consistent
+book but does not reserve its version or guarantee a later write. It writes no
+holdings/accounts/idempotency result, increments no version, captures no prices
+and sends no data notice. Normal auth bookkeeping, limits and audit still apply.
 
-E (a dedicated reorder endpoint) and F (current capability lookup) are owner-
-selected backlog. G is now owner-approved first-release scope: publish a
-machine-readable OpenAPI contract covering existing and new Agent routes,
-excluding Ops, browser-session and internal routes. Public schema discovery
-does not expose user data or authorize calls. Keep `/agent.md` for semantics
-and worked flows, and link the schema from it and `/llms.txt`. Define its
-public URL and exact schema/error models in the detailed implementation design;
-do not reopen the full production `/openapi.json`.
+New holdings domain errors use `{detail:{code,message,...}}`:
 
-Extend `/agent.md` with writable/read-only fields, types, null/default behavior,
-decimal precision, stable IDs, ordering, complete/partial replacement, empty
-collection semantics, validation, conflict rereads, idempotent retries and
-errors. Include stock, fund, cash, manual valuation and watch-only examples.
-Do not advertise unimplemented routes in current public documentation.
-Public agent.md and llms.txt may carry an explicitly unavailable future-contract
-section; they must retain current endpoint availability and prevent readers
-from calling planned routes as though they were implemented. At implementation,
-the human guide and Agent schema must repeat the strict deletion, completeness,
-last-row, version, idempotency, permission and quota rules. Declare `minItems: 1`
-in the schema and document cross-row/database checks and their errors; schema
-alone does not enforce them.
+| Status | Codes / additional fields |
+| --- | --- |
+| 403 | subscription_required, holdings_write_required |
+| 404 | holding_not_found for absent or foreign IDs |
+| 409 | version_conflict (current_version), idempotency_conflict, holding_limit (limit/current_count), last_holding_requires_ui |
+| 422 | empty_holdings (clear in browser), incomplete_collection (owned missing_ids), duplicate_id, conflicting_id, invalid_holding, invalid_idempotency_key |
+| 428 | version_required for DELETE without If-Match |
 
-### User-built synchronization pipelines and unselected proposals
+Existing 401/429/503 auth/protection and other endpoints' error shapes are
+unchanged. GET/whole PUT audit counts returned rows; single operations count
+one; validate counts candidate rows. Request audit never stores bodies, keys or
+replay payloads. Successful replay bodies are stored separately with encryption
+at rest and expire after 24 hours.
 
-The owner's goal is institution downloads processed by a user's own agent
-on the user's schedule. Portfonia provides the personal API, not institution
-login/download automation or integrations specific to an agent product.
-Document stable source/account/row-to-holding-ID mapping, retaining other
-institutions' rows and user-maintained fields absent from the source (watch
-tiers, notes and grouping labels), checking source completeness/freshness, and validating
-then reconciling writes. A platform version cannot detect an old broker file.
-After an ambiguous bulk-write timeout, reread/reconcile rather than blindly
-changing the version and retrying; creation idempotency does not cover PUT.
+Current-holdings GET and snapshots share one access email per ET day. Changed
+writes have at most one separate modification email per ET day. Validation,
+no-op writes and replay send no data notice. A notification failure after commit
+preserves the success and replay result. Notice links revoke all tokens without
+sign-in/confirmation to stop future access; revocation does not undo saved changes.
 
-Optional, unselected proposals are recorded in the product note: temporary
-valuation and complete-submission idempotency, and source-reference/freshness
-metadata if client-side mapping/checks prove insufficient. Do not make these
-first-release requirements without the owner's selection. Ambiguous row mapping
-must stop the affected update rather than guess a holding ID.
+Users build and schedule their own synchronization. Preserve other institutions'
+rows, stable source/account/row-to-ID mapping and user-maintained fields absent
+from a source download (watches, notes and grouping labels). Do not infer deletion
+from failed, incomplete, empty or stale downloads, or guess an ambiguous ID.
+The platform version detects platform edits, not source-file freshness. After a
+lost POST/whole-PUT response, retry the original payload/key within 24 hours,
+then reread and reconcile. Outside retention, reconcile before another mutation.
 
-A proposed `POST /agent/v1/holdings/value-preview` would price candidate rows
-using stored closes/FX and supplied manual values without saving, capturing or
-calling an LLM. The existing calculator excludes rows with missing prices/FX
-from its total, so a preview must expose per-row coverage, dates and missing
-reasons, a priced subtotal and a null complete total when incomplete. The
-author proposes Advanced/Jade access, read-only-token support, plan-sized input,
-a separate 10/user/hour quota with existing quiet windows/account locks and
-metadata-only audit. Neither the endpoint nor its policy is owner-approved.
+### Implementation boundaries
 
-Acceptance must prove old/read-only tokens cannot write, subscription expiry
-removes holdings access, IDs/watch tiers survive read-edit-submit, invalid
-bulk input rolls back, foreign/duplicate IDs are rejected, web edits conflict
-with stale API writes, concurrent/retried creation yields one ID, validation
-has no holdings side effects, and decimals retain precision. Also prove empty
-bulk submissions cannot clear holdings, only explicitly listed IDs are deleted,
-the Agent schema excludes private routes and matches the actual contract,
-and plan caps/single-row limits follow the finalized R3/R4 boundary rules.
-Run the project
-code gates and independent review during implementation. No issue, code,
-migration, merge, deployment or production action is authorized by this
-docs-only delivery.
+`schemas/agent_holdings.py` owns strict JSON transport. `routers/agent.py`
+uses existing token-only auth, method/template limits, audit and entitlement;
+old routes retain their errors. `services/agent_holdings.py` checks versions,
+ownership, completeness, normalization and final caps under the shared user
+lock. `services/holdings_write.py:apply_agent_book` resolves accounts and
+applies retained/new/deleted rows without committing. Agent saves encrypted
+replay in the same transaction and commits once; existing web/file writers
+keep their error, clearing and manual-timestamp conventions. No file-import
+replacement is used for Agent writes. Existing history/snapshots are unchanged.
 
-Public surfaces affected by the future implementation: Agent explanation and
-token creation/list UI in all four UI locales, `/agent.md`, `/llms.txt`, the
-Agent-only schema, and Pricing/Terms/Privacy or other inventory statements
-that describe Agent access or holding caps (verify the
-inventory during detailed design). This documentation PR changes no public
-capability claims.
+GET/validate acquire a shared User-row lock for coherent reads; web/file/Agent
+writers acquire the same row exclusively. Mutation inputs use Decimal directly;
+the parser LLM and ParsedRow's float amounts are not involved. Empty PATCH
+explicitly bypasses legacy normalization. No-op writes leave timestamps alone.
+Post-commit captures use existing sparse ticker/fund helpers only for new rows
+or changed instruments. Notification failures log only user/kind metadata.
+
+Migration `d75400000001`, following `d75300000001`, adds `agent_idempotency`:
+non-null user FK with ON DELETE CASCADE, operation, SHA-256 key/request hashes,
+status, EncryptedString response JSON and created/expiry timestamps, with unique
+user/operation/key_hash and an expiry index. Key reuse/lookup is serialized by
+the user lock. The existing operational sweep deletes expired results in
+1000-row batches and returns agent_idempotency_deleted; no new Beat entry.
+User purge explicitly removes replay rows before user deletion, with unchanged
+purge response counts. Read notices retain the snapshot marker; modification
+notices use a separate ET-day marker and the existing verified-recipient, locale
+and signed revoke-all mechanism, with one retry after 300 seconds. Emails remain
+English/Simplified/Traditional; Spanish UI receives the English fallback.
+
+### Remaining batch and backlog
+
+#755 owns cached temporary valuation and the public Agent-only OpenAPI/schema
+discovery package. Neither route/schema is made available by #754. E reorder
+and F capability lookup remain backlog. No broker downloads/logins, source
+reference/date persistence, server pipeline scheduling or trade execution is
+implemented. The earlier docs-only creation-only retry proposal is superseded
+by #754's owner-confirmed 24-hour POST and complete-PUT idempotency contract.

@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -483,3 +483,82 @@ def delete_holding(session: Session, user_id: UUID, holding_id: UUID) -> None:
     session.delete(holding)
     _bump(user)
     session.commit()
+
+
+def apply_agent_book(
+    session: Session,
+    user: User,
+    existing: list[Holding],
+    targets: list[tuple[Holding | None, dict[str, object], int | None]],
+    deleted: list[Holding],
+    *,
+    whole: bool,
+) -> tuple[list[Holding], list[Holding], bool]:
+    """Apply already checked Agent targets inside the caller's locked transaction.
+
+    Dynamic dictionaries are the shared ORM field mapping, as in the web writer.
+    This primitive never commits: the caller saves encrypted replay alongside it.
+    """
+    after = len(existing) - len(deleted) + sum(row is None for row, _, _ in targets)
+    _ensure_cap(
+        user, len(existing), after, introduces_rows=any(row is None for row, _, _ in targets)
+    )
+    account_ids = resolve_accounts_for_holdings(
+        session,
+        user.id,
+        [
+            (
+                cast(str | None, data.get("broker")),
+                cast(str | None, data.get("account")),
+                cast(str | None, data.get("portfolio")),
+            )
+            for _, data, _ in targets
+        ],
+        archive_unreferenced=whole,
+    )
+    result: list[Holding] = []
+    capture: list[Holding] = []
+    changed = bool(deleted)
+    now = datetime.now(tz=UTC)
+    for (holding, data, position), account_id in zip(targets, account_ids, strict=True):
+        if holding is None:
+            holding = Holding(user_id=user.id, account_id=account_id, position=position, **data)
+            if holding.pricing_mode == "manual":
+                holding.last_manual_update = now
+            session.add(holding)
+            changed = True
+            capture.append(holding)
+        else:
+            before = _canonical(holding)
+            identity_changed = holding.ticker != data.get(
+                "ticker"
+            ) or holding.fund_code != data.get("fund_code")
+            manual_value_changed = (
+                holding.current_value != data.get("current_value")
+                or holding.pricing_mode != data["pricing_mode"]
+            )
+            for field, value in data.items():
+                setattr(holding, field, value)
+            holding.account_id = account_id
+            holding.position = position
+            row_changed = before != _canonical(holding)
+            if row_changed:
+                changed = True
+                if holding.pricing_mode == "manual" and manual_value_changed:
+                    holding.last_manual_update = now
+                if identity_changed:
+                    holding.market_price = None
+                    holding.price_as_of = None
+                    holding.price_fetched_at = None
+                    capture.append(holding)
+        result.append(holding)
+    for holding in deleted:
+        session.delete(holding)
+    if changed:
+        _bump(user)
+    session.flush()
+    return result, capture, changed
+
+
+def enqueue_agent_capture(session: Session, user_id: UUID, holdings: list[Holding]) -> None:
+    _enqueue_sparse_for(session, user_id, holdings, log_prefix="agent_holdings")

@@ -165,9 +165,9 @@ it("acceptance_16 agent copy and legal sections match #651", () => {
 
 
 describe("issue #652 agent documentation catalogs", () => {
-  it.each(LOCALE_VALUES)("acceptance_09 %s carries only the new getting-started and endpoint keys", locale => {
+  it.each(LOCALE_VALUES)("acceptance_09 %s carries the implemented getting-started and endpoint keys", locale => {
     const agent = catalogs[locale].agent;
-    expect(Object.keys(agent.docs).sort()).toEqual(["gettingStartedTitle", "gettingStarted", "endpointsTitle", "reports", "snapshots", "intel"].sort());
+    expect(Object.keys(agent.docs).sort()).toEqual(["gettingStartedTitle", "gettingStarted", "endpointsTitle", "reports", "snapshots", "intel", "holdingsRead", "holdingsWrite", "holdingsValidate", "strict"].sort());
     for (const copy of Object.values(agent.docs)) {
       expect(copy.trim().length).toBeGreaterThan(0);
       expect([agent.intro, agent.limitsTitle, agent.limits, agent.quiet, agent.notice, agent.tokenRule]).not.toContain(copy);
