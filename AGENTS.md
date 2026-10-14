@@ -70,6 +70,7 @@ On 2026-10-14, during the discussion that became #763, an agent opened a worktre
 
 - Start implementation, including a task worktree, only when the current message explicitly asks to implement, dispatch, or change product files. Discussing copy, correcting a draft, asking a question, or "open an issue" is not that ask.
 - After the owner has asked to send or dispatch, retry a transient transport or rate-limit failure until the send is accepted. Do not end the turn with only the failure report.
+- When a PR implements an issue and the owner has not asked to leave that issue open, the PR body and the squash commit message use `Closes #<n>`. Do not write `Refs` unless the owner gives a reason to keep the issue open.
 
 ## Implementation-ready design and contract (mandatory)
 
