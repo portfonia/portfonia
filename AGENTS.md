@@ -74,6 +74,26 @@ Distinguish confirmed product decisions, the authored implementation design, unr
 
 **No open design-stage questions at implementation start (2026-09-10).** An issue is not ready for implementation while its Design or Contract constraints comment still contains an unresolved decision — this has repeatedly let an implementing LLM freelance or silently widen scope to fill the gap itself, rather than surfacing the ambiguity. Before implementation begins: get every substantive design decision (approach choices, failure-mode behavior, thresholds/policy values, data-model shape) explicitly resolved by the product owner and recorded in the relevant comment, editing it in place rather than appending a competing version. An issue may still note a deliberately deferred *future* decision (e.g. "escalate later if data warrants it") as long as the issue's own current scope has no dependency on that future decision's outcome — that is not the same as leaving today's implementation with a choice to make on its own.
 
+## Scope discipline for issue authors and implementers (mandatory, 2026-10-13)
+
+The #753/#754/#755 batch shipped and designed mechanisms the owner never selected: whole-PUT idempotency, a valuation preview, version no-op detection, a refactor justified by reuse that never happened, and tests of pre-existing behavior. Its cost was a large share of the implementer's weekly quota (inventory: #759). The completeness checklist above defines what a contract must answer. It is not a list of things to add.
+
+**When writing an issue or design:**
+
+1. **Trace every item to an owner decision.** Each Requirement, Design element and acceptance test must trace to an owner decision recorded in the governing document or the conversation. Cite where it is recorded. A proposal, suggestion or "author recommends" entry is not a decision. Never write "owner confirmed/accepted" for anything not recorded as such.
+2. **Take the simplest option for technical defaults the owner did not decide.** Examples: bump a version on every successful write rather than detect no-ops; use one cleanup path rather than several.
+3. **Change code in place.** Do not move or refactor code because a later issue might reuse it.
+4. **Write acceptance tests only for new or changed behavior.** Use one focused test per behavior. Require real-Postgres or concurrency tests only where this change introduces the race or transaction risk. Never require tests of pre-existing behavior. Keep worked examples to the few that pin ambiguous rules.
+5. **Gates are the CLAUDE.md gates for the touched files.** Do not add extra gates, review reruns or evidence formats.
+6. **Change public copy only where a statement becomes false.** Never announce unselected or future features.
+
+**When implementing (the reading LLM):**
+
+1. **Build only what the Design states.** Do not add mechanisms, defensive layers, cleanup paths, abstractions, configuration, documentation sections or "while I'm here" fixes. If something seems missing, report it instead of building it.
+2. **Stop and report rather than build** when a Design item cannot be traced to an owner decision, or when a materially simpler implementation satisfies the same Requirement. List all such items at once.
+3. **One focused test per acceptance item.** Do not expand into test matrices or counterexample suites the Contract does not list. TDD red/green applies to new behavior only.
+4. **Prefer the smallest diff.** Leave untouched code untouched.
+
 ## Documentation surfaces
 
 For documentation updates, maintain the relevant repository document and its AGENTS.md index entry; update shared CLAUDE.md only when its rules are affected. Edit an existing Obsidian feature note only within the user's authorized scope. Do not automatically create companion notes or synchronize every documentation surface. Update governing sections in place when a rule changes; append incident evidence without leaving contradictory active rules. Detailed contracts and access conventions are in [Documentation governance](docs/playbooks/documentation-governance.md).
