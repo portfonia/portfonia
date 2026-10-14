@@ -122,7 +122,7 @@ Every Beat entry must declare an explicit boolean in `API_QUIET_BEAT_ENTRIES`; h
 
 ### Mechanism deep-dives
 
-- [Public SEO pages and locale URLs](docs/mechanisms/frontend-chrome.md#public-seo-pages-and-locale-urls) — issue #702: public locale URLs, metadata, sitemap, OG previews, localized 404 and canonical host. #710 adds the protected Jade page, menu texture and Profile coordination. #737 adds public replay and tail-risk guides in four locales, with nine SEO pages and 36 sitemap URLs. #739 adds the guides index and stress, style and tracking guides, bringing the set to thirteen SEO pages and 52 sitemap URLs.
+- [Public SEO pages and locale URLs](docs/mechanisms/frontend-chrome.md#public-seo-pages-and-locale-urls) — issue #702: public locale URLs, metadata, sitemap, OG previews, localized 404 and canonical host. #710 adds the protected Jade page, menu texture and Profile coordination. #737 adds public replay and tail-risk guides in four locales, with nine SEO pages and 36 sitemap URLs. #739 adds the guides index and stress, style and tracking guides, bringing the set to thirteen SEO pages. #763 adds the public Agent guide, bringing the set to fourteen SEO pages and 56 sitemap URLs.
 
 Each entry below is the full implementation record (root cause, design
 tradeoffs, review provenance) for one system, filed under `docs/mechanisms/`.

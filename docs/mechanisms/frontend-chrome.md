@@ -478,11 +478,11 @@ header and the Holdings "current holdings" action row wrap.
 
 ## Public SEO pages and locale URLs
 
-Issues #702, #735, #737 and #739 provide English (unprefixed), `/es`, `/zh-Hans`, and
+Issues #702, #735, #737, #739 and #763 provide English (unprefixed), `/es`, `/zh-Hans`, and
 `/zh-Hant` versions of
 `/`, `/about`, `/pricing`, `/waitlist`, `/privacy`, `/terms`, `/refund`,
 `/guides/jade-replay`, `/guides/jade-var`, `/guides`, `/guides/jade-stress`,
-`/guides/jade-style`, and `/guides/jade-tracking` (thirteen public SEO pages).
+`/guides/jade-style`, `/guides/jade-tracking`, and `/agent/guide` (fourteen public SEO pages).
 `lib/seo.ts` defines this exact page set, canonical `https://portfonia.com`,
 URL helpers, protected prefixes, language alternates, and metadata builders.
 It is safe for client imports. Only `lib/seo-server.ts` reads `next/headers`;
@@ -525,7 +525,7 @@ Each SEO page emits catalog title/description, absolute canonical and fourteen
 language alternates (`en`, `es`, `es-419`, `es-US`, `es-MX`, `zh-Hans`, `zh-CN`, `zh-SG`, `zh`, `zh-Hant`, `zh-TW`, `zh-HK`, `zh-MO`,
 `x-default`), complete Open Graph metadata and a large-image Twitter card.
 `robots.ts` allows public URLs, disallows protected routes, `/api/` and `/agent/revoke` and names the
-sitemap. `sitemap.ts` lists 52 localized URLs with the same alternates and no
+sitemap. `sitemap.ts` lists 56 localized URLs with the same alternates and no
 invented modification dates. The six auth-flow pages remain crawlable but
 export shared `NOINDEX_METADATA` (`index: false`, `follow: true`), with no
 canonical/hreflang and no sitemap entries. The home page contains WebSite,

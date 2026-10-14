@@ -89,14 +89,14 @@ it.each(introCases)("737 A9 intro links with $locale Jade subscription $active",
   );
 });
 
-it.each(["en", "es", "zh-Hans", "zh-Hant"] as Locale[])("737 A9 %s Pricing only Jade feature indices one through five link", locale => {
+it.each(["en", "es", "zh-Hans", "zh-Hant"] as Locale[])("737 A9 %s Pricing links Advanced feature zero and Jade features one through five", locale => {
   const { container } = render(<LocaleProvider routeLocale={locale}>
     <PlanComparison />
   </LocaleProvider>);
   const plans = container.querySelectorAll('[data-plan]');
   plans.forEach((plan, i) => {
     expect([...plan.querySelectorAll('li')].map(li => li.textContent)).toEqual(catalogs[locale].pricingPlans.plans[i].features);
-    expect(plan.querySelectorAll('li a')).toHaveLength(i === 2 ? 5 : 0);
+    expect(plan.querySelectorAll('li a')).toHaveLength(i === 2 ? 5 : i === 1 ? 1 : 0);
   });
   const jade = within(plans[2] as HTMLElement);
   expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[1] })).toHaveAttribute('href', localizedPath('/guides/jade-replay', locale));

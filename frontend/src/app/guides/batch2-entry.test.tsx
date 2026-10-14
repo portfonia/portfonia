@@ -23,5 +23,6 @@ it.each(["en", "es", "zh-Hans", "zh-Hant"] as const)("739 A11 %s Pricing has fiv
   const { container } = render(<LocaleProvider routeLocale={locale}><PlanComparison /></LocaleProvider>);
   expect([...container.querySelectorAll('[data-plan="jade"] li a')].map(e => e.getAttribute("href"))).toEqual(["replay", "var", "stress", "style", "tracking"].map(k => localizedPath(`/guides/jade-${k}`, locale)));
   for (const [i, plan] of [...container.querySelectorAll('[data-plan]')].entries()) expect([...plan.querySelectorAll('li')].map(e => e.textContent)).toEqual(catalogs[locale].pricingPlans.plans[i].features);
-  expect(container.querySelectorAll('[data-plan="briefing"] a,[data-plan="advanced"] a')).toHaveLength(0);
+  expect(container.querySelectorAll('[data-plan="briefing"] a')).toHaveLength(0);
+  expect(container.querySelectorAll('[data-plan="advanced"] a')).toHaveLength(1);
 });

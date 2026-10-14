@@ -36,9 +36,9 @@ const expected = {
           ],
           "lead": "Everything in Briefing, plus:",
           "features": [
+            "Programmatic holdings writes: create a write-permission token so your AI agent can read and write standardized holdings, and update the instrument, quantity, cost, account and related details for one holding or the complete book. Every request is audit-logged.",
             "A briefing every weekday, Monday to Friday",
-            "Your AI agent can read daily snapshots and manage current holdings with write permission",
-            "Your AI agent can read intelligence related to your holdings",
+            "Your AI agent can also read daily snapshots and pull intelligence related to your holdings",
             "Up to 50 saved holding rows while Advanced is active, including cash and watched rows"
           ]
         },
@@ -92,9 +92,9 @@ const expected = {
           ],
           "lead": "\u5305\u542b\u7b80\u62a5\u7684\u5168\u90e8\u529f\u80fd\uff0c\u53e6\u52a0\uff1a",
           "features": [
+            "\u7a0b\u5e8f\u5316\u6301\u4ed3\u5199\u5165\uff1a\u521b\u5efa\u5177\u6709\u5199\u5165\u6743\u9650\u7684 token\uff0c\u8ba9\u60a8\u7684 AI\u667a\u80fd\u4f53\u8bfb\u5199\u6807\u51c6\u5316\u6301\u4ed3\uff0c\u5e76\u66f4\u65b0\u5355\u6761\u6301\u4ed3\u6216\u5168\u90e8\u6301\u4ed3\u7684\u6807\u7684\u3001\u6570\u91cf\u3001\u6210\u672c\u3001\u8d26\u6237\u53ca\u76f8\u5173\u8be6\u60c5\u3002\u6bcf\u6b21\u8bf7\u6c42\u90fd\u4f1a\u8bb0\u5165\u5ba1\u8ba1\u65e5\u5fd7\u3002",
             "\u6bcf\u4e2a\u5de5\u4f5c\u65e5\uff08\u5468\u4e00\u81f3\u5468\u4e94\uff09\u4e00\u5c01\u7b80\u62a5",
-            "AI\u667a\u80fd\u4f53\u53ef\u8bfb\u53d6\u9010\u65e5\u5feb\u7167\uff0c\u5e76\u4ee5\u5199\u5165\u6743\u9650\u7ba1\u7406\u5f53\u524d\u6301\u4ed3",
-            "AI\u667a\u80fd\u4f53\u53ef\u8bfb\u53d6\u4e0e\u60a8\u6301\u4ed3\u76f8\u5173\u7684\u60c5\u62a5",
+            "\u60a8\u7684 AI\u667a\u80fd\u4f53\u8fd8\u53ef\u8bfb\u53d6\u9010\u65e5\u5feb\u7167\u5e76\u83b7\u53d6\u4e0e\u60a8\u6301\u4ed3\u76f8\u5173\u7684\u60c5\u62a5",
             "\u8fdb\u9636\u6709\u6548\u671f\u95f4\u6700\u591a\u4fdd\u5b58 50 \u6761\u6301\u4ed3\uff0c\u73b0\u91d1\u548c\u89c2\u5bdf\u4e2d\u7684\u6301\u4ed3\u4e5f\u8ba1\u5165"
           ]
         },
@@ -148,9 +148,9 @@ const expected = {
           ],
           "lead": "\u6db5\u84cb\u7c21\u5831\u7684\u6240\u6709\u529f\u80fd\uff0c\u53e6\u52a0\uff1a",
           "features": [
+            "\u7a0b\u5f0f\u5316\u6301\u5009\u5beb\u5165\uff1a\u5efa\u7acb\u5177\u6709\u5beb\u5165\u6b0a\u9650\u7684 token\uff0c\u8b93\u60a8\u7684 AI \u667a\u80fd\u9ad4\u8b80\u5beb\u6a19\u6e96\u5316\u6301\u5009\uff0c\u4e26\u66f4\u65b0\u55ae\u7b46\u6301\u5009\u6216\u5168\u90e8\u6301\u5009\u7684\u6a19\u7684\u3001\u6578\u91cf\u3001\u6210\u672c\u3001\u5e33\u6236\u53ca\u76f8\u95dc\u8a73\u7d30\u8cc7\u6599\u3002\u6bcf\u6b21\u8acb\u6c42\u90fd\u6703\u8a18\u5165\u7a3d\u6838\u65e5\u8a8c\u3002",
             "\u6bcf\u500b\u5de5\u4f5c\u65e5\uff08\u9031\u4e00\u81f3\u9031\u4e94\uff09\u4e00\u5c01\u7c21\u5831",
-            "AI \u667a\u80fd\u9ad4\u53ef\u8b80\u53d6\u9010\u65e5\u5feb\u7167\uff0c\u4e26\u4ee5\u5beb\u5165\u6b0a\u9650\u7ba1\u7406\u76ee\u524d\u6301\u5009",
-            "AI \u667a\u80fd\u9ad4\u53ef\u8b80\u53d6\u8207\u60a8\u6301\u5009\u76f8\u95dc\u7684\u60c5\u5831",
+            "\u60a8\u7684 AI \u667a\u80fd\u9ad4\u9084\u53ef\u8b80\u53d6\u9010\u65e5\u5feb\u7167\u4e26\u53d6\u5f97\u8207\u60a8\u6301\u5009\u76f8\u95dc\u7684\u60c5\u5831",
             "\u9032\u968e\u6709\u6548\u671f\u9593\u6700\u591a\u5132\u5b58 50 \u7b46\u6301\u5009\uff0c\u73fe\u91d1\u8207\u89c0\u5bdf\u4e2d\u7684\u6301\u5009\u4e5f\u8a08\u5165"
           ]
         },
@@ -242,10 +242,15 @@ it.each(["en", "es", "zh-Hans", "zh-Hant"] as const)("A6 %s comparison contains 
   const block = screen.getByRole("region", { name: catalogs[locale].pricingPlans.heading });
   expect(block.querySelectorAll("button")).toHaveLength(0);
   const links = Array.from(block.querySelectorAll("a"));
-  expect(links).toHaveLength(5);
+  expect(links).toHaveLength(6);
+  const advanced = block.querySelector('[data-plan="advanced"]');
+  expect(advanced).toContainElement(links[0]);
+  expect(links[0]).toHaveTextContent(catalogs[locale].pricingPlans.plans[1].features[0]);
+  expect(advanced?.querySelectorAll("a")).toHaveLength(1);
   const jade = block.querySelector('[data-plan="jade"]');
-  for (const link of links) expect(jade).toContainElement(link);
+  for (const link of links.slice(1)) expect(jade).toContainElement(link);
   expect(links.map(link => link.getAttribute("href"))).toEqual([
+    localizedPath("/agent/guide", locale),
     localizedPath("/guides/jade-replay", locale),
     localizedPath("/guides/jade-var", locale),
     localizedPath("/guides/jade-stress", locale),

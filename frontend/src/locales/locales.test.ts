@@ -43,6 +43,7 @@ describe("locale catalogs stay structurally in sync (issue #209)", () => {
     const expected = [
       "about",
       "agent",
+      "agentGuide",
       "auth",
       "common",
       "downloadConfirm",

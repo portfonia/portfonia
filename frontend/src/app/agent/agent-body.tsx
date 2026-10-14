@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { type Locale } from "@/locales";
+import { localizedPath } from "@/lib/seo";
 import { useSession } from "@/hooks/use-session";
 import { listApiTokens, createApiToken, revokeApiToken, ApiError, type ApiToken, type ApiTokenPermission } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -21,9 +23,11 @@ const AGENT_PATHS = {
 export function AgentBody() {
   const t = useTranslations("agent");
   const session = useSession();
+  const locale = useLocale() as Locale;
   return <div className="flex flex-col gap-6">
     <h1 className="font-heading text-2xl font-medium">{t("title")}</h1>
     <p className="text-sm text-muted-foreground">{t("intro")}</p>
+    <Link href={localizedPath("/agent/guide", locale)} className="text-sm underline">{t("guideLink")}</Link>
     <Card>
       <CardHeader><CardTitle role="heading" aria-level={2}>{t("docs.gettingStartedTitle")}</CardTitle></CardHeader>
       <CardContent className="flex flex-col gap-2">

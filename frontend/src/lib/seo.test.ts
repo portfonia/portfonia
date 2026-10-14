@@ -47,7 +47,7 @@ describe("issue #702 SEO helpers", () => {
     expect(await getRouteLocale()).toBeNull();
   });
   it("classifies every app route directory explicitly", () => {
-    const publicPaths = ["/guides/jade-stress", "/guides/jade-style", "/guides/jade-tracking", "/guides", "/guides/jade-replay", "/guides/jade-var", "/about", "/agent", "/agent/revoke", "/forgot-password", "/login", "/pricing", "/privacy", "/refund", "/reset-password", "/signup", "/terms", "/unsubscribe", "/verify-email", "/waitlist"];
+    const publicPaths = ["/agent/guide", "/guides/jade-stress", "/guides/jade-style", "/guides/jade-tracking", "/guides", "/guides/jade-replay", "/guides/jade-var", "/about", "/agent", "/agent/revoke", "/forgot-password", "/login", "/pricing", "/privacy", "/refund", "/reset-password", "/signup", "/terms", "/unsubscribe", "/verify-email", "/waitlist"];
     for (const path of routeDirectories("src/app")) {
       expect(PROTECTED_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`)) || publicPaths.includes(path), path).toBe(true);
     }
