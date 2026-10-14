@@ -56,13 +56,21 @@ required, ask the product owner before designing or implementing it.
 
 ## Issue structure (mandatory project-wide convention)
 
-- GitHub issue titles, bodies, and comments are English. Internal Obsidian design notes may be Chinese.
+- GitHub issue titles, bodies, and comments are English. Internal Obsidian design notes may be Chinese. Record owner-supplied UI wording as English source sentences. Do not paste Chinese or any other non-English paragraph into the issue. Locale translations are written in the locale catalogs at implementation.
 - Verify the repository-owner write identity before posting; do not use the reviewer identity for issue maintenance.
 - Keep the body short: Summary, In scope, Out of scope, and links/index. End with: `Detail → comments: Requirements, Reasons, Exploration, Design, Contract constraints.`
 - Publish **five separate comments**, headed exactly `## Requirements`, `## Reasons`, `## Exploration`, `## Design`, and `## Contract constraints`. Do not combine them in one body or one comment.
 - Requirements state required behavior; Reasons explain why; Exploration records evidence, provenance, alternatives, and decisions; Design specifies how to implement; Contract constraints state invariants and execution gates.
 - Keep related epic/dependency links explicit. Do not close parent/related issues without authorization. Split distinct urgency/risk scopes when appropriate.
 - On revision, update the relevant existing comment and body links; avoid competing versions. Mark superseded rules explicitly.
+
+## Execution gates (mandatory, 2026-10-14)
+
+On 2026-10-14, during the discussion that became #763, an agent opened a worktree and edited the agent page after the owner corrected copy and described a public page. The owner had not asked to implement. The same agent then pasted Simplified Chinese into the GitHub issue. After the owner asked to send a review, a transient rate-limit response was reported as a stop instead of retried until the send was accepted.
+
+- Start implementation, including a task worktree, only when the current message explicitly asks to implement, dispatch, or change product files. Discussing copy, correcting a draft, asking a question, or "open an issue" is not that ask.
+- After the owner has asked to send or dispatch, retry a transient transport or rate-limit failure until the send is accepted. Do not end the turn with only the failure report.
+- When a PR implements an issue and the owner has not asked to leave that issue open, the PR body and the squash commit message use `Closes #<n>`. Do not write `Refs` unless the owner gives a reason to keep the issue open.
 
 ## Implementation-ready design and contract (mandatory)
 

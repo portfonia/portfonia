@@ -716,6 +716,8 @@ operation on its own.
 A session whose task was writing/authoring an issue or design doc must not
 pivot into implementing code in the same session — not directly, not via a
 subagent — unless the product owner explicitly asks it to in that session.
+A copy correction, a question, or an instruction to file an issue is not
+that ask. Do not open a task worktree until it is. (2026-10-14, #763.)
 Applies to every agent/harness working in this repo (Claude Code, Grok CLI,
 Codex, or otherwise), not just one. A design session ends by handing off a
 self-contained prompt (see any issue's own comments for what "implementable
