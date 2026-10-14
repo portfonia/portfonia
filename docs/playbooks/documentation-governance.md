@@ -69,6 +69,15 @@ Keep the contract proportionate to the authorized problem. When more scope
 is proposed, present its value, impact/cost, and reason for owner approval
 before adding it to the work.
 
+Authors and implementers both follow "Scope discipline for issue authors and
+implementers" in [AGENTS.md](../../AGENTS.md):
+- every item traces to a recorded owner decision;
+- technical defaults the owner did not decide take the simplest option;
+- no refactor is justified by anticipated reuse;
+- tests cover only new or changed behavior;
+- gates are only the CLAUDE.md gates;
+- implementers stop and report rather than build anything untraceable.
+
 ## Public surface sync
 
 Public surfaces are everything a visitor can see without a paid subscription,
