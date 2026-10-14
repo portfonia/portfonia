@@ -2,9 +2,9 @@ import { expect, it } from "vitest";
 import sitemap from "./sitemap";
 import { SEO_PAGES, SITE_URL, localizedPath } from "@/lib/seo";
 import { type Locale } from "@/locales";
-it("lists all 52 public URLs with fourteen absolute alternates and no invented date", () => {
+it("lists all 56 public URLs with fourteen absolute alternates and no invented date", () => {
   const entries = sitemap();
-  expect(entries).toHaveLength(52);
+  expect(entries).toHaveLength(56);
   for (const path of Object.values(SEO_PAGES)) for (const locale of ["en", "es", "zh-Hans", "zh-Hant"] as Locale[]) {
     const entry = entries.find((e) => e.url === SITE_URL + localizedPath(path, locale));
     expect(entry).toBeDefined();
@@ -19,9 +19,9 @@ it("lists all 52 public URLs with fourteen absolute alternates and no invented d
   }
 });
 
-it("acceptance_07 sitemap has 52 URLs with fourteen alternates including es-419", () => {
+it("acceptance_07 sitemap has 56 URLs with fourteen alternates including es-419", () => {
   const entries = sitemap();
-  expect(entries).toHaveLength(52);
+  expect(entries).toHaveLength(56);
   for (const entry of entries) {
     expect(Object.keys(entry.alternates?.languages ?? {})).toHaveLength(14);
     const path = new URL(entry.url).pathname.replace(/^\/(es|zh-Hans|zh-Hant)(?=\/|$)/, "") || "/";

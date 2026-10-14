@@ -24,6 +24,7 @@ it("acceptance_16 guests see sign-in without token settings", () => {
   expect(screen.getByRole("heading", { name: "AI Agent" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login");
   expect(screen.queryByLabelText("Token name")).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: en.agent.guideLink })).toHaveAttribute("href", "/agent/guide");
   expect(mocks.list).not.toHaveBeenCalled();
 });
 
@@ -72,6 +73,7 @@ it.each(Object.keys(catalogs) as Locale[])("acceptance_09 documents all endpoint
   render(<NextIntlClientProvider locale={locale} messages={messages}><AgentBody /></NextIntlClientProvider>);
   await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(1));
   const agent = messages.agent;
+  expect(screen.getByRole("link", { name: agent.guideLink })).toHaveAttribute("href", locale === "en" ? "/agent/guide" : `/${locale}/agent/guide`);
   expect(screen.getByRole("heading", { name: agent.docs.gettingStartedTitle })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: agent.docs.endpointsTitle })).toBeInTheDocument();
   for (const copy of [agent.limitsTitle, agent.limits, agent.quiet, agent.notice, agent.tokenRule]) {
@@ -102,6 +104,7 @@ it("polish_660_acceptance_6 aligns page typography", () => {
 
 it.each(["en", "es", "zh-Hans", "zh-Hant"] as const)("754 current holdings endpoints are visible in %s", (locale) => {
   render(<NextIntlClientProvider locale={locale} messages={catalogs[locale]}><AgentBody /></NextIntlClientProvider>);
+  expect(screen.getByRole("link", { name: catalogs[locale].agent.guideLink })).toHaveAttribute("href", locale === "en" ? "/agent/guide" : `/${locale}/agent/guide`);
   for (const endpoint of ["GET /agent/v1/holdings", "PUT /agent/v1/holdings", "POST /agent/v1/holdings", "POST /agent/v1/holdings/validate", "PUT /agent/v1/holdings/{holding_id}", "PATCH /agent/v1/holdings/{holding_id}", "DELETE /agent/v1/holdings/{holding_id}"]) {
     expect(screen.getByText(endpoint)).toBeInTheDocument();
   }

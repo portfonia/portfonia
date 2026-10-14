@@ -67,7 +67,7 @@ const spanishHoldings = {
   "agent.docs.holdingsWrite": "Envíe la versión actual. PUT completo debe conservar o eliminar explícitamente cada ID existente e incluir al menos una posición. PUT de una posición reemplaza los campos editables; PATCH conserva campos omitidos. Elimine la última posición en la interfaz web.",
   "agent.docs.holdingsValidate": "Valide PUT completo, creación, reemplazo individual o PATCH sin guardar, capturar precios ni enviar avisos de datos. Validar no reserva la versión.",
   "agent.docs.strict": "Solo la creación mediante POST requiere Idempotency-Key. Los reintentos idénticos dentro de 24 horas devuelven el éxito original; el contenido diferente produce conflicto. Cada escritura exitosa incrementa la versión una vez, incluso sin cambios. Ante un conflicto de versión, vuelva a leer y concilie. No hay acceso a corredores ni ejecución de operaciones. El esquema OpenAPI para agentes está disponible en https://api.portfonia.com/agent/openapi.json.",
-  "pricingPlans.plans.1.features.1": "Su agente puede leer instantáneas diarias y gestionar posiciones actuales con permiso de escritura"
+  "pricingPlans.plans.1.features.0": "Escritura programática de posiciones: cree un token con permiso de escritura para que su agente de IA pueda leer y escribir posiciones estandarizadas, y actualizar el instrumento, la cantidad, el costo, la cuenta y los detalles relacionados de una posición o de toda la cartera. Cada solicitud queda registrada en el registro de auditoría."
 } as const;
 it.each(Object.entries(spanishHoldings))("754 Spanish exact copy for %s", (path, value) => {
   expect(valueAt(catalogs.es, path), path).toBe(value);

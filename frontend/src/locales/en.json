@@ -1624,7 +1624,8 @@
       "holdingsWrite": "Save the current version. Complete PUT must retain or explicitly delete every existing ID and include at least one holding. Single-row PUT replaces writable fields; PATCH keeps omitted fields. Clear the last holding in the browser UI.",
       "holdingsValidate": "Validate complete PUT, creation, single-row replacement or PATCH without saving, capturing prices or sending a data notice. Validation does not reserve the version.",
       "strict": "Only POST creation requires an Idempotency-Key. Matching retries within 24 hours return the original success; changed content conflicts. Every successful mutation increments the version once, including unchanged writes. On a version conflict, reread and reconcile. No broker access or trade execution is provided. The Agent-only OpenAPI schema is available at https://api.portfonia.com/agent/openapi.json."
-    }
+    },
+    "guideLink": "See what your agent can do and how."
   },
   "downloadConfirm": {
     "title": "Download this file?",
@@ -1691,6 +1692,10 @@
       "guideTracking": {
         "title": "Tracking error: the return gap and its variability",
         "description": "Compare an unchanged portfolio with daily constant reference weights, separating the final return gap from its variability."
+      },
+      "agentGuide": {
+        "title": "Let your agent read and write holdings",
+        "description": "How to let your own AI agent read briefings and, on Advanced or Jade, read and write your current holdings."
       }
     },
     "ogImageAlt": "Portfonia: holdings ingestion and market and macro tracking, summarized into the sections of a sample briefing",
@@ -2062,9 +2067,9 @@
         ],
         "lead": "Everything in Briefing, plus:",
         "features": [
+          "Programmatic holdings writes: create a write-permission token so your AI agent can read and write standardized holdings, and update the instrument, quantity, cost, account and related details for one holding or the complete book. Every request is audit-logged.",
           "A briefing every weekday, Monday to Friday",
-          "Your AI agent can read daily snapshots and manage current holdings with write permission",
-          "Your AI agent can read intelligence related to your holdings",
+          "Your AI agent can also read daily snapshots and pull intelligence related to your holdings",
           "Up to 50 saved holding rows while Advanced is active, including cash and watched rows"
         ]
       },
@@ -2420,5 +2425,15 @@
         }
       }
     }
+  },
+  "agentGuide": {
+    "title": "Let your agent read and write holdings",
+    "whatHeading": "What it can do",
+    "what": "Every plan can let the agent read briefing history. While Advanced or Jade is active, the agent can also read daily snapshots and pull intelligence related to your holdings. Create a write-permission token so the agent can read and write standardized holdings, updating the instrument, quantity, cost, account, and related details for one holding or the complete book. Every request is audit-logged.",
+    "howHeading": "How to do it",
+    "how": "Sign in and open the AI Agent page. To update holdings, choose Holdings write. The token is shown only once. Copy it, give your own agent the token and https://portfonia.com/llms.txt, then ask in ordinary language, for example to read the latest briefing or to update one holding's quantity and cost with the figures you provide.",
+    "effectHeading": "What you get",
+    "effect": "A write updates the current holdings stored in Portfonia. Later briefings, and Jade holdings replay, tail risk, stress tests, style exposure, and tracking, use that current book. Every request is audit-logged. A successful write may also send one modification notice that day.",
+    "tokenLink": "Create a token"
   }
 }

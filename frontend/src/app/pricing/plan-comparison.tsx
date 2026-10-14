@@ -32,7 +32,7 @@ export function PlanComparison() {
               {plan.prices.map(price => <p key={price} className="text-sm font-medium">{price}</p>)}
               {plan.lead !== "" && <p className="text-sm text-foreground/70">{plan.lead}</p>}
               <ul className="flex list-disc flex-col gap-2 pl-5 text-sm leading-relaxed text-foreground/70">
-                {plan.features.map((feature, index) => <li key={feature}>{i === 2 && JADE_GUIDE_FEATURES[index] ? <Link className="underline" href={href(JADE_GUIDE_FEATURES[index])}>{feature}</Link> : feature}</li>)}
+                {plan.features.map((feature, index) => <li key={feature}>{i === 1 && index === 0 ? <Link className="underline" href={href("/agent/guide")}>{feature}</Link> : i === 2 && JADE_GUIDE_FEATURES[index] ? <Link className="underline" href={href(JADE_GUIDE_FEATURES[index])}>{feature}</Link> : feature}</li>)}
               </ul>
             </div>
           </section>

@@ -26,7 +26,7 @@ it("739 A4 anonymous access and locale rewrites", async () => {
   expect((await proxy(new NextRequest("https://portfonia.com/guides/jade-tracking"))).headers.get("location")).toBeNull();
 });
 it("739 A5 sixteen new sitemap URLs and fourteen alternates", () => {
-  const entries = sitemap(); expect(entries).toHaveLength(52);
+  const entries = sitemap(); expect(entries).toHaveLength(56);
   for (const locale of locales) for (const path of routes) {
     const e = entries.find(e => e.url === `https://portfonia.com${localizedPath(path, locale)}`);
     expect(e).toBeDefined(); expect(Object.keys(e?.alternates?.languages ?? {})).toHaveLength(14);

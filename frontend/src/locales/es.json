@@ -1624,7 +1624,8 @@
       "holdingsWrite": "Envíe la versión actual. PUT completo debe conservar o eliminar explícitamente cada ID existente e incluir al menos una posición. PUT de una posición reemplaza los campos editables; PATCH conserva campos omitidos. Elimine la última posición en la interfaz web.",
       "holdingsValidate": "Valide PUT completo, creación, reemplazo individual o PATCH sin guardar, capturar precios ni enviar avisos de datos. Validar no reserva la versión.",
       "strict": "Solo la creación mediante POST requiere Idempotency-Key. Los reintentos idénticos dentro de 24 horas devuelven el éxito original; el contenido diferente produce conflicto. Cada escritura exitosa incrementa la versión una vez, incluso sin cambios. Ante un conflicto de versión, vuelva a leer y concilie. No hay acceso a corredores ni ejecución de operaciones. El esquema OpenAPI para agentes está disponible en https://api.portfonia.com/agent/openapi.json."
-    }
+    },
+    "guideLink": "Vea qué puede hacer su agente y cómo."
   },
   "downloadConfirm": {
     "title": "¿Descargar este archivo?",
@@ -1691,6 +1692,10 @@
       "guideTracking": {
         "title": "Error de seguimiento: diferencia de rendimiento y variabilidad",
         "description": "Compare una cartera sin cambios con pesos de referencia constantes cada día, distinguiendo la diferencia final de rendimiento de su variabilidad."
+      },
+      "agentGuide": {
+        "title": "Deje que su agente lea y escriba posiciones",
+        "description": "Cómo permitir que su propio agente de IA lea resúmenes y, con Advanced o Jade, lea y escriba sus posiciones actuales."
       }
     },
     "ogImageAlt": "Portfonia: carga de posiciones y seguimiento de mercado y macro, resumidos en las secciones de un informe de ejemplo",
@@ -2062,9 +2067,9 @@
         ],
         "lead": "Todo lo incluido en Briefing, más:",
         "features": [
+          "Escritura programática de posiciones: cree un token con permiso de escritura para que su agente de IA pueda leer y escribir posiciones estandarizadas, y actualizar el instrumento, la cantidad, el costo, la cuenta y los detalles relacionados de una posición o de toda la cartera. Cada solicitud queda registrada en el registro de auditoría.",
           "Un resumen cada día de lunes a viernes",
-          "Su agente puede leer instantáneas diarias y gestionar posiciones actuales con permiso de escritura",
-          "Su agente de IA puede leer información relacionada con sus posiciones",
+          "Su agente de IA también puede leer instantáneas diarias y obtener información relacionada con sus posiciones",
           "Hasta 50 posiciones guardadas mientras Advanced está activo, incluidas efectivo y posiciones en observación"
         ]
       },
@@ -2420,5 +2425,15 @@
         }
       }
     }
+  },
+  "agentGuide": {
+    "title": "Deje que su agente lea y escriba posiciones",
+    "whatHeading": "Qué puede hacer",
+    "what": "Todos los planes permiten que el agente lea el historial de resúmenes. Mientras Advanced o Jade esté activo, el agente también puede leer instantáneas diarias y obtener información relacionada con sus posiciones. Cree un token con permiso de escritura para que el agente pueda leer y escribir posiciones estandarizadas, actualizando el instrumento, la cantidad, el costo, la cuenta y los detalles relacionados de una posición o de toda la cartera. Cada solicitud queda registrada en el registro de auditoría.",
+    "howHeading": "Cómo hacerlo",
+    "how": "Inicie sesión y abra la página Agente de IA. Para actualizar posiciones, elija Escritura de posiciones. El token se muestra una sola vez. Cópielo, entregue a su propio agente el token y https://portfonia.com/llms.txt y luego pídale en lenguaje cotidiano, por ejemplo, que lea el último resumen o actualice la cantidad y el costo de una posición con las cifras que usted proporcione.",
+    "effectHeading": "Qué obtiene",
+    "effect": "Una escritura actualiza las posiciones actuales guardadas en Portfonia. Los resúmenes posteriores y las herramientas de Jade de simulación histórica de posiciones, riesgo de cola, pruebas de estrés, exposición por estilo y seguimiento usan esa cartera actual. Cada solicitud queda registrada en el registro de auditoría. Una escritura exitosa también puede enviar un aviso de modificación ese día.",
+    "tokenLink": "Crear token"
   }
 }
