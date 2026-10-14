@@ -488,7 +488,6 @@ def delete_holding(session: Session, user_id: UUID, holding_id: UUID) -> None:
 def apply_agent_book(
     session: Session,
     user: User,
-    existing: list[Holding],
     targets: list[tuple[Holding | None, dict[str, object], int | None]],
     deleted: list[Holding],
     *,

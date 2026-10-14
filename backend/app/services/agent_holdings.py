@@ -307,7 +307,7 @@ def mutate(
     try:
         prepared = plan(user, rows, body, hid, submitted)
         saved, capture, changed = holdings_write.apply_agent_book(
-            session, user, rows, prepared.targets, prepared.deleted, whole=prepared.whole
+            session, user, prepared.targets, prepared.deleted, whole=prepared.whole
         )
         if isinstance(body, ReplaceAll):
             payload = book(user, saved)
