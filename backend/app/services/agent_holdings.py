@@ -229,7 +229,7 @@ def plan(
             data.update(changes)
             data = normalize(data, "changes")
         else:
-            # An empty PATCH is explicitly a no-op, including legacy rows.
+            # Empty PATCH preserves stored fields, including legacy rows.
             data.update(
                 asset_class=current.asset_class, capture_supported=current.capture_supported
             )
@@ -256,7 +256,7 @@ def plan(
     return Plan(targets, deleted, normalized, whole)
 
 
-def canonical(body: Create | ReplaceAll) -> dict[str, object]:
+def canonical(body: Create) -> dict[str, object]:
     # Only request-local normalization: never consult changed server state.
     data = body.model_dump(mode="json")
     return data
@@ -276,17 +276,11 @@ def mutate(
     entitlement(user)
     if permission != "holdings_write":
         raise error(403, "holdings_write_required", "Use a token with holdings_write permission.")
-    operation = (
-        "holdings_replace"
-        if isinstance(body, ReplaceAll)
-        else "holding_create"
-        if isinstance(body, Create) and hid is None
-        else None
-    )
+    operation = "holding_create" if isinstance(body, Create) and hid is None else None
     hashed_key = agent_idempotency.key_hash(key) if operation else None
     request_hash = (
         agent_idempotency.canonical_hash(canonical(body))
-        if isinstance(body, (Create, ReplaceAll)) and operation
+        if isinstance(body, Create) and operation
         else None
     )
     if operation and hashed_key:

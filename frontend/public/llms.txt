@@ -9,11 +9,11 @@
 
 ## Current holdings management
 
-- [Current holdings contract](https://portfonia.com/agent.md#current-holdings-advanced-or-jade): Active Advanced/Jade can GET current holdings and validate complete replacement, creation, single replacement or PATCH with either token permission. POST/PUT/PATCH/DELETE changes require holdings-write permission. Stable IDs, decimal strings, explicit deletions and current versions apply; empty books and last-row Agent deletion are rejected. POST and complete PUT require a 24-hour idempotency key, with exact original-result replay. Read the contract before building your own synchronization workflow.
+- [Current holdings contract](https://portfonia.com/agent.md#current-holdings-advanced-or-jade): Active Advanced/Jade can GET current holdings and validate complete replacement, creation, single replacement or PATCH with either token permission. POST/PUT/PATCH/DELETE changes require holdings-write permission. Stable IDs, decimal strings, explicit deletions and current versions apply; empty books and last-row Agent deletion are rejected. Only POST creation requires an idempotency key; a retry within 24 hours returns the original result. Every successful mutation increments the version once, including unchanged writes.
 
-Stored-row limits are Basic 30, active Advanced 50, active Jade 100, counting cash and watches. Single-row writes share 30/minute and 100/hour; other calls keep the existing counters. Current-holdings and snapshot reads share one daily read notice; changed writes have one separate modification notice. Revocation stops future access without undoing changes. Request audit records metadata only; replay results are stored encrypted for 24 hours.
+Stored-row limits are Basic 30, active Advanced 50, active Jade 100, counting cash and watches. Single-row writes share 30/minute and 100/hour; other calls keep the existing counters. Only snapshot reads trigger the daily access notice; every successful Agent write request may trigger a separate daily modification notice. Revocation stops future access without undoing changes. Request audit records metadata only; POST replay results are stored encrypted; retries within 24 hours return the original result.
 
-Discovery is currently this file and agent.md. Cached valuation preview and the Agent-only OpenAPI URL are not available yet. Do not call planned routes or the disabled full production openapi.json.
+Discovery is currently this file and agent.md. The Agent-only OpenAPI URL is not available yet. Do not call planned routes or the disabled full production openapi.json.
 
 ## Guides
 

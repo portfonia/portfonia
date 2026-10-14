@@ -3,13 +3,11 @@
 import hashlib
 import json
 import re
-from datetime import UTC, datetime, timedelta
-from typing import cast
+from datetime import UTC, timedelta
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import delete, select
-from sqlalchemy.engine import CursorResult
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.agent_idempotency import AgentIdempotency
@@ -75,20 +73,3 @@ def save(
             expires_at=now + timedelta(hours=24),
         )
     )
-
-
-def cleanup_expired(session: Session, now: datetime | None = None) -> int:
-    moment = now or api_tokens.now_et()
-    total = 0
-    while True:
-        ids = session.scalars(
-            select(AgentIdempotency.id).where(AgentIdempotency.expires_at <= moment).limit(1000)
-        ).all()
-        if not ids:
-            return total
-        result = cast(
-            CursorResult[tuple[()]],
-            session.execute(delete(AgentIdempotency).where(AgentIdempotency.id.in_(ids))),
-        )
-        total += int(result.rowcount)
-        session.commit()

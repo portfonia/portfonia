@@ -154,7 +154,6 @@ def current_holdings(
 ) -> Response:
     result = agent_holdings.get_book(session, principal.user_id)
     request.state.agent_item_count = len(cast(list[object], result["holdings"]))
-    _data_notice(principal.user_id, modified=False)
     return JSONResponse(result)
 
 
@@ -214,7 +213,9 @@ def _write_result(
         body,
         hid=hid,
         version=version,
-        key=request.headers.get("idempotency-key"),
+        key=request.headers.get("idempotency-key")
+        if isinstance(body, Create) and hid is None
+        else None,
     )
     request.state.agent_item_count = (
         len(cast(list[object], payload["holdings"])) if isinstance(body, ReplaceAll) else 1

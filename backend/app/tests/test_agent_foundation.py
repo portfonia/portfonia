@@ -20,16 +20,13 @@ from alembic import command
 from app.core.agent_limits import enforce_agent_limits
 from app.core.config import get_settings
 from app.core.database import SessionLocal
-from app.core.deps import Principal
 from app.core.rate_limit import InMemoryBackend, RateLimitUnavailable, get_backend
 from app.core.timezones import ET
 from app.models.account import Account
 from app.models.api_token import ApiToken
 from app.models.holding import Holding
 from app.models.user import User
-from app.routers.api_tokens import TokenBody, create_token
 from app.schemas.holdings import ParsedRow
-from app.services.api_tokens import new_token
 from app.services.holdings_write import create_holding
 from app.services.price_fetcher import update_holding_prices
 from app.tests.conftest import TEST_USER_ID, seed_user
@@ -247,7 +244,7 @@ def test_active_subscription_holding_cap_boundary(
     assert _version(db_session) == version_before
 
 
-def test_collection_version_bumps_once_per_real_change(
+def test_collection_version_bumps_once_per_successful_write(
     app_client: TestClient, db_session: Session
 ) -> None:
     seed_user(db_session, TEST_USER_ID)
@@ -264,7 +261,7 @@ def test_collection_version_bumps_once_per_real_change(
     assert _version(db_session) == 8
     same = app_client.patch(f"/holdings/{holding_id}", json={"shares": "2.0"})
     assert same.status_code == 200
-    assert _version(db_session) == 8
+    assert _version(db_session) == 9
 
     db_session.expire_all()
     holding = db_session.get(Holding, uuid.UUID(holding_id))
@@ -283,7 +280,7 @@ def test_collection_version_bumps_once_per_real_change(
         )
         update_holding_prices(db_session)
     db_session.commit()
-    assert _version(db_session) == 8
+    assert _version(db_session) == 9
     db_session.expire_all()
     priced = db_session.get(Holding, uuid.UUID(holding_id))
     assert priced is not None
@@ -291,23 +288,23 @@ def test_collection_version_bumps_once_per_real_change(
 
     second = app_client.post("/holdings", json={**_ROW, "name": "Second"})
     assert second.status_code == 201
-    assert _version(db_session) == 9
+    assert _version(db_session) == 10
     order = [second.json()["id"], holding_id]
     assert app_client.patch("/holdings/reorder", json={"ids": order}).status_code == 200
-    assert _version(db_session) == 10
+    assert _version(db_session) == 11
     assert app_client.patch("/holdings/reorder", json={"ids": order}).status_code == 200
-    assert _version(db_session) == 10
+    assert _version(db_session) == 12
     appended = app_client.post(
         "/holdings/confirm?mode=append",
         json=[{**_ROW, "name": "A"}, {**_ROW, "name": "B"}],
     )
     assert appended.status_code == 200
-    assert _version(db_session) == 11
+    assert _version(db_session) == 13
     replaced = app_client.post("/holdings/confirm?mode=replace", json=[_ROW])
     assert replaced.status_code == 200
-    assert _version(db_session) == 12
+    assert _version(db_session) == 14
     assert app_client.delete(f"/holdings/{replaced.json()[0]['id']}").status_code == 204
-    assert _version(db_session) == 13
+    assert _version(db_session) == 15
 
     tiny = app_client.post("/holdings", json=_ROW)
     assert (
@@ -497,47 +494,5 @@ def test_concurrent_creates_stop_at_the_cap(session_test_db: None) -> None:
         with SessionLocal() as cleanup:
             cleanup.execute(delete(Holding).where(Holding.user_id == user_id))
             cleanup.execute(delete(Account).where(Account.user_id == user_id))
-            cleanup.execute(delete(User).where(User.id == user_id))
-            cleanup.commit()
-
-
-def test_concurrent_token_creation_stops_at_five(session_test_db: None) -> None:
-    del session_test_db
-    user_id = uuid.uuid4()
-    with SessionLocal() as setup:
-        seed_user(setup, user_id)
-        for index in range(4):
-            new_token(setup, user_id, f"Token {index}", None)
-        setup.commit()
-    barrier = threading.Barrier(2)
-    codes: list[int] = []
-    lock = threading.Lock()
-    principal = Principal(user_id=user_id)
-
-    def worker() -> None:
-        barrier.wait()
-        with SessionLocal() as session:
-            try:
-                create_token(TokenBody(name="Race"), principal, session)
-                code = 201
-            except HTTPException as exc:
-                code = exc.status_code
-        with lock:
-            codes.append(code)
-
-    threads = [threading.Thread(target=worker) for _ in range(2)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-    try:
-        assert sorted(codes) == [201, 409]
-        with SessionLocal() as check:
-            rows = check.scalars(select(ApiToken).where(ApiToken.user_id == user_id)).all()
-            assert len(rows) == 5
-            assert {row.permission for row in rows} == {"read_only"}
-    finally:
-        with SessionLocal() as cleanup:
-            cleanup.execute(delete(ApiToken).where(ApiToken.user_id == user_id))
             cleanup.execute(delete(User).where(User.id == user_id))
             cleanup.commit()

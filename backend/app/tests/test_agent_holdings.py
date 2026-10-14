@@ -70,7 +70,8 @@ def test_get_empty_and_create_precision_reusable_book(
         json={"version": "1", "holdings": book["holdings"], "delete_ids": []},
     )
     assert result.status_code == 200
-    assert result.json() == book
+    assert result.json()["version"] == "2"
+    assert result.json()["holdings"] == book["holdings"]
     holding = db_session.get(Holding, UUID(book["holdings"][0]["id"]))
     assert holding is not None
     assert holding.shares == Decimal("0.123456789123456789")
@@ -204,17 +205,30 @@ def test_patch_null_put_defaults_noop_and_identity_price_reset(
     target = f"{URL}/{hid}"
     before = app_client.get(URL, headers=writer).json()
     no_op = app_client.patch(target, headers=writer, json={"version": "1", "changes": {}})
-    assert no_op.status_code == 200 and no_op.json() == saved
-    assert app_client.get(URL, headers=writer).json() == before
-    changed = app_client.patch(
-        target, headers=writer, json={"version": "1", "changes": {"notes": None}}
+    assert no_op.status_code == 200 and no_op.json() == {**saved, "version": "2"}
+    assert app_client.get(URL, headers=writer).json()["holdings"] == before["holdings"]
+    same = app_client.patch(
+        target, headers=writer, json={"version": "2", "changes": {"notes": "keep"}}
     )
-    assert changed.status_code == 200 and changed.json()["version"] == "2"
+    assert same.status_code == 200 and same.json()["version"] == "3"
+    same_put = app_client.put(
+        target,
+        headers=writer,
+        json={
+            "version": "3",
+            "holding": {k: v for k, v in same.json()["holding"].items() if k != "id"},
+        },
+    )
+    assert same_put.status_code == 200 and same_put.json()["version"] == "4"
+    changed = app_client.patch(
+        target, headers=writer, json={"version": "4", "changes": {"notes": None}}
+    )
+    assert changed.status_code == 200 and changed.json()["version"] == "5"
     assert changed.json()["holding"]["ticker"] == "MSFT"
     assert changed.json()["holding"]["notes"] is None
     assert (
         app_client.patch(
-            target, headers=writer, json={"version": "2", "changes": {"name": None}}
+            target, headers=writer, json={"version": "5", "changes": {"name": None}}
         ).status_code
         == 422
     )
@@ -222,8 +236,8 @@ def test_patch_null_put_defaults_noop_and_identity_price_reset(
     assert h is not None
     h.market_price = Decimal("100")
     db_session.commit()
-    replaced = app_client.put(target, headers=writer, json={"version": "2", "holding": ROW})
-    assert replaced.status_code == 200 and replaced.json()["version"] == "3"
+    replaced = app_client.put(target, headers=writer, json={"version": "5", "holding": ROW})
+    assert replaced.status_code == 200 and replaced.json()["version"] == "6"
     assert replaced.json()["holding"]["ticker"] is None
     assert replaced.json()["holding"]["watch_tier"] is None
     db_session.refresh(h)
@@ -330,6 +344,20 @@ def test_modification_email_sender_locales_and_no_rollback_claim() -> None:
                 "verified@example.com", "https://example.com/revoke", locale=locale
             )
             sent = mocked.return_value.__enter__.return_value.post.call_args.kwargs["json"]
+            openings = {
+                "en": "A holdings write request was made today through a Portfonia API token.",
+                "zh": "今天通过 Portfonia API token 执行了一次持仓写入请求。",
+                "zh-Hant": "今天透過 Portfonia API token 執行了一次持倉寫入請求。",
+                "es": "A holdings write request was made today through a Portfonia API token.",
+            }
+            subjects = {
+                "en": "Portfonia - a holdings write was made through the API",
+                "zh": "Portfonia - 已通过 API 执行持仓写入请求",
+                "zh-Hant": "Portfonia - 已透過 API 執行持倉寫入請求",
+                "es": "Portfonia - a holdings write was made through the API",
+            }
+            assert sent["text"].startswith(openings[locale])
+            assert sent["subject"] == subjects[locale]
             assert words in sent["text"]
             assert "https://example.com/revoke" in sent["text"]
             assert "pfa_" not in sent["text"]
@@ -338,40 +366,11 @@ def test_modification_email_sender_locales_and_no_rollback_claim() -> None:
 def test_retention_sweep_and_account_purge_remove_results(
     app_client: TestClient, db_session: Session, writer: dict[str, str]
 ) -> None:
-    from datetime import timedelta
-    from unittest.mock import patch
-
     from app.models.agent_idempotency import AgentIdempotency
-    from app.services import api_tokens
     from app.services.user_purge import purge_user
-    from app.tasks.operational_events_tasks import cleanup_operational_events
 
     _create(app_client, writer)
-    now = api_tokens.now_et()
-    first = db_session.scalar(select(AgentIdempotency))
-    assert first is not None
-    first.expires_at = now
-    db_session.add_all(
-        [
-            AgentIdempotency(
-                user_id=TEST_USER_ID,
-                operation="holding_create",
-                key_hash=f"old-{i}",
-                request_hash="digest",
-                response_status=201,
-                response_json="{}",
-                created_at=now - timedelta(hours=24),
-                expires_at=now,
-            )
-            for i in range(1000)
-        ]
-    )
-    db_session.commit()
-    with patch("app.services.api_tokens.now_et", return_value=now):
-        result = cleanup_operational_events.run()
-    assert result["agent_idempotency_deleted"] == 1001
-    assert db_session.scalars(select(AgentIdempotency)).all() == []
-    _create(app_client, writer, "1", "purge")
+    assert db_session.scalar(select(AgentIdempotency)) is not None
     purge_user(db_session, TEST_USER_ID)
     db_session.commit()
     assert db_session.scalars(select(AgentIdempotency)).all() == []
@@ -398,7 +397,7 @@ def test_bulk_replay_cross_token_expiry_and_encrypted_storage(
         "holdings": [first["holding"], {**ROW, "name": "Secret candidate"}],
         "delete_ids": [],
     }
-    headers = {**writer, "Idempotency-Key": "whole"}
+    headers = {k: v for k, v in writer.items() if k != "Idempotency-Key"}
     bulk = app_client.put(URL, headers=headers, json=body)
     assert bulk.status_code == 200 and bulk.json()["version"] == "2"
     token = app_client.post(
@@ -407,15 +406,16 @@ def test_bulk_replay_cross_token_expiry_and_encrypted_storage(
     replay = app_client.put(
         URL, headers={**headers, "Authorization": f"Bearer {token['token']}"}, json=body
     )
-    assert replay.status_code == 200 and replay.json() == bulk.json()
-    assert replay.headers["Idempotency-Replayed"] == "true"
+    assert replay.status_code == 409
+    assert replay.json()["detail"]["code"] == "version_conflict"
+    assert (
+        "Idempotency-Replayed" not in bulk.headers and "Idempotency-Replayed" not in replay.headers
+    )
     assert len(db_session.scalars(select(Holding)).all()) == 2
     ciphertext = db_session.execute(
-        text("SELECT response_json FROM agent_idempotency WHERE operation='holdings_replace'")
+        text("SELECT response_json FROM agent_idempotency WHERE operation='holding_create'")
     ).scalar_one()
-    assert (
-        "Secret candidate" not in ciphertext and bulk.json()["holdings"][1]["id"] not in ciphertext
-    )
+    assert "Widget" not in ciphertext and first["holding"]["id"] not in ciphertext
     stored = db_session.scalar(
         select(AgentIdempotency).where(AgentIdempotency.operation == "holding_create")
     )
@@ -610,7 +610,14 @@ def test_notices_shared_read_distinct_modification_noop_replay_and_failures(
         "app.tasks.notification_tasks.send_api_modification_notice_task.delay", modified
     )
     assert app_client.get(URL, headers=writer).status_code == 200
+    assert read.call_count == 0
     date = api_tokens.now_et().date().isoformat()
+    assert (
+        app_client.get(
+            "/agent/v1/snapshots", headers=writer, params={"start": date, "end": date}
+        ).status_code
+        == 200
+    )
     assert (
         app_client.get(
             "/agent/v1/snapshots", headers=writer, params={"start": date, "end": date}
@@ -620,11 +627,15 @@ def test_notices_shared_read_distinct_modification_noop_replay_and_failures(
     assert read.call_count == 1
     saved = _create(app_client, writer)
     assert modified.call_count == 1
+    from app.core.rate_limit import get_backend
+
+    get_backend().delete(f"agent:modification:{TEST_USER_ID}:{date}")
+    modified.reset_mock()
     assert (
         app_client.patch(
             f"{URL}/{saved['holding']['id']}", headers=writer, json={"version": "1", "changes": {}}
         ).json()["version"]
-        == "1"
+        == "2"
     )
     assert (
         app_client.post(URL, headers=writer, json={"version": "0", "holding": ROW}).json() == saved
@@ -639,15 +650,13 @@ def test_notices_shared_read_distinct_modification_noop_replay_and_failures(
         == 200
     )
     assert modified.call_count == 1 and read.call_count == 1
-    from app.core.rate_limit import get_backend
-
     monkeypatch.setattr(get_backend(), "set_nx", Mock(side_effect=RateLimitUnavailable()))
-    second = _create(app_client, writer, "1", "failure", name="Private second")
-    assert second["version"] == "2"
+    second = _create(app_client, writer, "2", "failure", name="Private second")
+    assert second["version"] == "3"
     replay = app_client.post(
         URL,
         headers={**writer, "Idempotency-Key": "failure"},
-        json={"version": "1", "holding": {**ROW, "name": "Private second"}},
+        json={"version": "2", "holding": {**ROW, "name": "Private second"}},
     )
     assert replay.status_code == 201 and replay.json() == second
     audits = db_session.scalars(select(ApiAuditLog)).all()
@@ -700,20 +709,26 @@ def test_real_postgres_concurrent_same_key_replay(whole: bool, session_test_db: 
     for thread in threads:
         thread.join(timeout=10)
     try:
-        assert not any(t.is_alive() for t in threads) and not failures
-        assert len(results) == 2
-        assert results[0][:2] == results[1][:2]
-        assert sorted(result[2] for result in results) == [False, True]
+        assert not any(t.is_alive() for t in threads)
+        if whole:
+            from fastapi import HTTPException
+
+            assert len(results) == 1 and len(failures) == 1
+            conflict = failures[0]
+            assert isinstance(conflict, HTTPException) and conflict.status_code == 409
+            assert (
+                isinstance(conflict.detail, dict) and conflict.detail["code"] == "version_conflict"
+            )
+        else:
+            assert not failures
+            assert len(results) == 2
+            assert results[0][:2] == results[1][:2]
+            assert sorted(result[2] for result in results) == [False, True]
         with SessionLocal() as check:
             assert len(check.scalars(select(Holding).where(Holding.user_id == uid)).all()) == 1
-            assert (
-                len(
-                    check.scalars(
-                        select(AgentIdempotency).where(AgentIdempotency.user_id == uid)
-                    ).all()
-                )
-                == 1
-            )
+            assert len(
+                check.scalars(select(AgentIdempotency).where(AgentIdempotency.user_id == uid)).all()
+            ) == (0 if whole else 1)
             checked_user = check.get(User, uid)
             assert checked_user is not None and checked_user.holdings_version == 1
     finally:
@@ -845,6 +860,7 @@ def test_empty_patch_is_noop_even_for_legacy_normalization(
         asset_class="STOCK",
         capture_supported=False,
         position=5,
+        market_price=Decimal("100"),
     )
     db_session.add(row)
     db_session.commit()
@@ -852,8 +868,11 @@ def test_empty_patch_is_noop_even_for_legacy_normalization(
     result = app_client.patch(
         f"{URL}/{row.id}", headers=writer, json={"version": "0", "changes": {}}
     )
-    assert result.status_code == 200 and result.json()["version"] == "0"
-    assert app_client.get(URL, headers=writer).json() == before
+    assert result.status_code == 200 and result.json()["version"] == "1"
+    assert app_client.get(URL, headers=writer).json()["holdings"] == before["holdings"]
+
+    db_session.refresh(row)
+    assert row.market_price == Decimal("100")
 
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE", "WHOLE"])
@@ -900,16 +919,9 @@ def test_write_and_version_rollback_when_replay_save_fails(
     from app.models.agent_idempotency import AgentIdempotency
     from app.services import agent_idempotency
 
-    saved = _create(app_client, writer)
+    _create(app_client, writer)
     original = app_client.get(URL, headers=writer).json()
-    body = {
-        "version": "1",
-        "holdings": [
-            {**saved["holding"], "notes": "must roll back"},
-            {**ROW, "broker": "new broker"},
-        ],
-        "delete_ids": [],
-    }
+    body = {"version": "1", "holding": {**ROW, "broker": "new broker"}}
     save = agent_idempotency.save
 
     def broken(*args: object, **kwargs: object) -> None:
@@ -917,14 +929,16 @@ def test_write_and_version_rollback_when_replay_save_fails(
 
     monkeypatch.setattr(agent_idempotency, "save", broken)
     with pytest.raises(RuntimeError, match="simulated replay-save failure"):
-        app_client.put(URL, headers={**writer, "Idempotency-Key": "bulk-failure"}, json=body)
+        app_client.post(URL, headers={**writer, "Idempotency-Key": "create-failure"}, json=body)
     assert app_client.get(URL, headers=writer).json() == original
     assert db_session.scalars(select(Account)).all() == []
     assert len(db_session.scalars(select(AgentIdempotency)).all()) == 1
     monkeypatch.setattr(agent_idempotency, "save", save)
-    success = app_client.put(URL, headers={**writer, "Idempotency-Key": "bulk-failure"}, json=body)
-    assert success.status_code == 200 and success.json()["version"] == "2"
-    assert len(success.json()["holdings"]) == 2
+    success = app_client.post(
+        URL, headers={**writer, "Idempotency-Key": "create-failure"}, json=body
+    )
+    assert success.status_code == 201 and success.json()["version"] == "2"
+    assert len(app_client.get(URL, headers=writer).json()["holdings"]) == 2
 
 
 def test_modification_task_retries_and_uses_verified_recipient(db_session: Session) -> None:
