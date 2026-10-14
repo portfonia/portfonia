@@ -1623,7 +1623,7 @@
       "holdingsRead": "Current holdings: active Advanced or Jade. Read-only tokens can read and validate. Stable IDs and decimal strings preserve watches and separate accounts; system metadata is separate.",
       "holdingsWrite": "Save the current version. Complete PUT must retain or explicitly delete every existing ID and include at least one holding. Single-row PUT replaces writable fields; PATCH keeps omitted fields. Clear the last holding in the browser UI.",
       "holdingsValidate": "Validate complete PUT, creation, single-row replacement or PATCH without saving, capturing prices or sending a data notice. Validation does not reserve the version.",
-      "strict": "Only POST creation requires an Idempotency-Key. Matching retries within 24 hours return the original success; changed content conflicts. Every successful mutation increments the version once, including unchanged writes. On a version conflict, reread and reconcile. No broker access or trade execution is provided. The Agent-only OpenAPI schema is not available yet."
+      "strict": "Only POST creation requires an Idempotency-Key. Matching retries within 24 hours return the original success; changed content conflicts. Every successful mutation increments the version once, including unchanged writes. On a version conflict, reread and reconcile. No broker access or trade execution is provided. The Agent-only OpenAPI schema is available at https://api.portfonia.com/agent/openapi.json."
     }
   },
   "downloadConfirm": {

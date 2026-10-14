@@ -1623,7 +1623,7 @@
       "holdingsRead": "目前持倉：需要有效的進階或潤玉訂閱。唯讀 token 可讀取與驗證。穩定 ID 和十進位字串保留觀察持倉及不同帳戶；系統中繼資料獨立回傳。",
       "holdingsWrite": "提交目前版本。整體 PUT 必須保留或明確刪除每個既有 ID，並至少保留一筆持倉。單列 PUT 取代可寫欄位，PATCH 保留未提交欄位。清空最後一筆請使用網頁。",
       "holdingsValidate": "可驗證整體 PUT、新增、單列取代或 PATCH，不儲存、不擷取價格、不寄送資料通知。驗證不會預留版本。",
-      "strict": "只有 POST 新增需要 Idempotency-Key。24 小時內的相同重試回傳原成功結果；內容不同則衝突。每次成功寫入都將版本遞增一次，包括無變化寫入。版本衝突後須重新讀取並核對。平台不提供券商存取或交易執行。智能體專用 OpenAPI 尚未提供。"
+      "strict": "只有 POST 新增需要 Idempotency-Key。24 小時內的相同重試回傳原成功結果；內容不同則衝突。每次成功寫入都將版本遞增一次，包括無變化寫入。版本衝突後須重新讀取並核對。平台不提供券商存取或交易執行。智能體專用 OpenAPI：https://api.portfonia.com/agent/openapi.json。"
     }
   },
   "downloadConfirm": {
