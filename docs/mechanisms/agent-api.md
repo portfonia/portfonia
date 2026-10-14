@@ -263,8 +263,8 @@ These routes manage the caller's current holdings records. They do not access
 broker accounts or execute trades. GET and validation accept either token
 permission; every mutation requires `holdings_write`. All holdings calls require
 an active Advanced or Jade subscription. Report/snapshot/intelligence routes
-remain read-only. The Agent-only OpenAPI discovery URL is not available yet;
-use this reference for the implemented routes.
+remain read-only. The Agent-only OpenAPI schema is available at
+[https://api.portfonia.com/agent/openapi.json](https://api.portfonia.com/agent/openapi.json).
 
 | Method / path | Body and result |
 | --- | --- |
@@ -413,8 +413,8 @@ English/Simplified/Traditional; Spanish UI receives the English fallback.
 
 ### Remaining batch and backlog
 
-#755 owns the public Agent-only OpenAPI/schema discovery package.
-That schema is not made available by #754. E reorder
+#755 publishes the public Agent-only OpenAPI schema at
+[https://api.portfonia.com/agent/openapi.json](https://api.portfonia.com/agent/openapi.json). E reorder
 and F capability lookup remain backlog. No broker downloads/logins, source
 reference/date persistence, server pipeline scheduling or trade execution is
 implemented. The earlier docs-only creation-only retry proposal is superseded

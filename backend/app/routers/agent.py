@@ -45,6 +45,23 @@ def advanced_access(
 router = APIRouter(dependencies=[Depends(agent_limits)])
 
 
+def _request_documentation(
+    schema: TypeAdapter[object], path: str, method: str
+) -> dict[str, object]:
+    # Bodies are parsed after authentication by the existing dependencies. Document
+    # them without adding eager Body validation or changing that execution order.
+    pointer = path.replace("~", "~0").replace("/", "~1").replace("{", "{{").replace("}", "}}")
+    reference = (
+        f"#/paths/{pointer}/{method}/requestBody/content/application~1json/schema/$defs/{{model}}"
+    )
+    return {
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": schema.json_schema(ref_template=reference)}},
+        }
+    }
+
+
 @router.get(
     "/snapshots",
     response_model=SnapshotExportOut,
@@ -58,6 +75,7 @@ def snapshots(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> SnapshotExportOut:
+    """Requires a personal API token and an active Advanced or Jade subscription. Rate-limit and quiet-window responses include Retry-After."""
     result = export_snapshot_range(session, principal.user_id, start, end)
     now = api_tokens.now_et()
     try:
@@ -84,6 +102,7 @@ def reports(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> AgentReportsOut:
+    """Requires a personal API token; available reports follow the subscription entitlement. Rate-limit and quiet-window responses include Retry-After."""
     result = pull_reports(session, principal.user_id, start, end)
     request.state.agent_item_count = len(result.items)
     return result
@@ -101,6 +120,7 @@ def intel(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> AgentIntelOut:
+    """Requires a personal API token and an active Advanced or Jade subscription. Rate-limit and quiet-window responses include Retry-After."""
     result = pull_intel(session, principal.user_id, date)
     request.state.agent_item_count = sum(
         len(h.headlines) + len(h.articles) for h in result.holdings
@@ -152,6 +172,7 @@ def current_holdings(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
+    """Requires a personal API token and an active Advanced or Jade subscription. Both read_only and holdings_write tokens may read. Rate-limit and quiet-window responses include Retry-After."""
     result = agent_holdings.get_book(session, principal.user_id)
     request.state.agent_item_count = len(cast(list[object], result["holdings"]))
     return JSONResponse(result)
@@ -184,13 +205,20 @@ async def parse_holdings_body[T](request: Request, schema: TypeAdapter[T]) -> T:
         ) from None
 
 
-@router.post("/holdings/validate", dependencies=[Depends(holdings_access)])
+@router.post(
+    "/holdings/validate",
+    dependencies=[Depends(holdings_access)],
+    openapi_extra=_request_documentation(
+        TypeAdapter(Validation), "/agent/v1/holdings/validate", "post"
+    ),
+)
 def validate_holdings(
     request: Request,
     body: Validation = Depends(validation_body),
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
+    """Read-only validation; requires a personal API token and an active Advanced or Jade subscription. Both token permissions may validate. Rate-limit and quiet-window responses include Retry-After."""
     request.state.agent_item_count = len(body.holdings) if isinstance(body, ReplaceAll) else 1
     return JSONResponse(agent_holdings.validate(session, principal.user_id, body))
 
@@ -227,27 +255,54 @@ def _write_result(
     )
 
 
-@router.post("/holdings", dependencies=[Depends(holdings_write_access)])
+@router.post(
+    "/holdings",
+    dependencies=[Depends(holdings_write_access)],
+    openapi_extra={
+        **_request_documentation(TypeAdapter(Create), "/agent/v1/holdings", "post"),
+        "parameters": [
+            {
+                "name": "Idempotency-Key",
+                "in": "header",
+                "required": True,
+                "schema": {"type": "string"},
+                "description": "POST creation retry key, retained for 24 hours.",
+            }
+        ],
+    },
+)
 def create_current_holding(
     request: Request,
     body: Create = Depends(create_body),
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
+    """Requires a holdings_write token and an active Advanced or Jade subscription. POST creation requires Idempotency-Key; reuse the same key and body for a retry within 24 hours. Rate-limit and quiet-window responses include Retry-After."""
     return _write_result(request, principal, session, body)
 
 
-@router.put("/holdings", dependencies=[Depends(holdings_write_access)])
+@router.put(
+    "/holdings",
+    dependencies=[Depends(holdings_write_access)],
+    openapi_extra=_request_documentation(TypeAdapter(ReplaceAll), "/agent/v1/holdings", "put"),
+)
 def replace_current_holdings(
     request: Request,
     body: ReplaceAll = Depends(replace_all_body),
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
+    """Requires a holdings_write token and an active Advanced or Jade subscription. Submit the current canonical version string and the complete surviving holdings with explicit delete_ids; omitted IDs are rejected. At least one row must remain. Rate-limit and quiet-window responses include Retry-After."""
     return _write_result(request, principal, session, body)
 
 
-@router.put("/holdings/{holding_id}", dependencies=[Depends(holdings_write_access)])
+@router.put(
+    "/holdings/{holding_id}",
+    dependencies=[Depends(holdings_write_access)],
+    openapi_extra=_request_documentation(
+        TypeAdapter(Create), "/agent/v1/holdings/{holding_id}", "put"
+    ),
+)
 def replace_current_holding(
     request: Request,
     holding_id: UUID,
@@ -255,10 +310,17 @@ def replace_current_holding(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
+    """Requires a holdings_write token and an active Advanced or Jade subscription. Supply the current canonical version string and a complete replacement holding. Rate-limit and quiet-window responses include Retry-After."""
     return _write_result(request, principal, session, body, hid=holding_id)
 
 
-@router.patch("/holdings/{holding_id}", dependencies=[Depends(holdings_write_access)])
+@router.patch(
+    "/holdings/{holding_id}",
+    dependencies=[Depends(holdings_write_access)],
+    openapi_extra=_request_documentation(
+        TypeAdapter(Patch), "/agent/v1/holdings/{holding_id}", "patch"
+    ),
+)
 def patch_current_holding(
     request: Request,
     holding_id: UUID,
@@ -266,6 +328,7 @@ def patch_current_holding(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
+    """Requires a holdings_write token and an active Advanced or Jade subscription. Supply the current canonical version string and explicit changed fields. Rate-limit and quiet-window responses include Retry-After."""
     return _write_result(request, principal, session, body, hid=holding_id)
 
 
@@ -276,6 +339,7 @@ async def delete_current_holding(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
+    """Requires a holdings_write token and an active Advanced or Jade subscription. Supply the quoted current canonical version string in If-Match, without a JSON body. Deleting the last holding is rejected. Rate-limit and quiet-window responses include Retry-After."""
     if await request.body():
         raise agent_holdings.error(422, "invalid_holding", "DELETE accepts no JSON body.")
     header = request.headers.get("if-match")

@@ -227,6 +227,7 @@ describe("issue #652 agent-readable documentation", () => {
     const { readFile } = await import("node:fs/promises");
     const text = await readFile(`${process.cwd()}/public/llms.txt`, "utf8");
     expect(text).toContain("https://portfonia.com/agent.md");
+    expect(text).toContain("https://api.portfonia.com/agent/openapi.json");
     expect(text).toContain("https://portfonia.com/agent");
   });
 });

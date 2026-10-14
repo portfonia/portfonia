@@ -13,7 +13,7 @@
 
 Stored-row limits are Basic 30, active Advanced 50, active Jade 100, counting cash and watches. Single-row writes share 30/minute and 100/hour; other calls keep the existing counters. Only snapshot reads trigger the daily access notice; every successful Agent write request may trigger a separate daily modification notice. Revocation stops future access without undoing changes. Request audit records metadata only; POST replay results are stored encrypted; retries within 24 hours return the original result.
 
-Discovery is currently this file and agent.md. The Agent-only OpenAPI URL is not available yet. Do not call planned routes or the disabled full production openapi.json.
+Discovery includes this file, agent.md and the Agent-only OpenAPI schema: https://api.portfonia.com/agent/openapi.json. Do not call planned routes or the disabled full production openapi.json.
 
 ## Guides
 

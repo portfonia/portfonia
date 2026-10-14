@@ -171,8 +171,8 @@ These routes manage the caller's current holdings records. They do not access
 broker accounts or execute trades. GET and validation accept either token
 permission; every mutation requires `holdings_write`. All holdings calls require
 an active Advanced or Jade subscription. Report/snapshot/intelligence routes
-remain read-only. The Agent-only OpenAPI discovery URL is not available yet;
-use this reference for the implemented routes.
+remain read-only. The Agent-only OpenAPI schema is available at
+[https://api.portfonia.com/agent/openapi.json](https://api.portfonia.com/agent/openapi.json).
 
 | Method / path | Body and result |
 | --- | --- |

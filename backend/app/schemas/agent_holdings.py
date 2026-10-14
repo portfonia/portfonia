@@ -8,7 +8,13 @@ from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_serializer, 
 
 from app.schemas.holdings import AssetTypeValue, PricingMode, WatchTier
 
-Version = Annotated[StrictStr, Field(pattern=r"^(0|[1-9][0-9]*)$")]
+Version = Annotated[
+    StrictStr,
+    Field(
+        pattern=r"^(0|[1-9][0-9]*)$",
+        description="Current canonical version string: 0 or a positive integer without leading zeros.",
+    ),
+]
 Market = Literal["US", "HK", "A-Share", "UK", "Europe", "Japan", "Korea", "Other"]
 
 
@@ -27,9 +33,15 @@ class AgentHoldingInput(StrictModel):
     pricing_mode: PricingMode
     ticker: StrictStr | None = None
     fund_code: StrictStr | None = None
-    shares: Decimal | None = None
-    avg_cost: Decimal | None = None
-    current_value: Decimal | None = None
+    shares: Decimal | None = Field(
+        default=None, description="Nonnegative fixed decimal string, without exponent notation."
+    )
+    avg_cost: Decimal | None = Field(
+        default=None, description="Nonnegative fixed decimal string, without exponent notation."
+    )
+    current_value: Decimal | None = Field(
+        default=None, description="Nonnegative fixed decimal string, without exponent notation."
+    )
     asset_type: AssetTypeValue | None = None
     market: Market | None = None
     broker: StrictStr | None = None
@@ -69,8 +81,13 @@ class Create(StrictModel):
 
 class ReplaceAll(StrictModel):
     version: Version
-    holdings: list[WholeRow]
-    delete_ids: list[UUID]
+    holdings: list[WholeRow] = Field(
+        json_schema_extra={"minItems": 1},
+        description="Complete surviving holdings, including every existing ID not explicitly deleted; at least one row.",
+    )
+    delete_ids: list[UUID] = Field(
+        description="Explicit IDs to delete. For completeness, every existing ID must appear exactly once in holdings or delete_ids."
+    )
 
 
 class Changes(StrictModel):
@@ -79,9 +96,15 @@ class Changes(StrictModel):
     pricing_mode: PricingMode | None = None
     ticker: StrictStr | None = None
     fund_code: StrictStr | None = None
-    shares: Decimal | None = None
-    avg_cost: Decimal | None = None
-    current_value: Decimal | None = None
+    shares: Decimal | None = Field(
+        default=None, description="Nonnegative fixed decimal string, without exponent notation."
+    )
+    avg_cost: Decimal | None = Field(
+        default=None, description="Nonnegative fixed decimal string, without exponent notation."
+    )
+    current_value: Decimal | None = Field(
+        default=None, description="Nonnegative fixed decimal string, without exponent notation."
+    )
     asset_type: AssetTypeValue | None = None
     market: Market | None = None
     broker: StrictStr | None = None

@@ -81,6 +81,7 @@ it.each(Object.keys(catalogs) as Locale[])("acceptance_09 documents all endpoint
   for (const endpoint of ["/agent/v1/reports?start=YYYY-MM-DD&end=YYYY-MM-DD", "/agent/v1/snapshots?start=YYYY-MM-DD&end=YYYY-MM-DD", "/agent/v1/intel?date=YYYY-MM-DD"]) {
     expect(screen.getByText(endpoint)).toBeInTheDocument();
   }
+  expect(screen.getByText(agent.docs.strict)).toHaveTextContent("https://api.portfonia.com/agent/openapi.json");
   expect(screen.getByRole("link", { name: "llms.txt" })).toHaveAttribute("href", "/llms.txt");
   expect(screen.getByRole("link", { name: "agent.md" })).toHaveAttribute("href", "/agent.md");
 });

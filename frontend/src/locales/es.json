@@ -1623,7 +1623,7 @@
       "holdingsRead": "Posiciones actuales: Advanced o Jade activos. Los tokens de solo lectura pueden leer y validar. IDs estables y cadenas decimales conservan posiciones en observación y cuentas separadas; los metadatos del sistema van aparte.",
       "holdingsWrite": "Envíe la versión actual. PUT completo debe conservar o eliminar explícitamente cada ID existente e incluir al menos una posición. PUT de una posición reemplaza los campos editables; PATCH conserva campos omitidos. Elimine la última posición en la interfaz web.",
       "holdingsValidate": "Valide PUT completo, creación, reemplazo individual o PATCH sin guardar, capturar precios ni enviar avisos de datos. Validar no reserva la versión.",
-      "strict": "Solo la creación mediante POST requiere Idempotency-Key. Los reintentos idénticos dentro de 24 horas devuelven el éxito original; el contenido diferente produce conflicto. Cada escritura exitosa incrementa la versión una vez, incluso sin cambios. Ante un conflicto de versión, vuelva a leer y concilie. No hay acceso a corredores ni ejecución de operaciones. El esquema OpenAPI para agentes aún no está disponible."
+      "strict": "Solo la creación mediante POST requiere Idempotency-Key. Los reintentos idénticos dentro de 24 horas devuelven el éxito original; el contenido diferente produce conflicto. Cada escritura exitosa incrementa la versión una vez, incluso sin cambios. Ante un conflicto de versión, vuelva a leer y concilie. No hay acceso a corredores ni ejecución de operaciones. El esquema OpenAPI para agentes está disponible en https://api.portfonia.com/agent/openapi.json."
     }
   },
   "downloadConfirm": {

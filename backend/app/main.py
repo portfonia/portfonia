@@ -15,6 +15,7 @@ from app.core.config import get_settings
 from app.routers import (
     admin,
     agent,
+    agent_schema,
     api_token_revoke,
     api_tokens,
     auth,
@@ -83,6 +84,7 @@ app.add_middleware(
 
 app.include_router(api_token_revoke.router, prefix="/api-tokens", tags=["api-tokens"])
 app.include_router(agent.router, prefix="/agent/v1", tags=["agent"])
+app.include_router(agent_schema.router)
 app.include_router(holdings.router, prefix="/holdings", tags=["holdings"])
 app.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
 app.include_router(jade.router, prefix="/jade", tags=["jade"])
