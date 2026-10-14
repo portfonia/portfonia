@@ -37,6 +37,10 @@ export function AgentBody() {
         <div><code className="break-all">{AGENT_PATHS.reports}</code><p>{t("docs.reports")}</p></div>
         <div><code className="break-all">{AGENT_PATHS.snapshots}</code><p>{t("docs.snapshots")}</p></div>
         <div><code className="break-all">{AGENT_PATHS.intel}</code><p>{t("docs.intel")}</p></div>
+        <div><code className="break-all">{"GET /agent/v1/holdings"}</code><p>{t("docs.holdingsRead")}</p></div>
+        <div className="flex flex-col gap-1">{["PUT /agent/v1/holdings", "POST /agent/v1/holdings", "PUT /agent/v1/holdings/{holding_id}", "PATCH /agent/v1/holdings/{holding_id}", "DELETE /agent/v1/holdings/{holding_id}"].map((path) => <code key={path} className="break-all">{path}</code>)}<p>{t("docs.holdingsWrite")}</p></div>
+        <div><code className="break-all">{"POST /agent/v1/holdings/validate"}</code><p>{t("docs.holdingsValidate")}</p></div>
+        <p>{t("docs.strict")}</p>
       </CardContent>
     </Card>
     <Card>

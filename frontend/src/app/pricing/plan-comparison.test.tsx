@@ -37,7 +37,7 @@ const expected = {
           "lead": "Everything in Briefing, plus:",
           "features": [
             "A briefing every weekday, Monday to Friday",
-            "Your AI agent can read your daily holding snapshots",
+            "Your AI agent can read daily snapshots and manage current holdings with write permission",
             "Your AI agent can read intelligence related to your holdings",
             "Up to 50 saved holding rows while Advanced is active, including cash and watched rows"
           ]
@@ -93,7 +93,7 @@ const expected = {
           "lead": "\u5305\u542b\u7b80\u62a5\u7684\u5168\u90e8\u529f\u80fd\uff0c\u53e6\u52a0\uff1a",
           "features": [
             "\u6bcf\u4e2a\u5de5\u4f5c\u65e5\uff08\u5468\u4e00\u81f3\u5468\u4e94\uff09\u4e00\u5c01\u7b80\u62a5",
-            "AI\u667a\u80fd\u4f53\u53ef\u8bfb\u53d6\u60a8\u7684\u9010\u65e5\u6301\u4ed3\u5feb\u7167",
+            "AI\u667a\u80fd\u4f53\u53ef\u8bfb\u53d6\u9010\u65e5\u5feb\u7167\uff0c\u5e76\u4ee5\u5199\u5165\u6743\u9650\u7ba1\u7406\u5f53\u524d\u6301\u4ed3",
             "AI\u667a\u80fd\u4f53\u53ef\u8bfb\u53d6\u4e0e\u60a8\u6301\u4ed3\u76f8\u5173\u7684\u60c5\u62a5",
             "\u8fdb\u9636\u6709\u6548\u671f\u95f4\u6700\u591a\u4fdd\u5b58 50 \u6761\u6301\u4ed3\uff0c\u73b0\u91d1\u548c\u89c2\u5bdf\u4e2d\u7684\u6301\u4ed3\u4e5f\u8ba1\u5165"
           ]
@@ -149,7 +149,7 @@ const expected = {
           "lead": "\u6db5\u84cb\u7c21\u5831\u7684\u6240\u6709\u529f\u80fd\uff0c\u53e6\u52a0\uff1a",
           "features": [
             "\u6bcf\u500b\u5de5\u4f5c\u65e5\uff08\u9031\u4e00\u81f3\u9031\u4e94\uff09\u4e00\u5c01\u7c21\u5831",
-            "AI \u667a\u80fd\u9ad4\u53ef\u8b80\u53d6\u60a8\u7684\u9010\u65e5\u6301\u5009\u5feb\u7167",
+            "AI \u667a\u80fd\u9ad4\u53ef\u8b80\u53d6\u9010\u65e5\u5feb\u7167\uff0c\u4e26\u4ee5\u5beb\u5165\u6b0a\u9650\u7ba1\u7406\u76ee\u524d\u6301\u5009",
             "AI \u667a\u80fd\u9ad4\u53ef\u8b80\u53d6\u8207\u60a8\u6301\u5009\u76f8\u95dc\u7684\u60c5\u5831",
             "\u9032\u968e\u6709\u6548\u671f\u9593\u6700\u591a\u5132\u5b58 50 \u7b46\u6301\u5009\uff0c\u73fe\u91d1\u8207\u89c0\u5bdf\u4e2d\u7684\u6301\u5009\u4e5f\u8a08\u5165"
           ]

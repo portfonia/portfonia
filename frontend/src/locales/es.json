@@ -472,7 +472,7 @@
     "subscriptionDescription": {
       "weekly": "Un resumen de su cartera cada sábado.",
       "mwf": "Un resumen de su cartera cada lunes, miércoles y viernes.",
-      "daily": "Un resumen de su cartera de lunes a viernes. Plan Advanced: incluye acceso a datos para agentes de IA.",
+      "daily": "Un resumen de su cartera de lunes a viernes. Plan Advanced: incluye acceso a datos para agentes de IA. Advanced y Jade activos también permiten leer y gestionar posiciones actuales mediante su propio agente; los cambios requieren un token de escritura.",
       "jade": "Herramientas de riesgo de cartera, todo el plan Advanced y un calendario de resúmenes que usted elige."
     },
     "subscriptionFee": "Tarifa: {fee} créditos al mes.",
@@ -1146,7 +1146,7 @@
         },
         {
           "q": "¿Cuánto cuesta?",
-          "a": "Los planes comienzan en 0.99 créditos al mes por un resumen semanal, 1.99 por resúmenes lunes / miércoles / viernes, 2.49 por el plan diario Advanced con acceso a datos para agentes de IA, y 9.99 por Jade, que suma herramientas de riesgo de cartera a todo lo incluido en Advanced. Los créditos se venden en paquetes de US$10 y US$20; consulte Precios."
+          "a": "Los planes comienzan en 0.99 créditos al mes por un resumen semanal, 1.99 por resúmenes lunes / miércoles / viernes, 2.49 por el plan diario Advanced con acceso a datos para agentes de IA, y 9.99 por Jade, que suma herramientas de riesgo de cartera a todo lo incluido en Advanced. Los créditos se venden en paquetes de US$10 y US$20; consulte Precios. Advanced y Jade activos también permiten leer y gestionar posiciones actuales mediante su propio agente; los cambios requieren un token de escritura."
         }
       ]
     },
@@ -1205,7 +1205,7 @@
     "deliveryVerified": "Los informes se enviarán a {deliveryEmail}.",
     "deliveryUnverified": "Los informes no se enviarán hasta verificar {deliveryEmail}.",
     "errorLoadFailed": "No se pudo cargar su cuenta.",
-    "subscriptionPlans": "Portfonia envía resúmenes programados a suscriptores. Hay cuatro planes: semanal (0.99 créditos al mes), Lun/Mié/Vie (1.99), diario Advanced (2.49, días laborables y acceso a datos para agentes de IA) y Jade (9.99, herramientas de riesgo de cartera, todo lo incluido en Advanced y un calendario de resúmenes que usted elige). Las posiciones guardadas, incluido el efectivo y las posiciones en observación, se limitan a 30, 50 mientras Advanced está activo y 100 mientras Jade está activo. Suscríbase a Jade en la página Jade.",
+    "subscriptionPlans": "Portfonia envía resúmenes programados a suscriptores. Hay cuatro planes: semanal (0.99 créditos al mes), Lun/Mié/Vie (1.99), diario Advanced (2.49, días laborables y acceso a datos para agentes de IA) y Jade (9.99, herramientas de riesgo de cartera, todo lo incluido en Advanced y un calendario de resúmenes que usted elige). Las posiciones guardadas, incluido el efectivo y las posiciones en observación, se limitan a 30, 50 mientras Advanced está activo y 100 mientras Jade está activo. Suscríbase a Jade en la página Jade. Advanced y Jade activos también permiten leer y gestionar posiciones actuales mediante su propio agente; los cambios requieren un token de escritura.",
     "subscriptionRequirements": "Hasta suscribirse, no se envían resúmenes programados y algunas funciones pueden no estar disponibles. Necesita un correo verificado para suscribirse.",
     "choosePlan": "Elegir un plan"
   },
@@ -1289,7 +1289,7 @@
           "heading": "6. Uso aceptable",
           "body": [
             "Acepta no hacer uso indebido del Servicio, incluyendo intentar acceder a datos de otro usuario, interferir con su funcionamiento o construir un producto competidor a partir de sus resultados.",
-            "Los tokens de API permiten que el software que elija lea sus datos. Un token nuevo es de solo lectura salvo que elija escritura de posiciones. Las rutas de posiciones aún no están disponibles. Manténgalos secretos; usted es responsable de los agentes a los que entregue un token. Portfonia aplica los límites descritos en Agente de IA y puede revocar tokens para proteger su cuenta o el servicio."
+            "Los tokens de API permiten que el software que elija lea sus datos. Un token nuevo es de solo lectura salvo que elija escritura de posiciones. Advanced y Jade activos permiten gestionar posiciones actuales; los cambios requieren permiso de escritura. Revocar tokens detiene accesos futuros y no deshace cambios guardados. Manténgalos secretos; usted es responsable de los agentes a los que entregue un token. Portfonia aplica los límites descritos en Agente de IA y puede revocar tokens para proteger su cuenta o el servicio."
           ]
         },
         {
@@ -1389,7 +1389,7 @@
         {
           "heading": "7. Acceso de agentes de IA",
           "body": [
-            "Si crea un token de API, almacenamos su hash irreversible, su nombre, su permiso (solo lectura o escritura de posiciones) y las fechas de creación, vencimiento y último uso. Cada solicitud registra hora, token, endpoint y fechas solicitadas, resultado, IP y User-Agent del solicitante. Conservamos estos registros 90 días para proteger su cuenta y detectar uso indebido. Cuando se leen instantáneas de posiciones por API, le enviamos un aviso por correo como máximo una vez al día, con un enlace que revoca todos sus tokens. Los datos de la API se entregan al agente que usted elige; usted controla cómo los almacena o usa ese agente."
+            "Si crea un token de API, almacenamos su hash irreversible, su nombre, su permiso (solo lectura o escritura de posiciones) y las fechas de creación, vencimiento y último uso. Cada solicitud registra hora, token, endpoint y fechas solicitadas, resultado, IP y User-Agent del solicitante. Conservamos estos registros 90 días para proteger su cuenta y detectar uso indebido. Las lecturas de posiciones actuales e instantáneas comparten un aviso diario, hora del Este; las escrituras con cambios tienen otro aviso diario. Validación, escrituras sin cambios y reintentos reproducidos no envían avisos de datos. Los enlaces revocan todos los tokens para impedir accesos futuros, sin deshacer cambios guardados. Guardamos cifrados los resultados exitosos de creación y reemplazo completo para reintentos durante 24 horas; la auditoría no guarda cuerpos de solicitudes ni claves de idempotencia. Los datos de la API se entregan al agente que usted elige; usted controla cómo los almacena o usa ese agente."
           ]
         },
         {
@@ -1442,7 +1442,7 @@
             "Resumen Lun / Mié / Vie: 1.99 créditos al mes. Tres correos personalizados por semana (lunes, miércoles y viernes).",
             "Resumen diario (Advanced): 2.49 créditos al mes. Un correo personalizado cada día de lunes a viernes, incluidos festivos bursátiles.",
             "Jade: 9.99 créditos al mes. Incluye todo el plan Advanced. Elija resúmenes semanales, Lun / Mié / Vie o diarios y cambie el calendario cuando quiera en Jade. Incluye cinco herramientas de riesgo: simulación histórica de posiciones, riesgo de cola (VaR / CVaR), escenarios de estrés histórico, exposición por estilo y seguimiento frente a su referencia.",
-            "Semanal y Lun / Mié / Vie solo difieren en frecuencia. Diario es el plan Advanced. Diario y Jade permiten que su agente de IA lea instantáneas diarias e información relacionada con posiciones. El historial de informes está disponible para agentes en todos los planes. Las posiciones guardadas, incluido el efectivo y las posiciones en observación, se limitan a 30 en Semanal y Lun / Mié / Vie, 50 mientras Advanced está activo y 100 mientras Jade está activo."
+            "Semanal y Lun / Mié / Vie solo difieren en frecuencia. Diario es el plan Advanced. Diario y Jade permiten que su agente de IA lea instantáneas diarias e información relacionada con posiciones. El historial de informes está disponible para agentes en todos los planes. Las posiciones guardadas, incluido el efectivo y las posiciones en observación, se limitan a 30 en Semanal y Lun / Mié / Vie, 50 mientras Advanced está activo y 100 mientras Jade está activo. Advanced y Jade activos también permiten leer y gestionar posiciones actuales mediante su propio agente; los cambios requieren un token de escritura."
           ]
         },
         {
@@ -1565,17 +1565,17 @@
   },
   "agent": {
     "title": "Agente de IA",
-    "intro": "Su agente de IA puede leer informes de Portfonia, instantáneas diarias completas e información mediante un token personal de API. Los endpoints actuales son de solo lectura. Un token nuevo es de solo lectura salvo que elija escritura de posiciones. Las rutas de posiciones aún no están disponibles.",
+    "intro": "Su agente de IA puede leer informes, instantáneas, información y posiciones actuales mediante un token personal de API. Los usuarios con Advanced o Jade activos también pueden gestionar posiciones con un token de escritura. Los tokens nuevos son de solo lectura por defecto.",
     "limitsTitle": "Límites de acceso y avisos",
-    "limits": "Los límites se comparten entre todos sus tokens: 20 solicitudes por endpoint por hora. Más de 10 en un minuto bloquean el acceso 15 minutos. Una solicitud rechazada devuelve Retry-After para indicar cuándo reintentar. Cuando existan escrituras de una sola posición, esas llamadas compartirán otro límite de 30 por minuto y 100 por hora. La solicitud 31 en un minuto bloquea todo el acceso por token durante 15 minutos.",
+    "limits": "Los límites combinan todos sus tokens. POST/PUT/PATCH/DELETE de una sola posición comparten 30 solicitudes por minuto y 100 por hora; la solicitud 31 bloquea todo el acceso de agentes durante 15 minutos. Las demás llamadas, incluidas GET, PUT completo y validación, permiten 20 por endpoint por hora y 10 entre endpoints por minuto; la solicitud 11 bloquea el acceso 15 minutos. Un rechazo devuelve Retry-After.",
     "quiet": "Las solicitudes se pausan desde cinco minutos antes de la hora programada de una tarea pesada hasta cinco minutos después de terminar, incluidas la recopilación de información y los resúmenes programados.",
-    "notice": "Cuando se leen sus instantáneas por API, enviamos un aviso como máximo una vez al día, hora del Este. Si no solicitó el acceso, su enlace revoca inmediatamente todos sus tokens sin inicio de sesión ni confirmación.",
+    "notice": "Las lecturas de posiciones actuales e instantáneas comparten como máximo un aviso por día, hora del Este. Las escrituras que cambian posiciones tienen un aviso diario separado; validación, escrituras sin cambios y reintentos reproducidos no envían avisos. El enlace revoca todos los tokens sin iniciar sesión ni confirmar, para detener accesos futuros. La revocación no deshace cambios guardados.",
     "signIn": "Inicie sesión",
     "signInNote": "para gestionar sus tokens de API.",
     "settingsTitle": "Configuración de tokens",
     "tokenRule": "Puede tener hasta 5 tokens activos. Los no utilizados durante 60 días vencen automáticamente.",
     "permissionLabel": "Permiso",
-    "permissionNote": "El permiso queda fijo al crear el token. Para cambiarlo, cree un token nuevo y revoque el anterior. Las rutas de posiciones aún no están disponibles. Cuando lo estén, se requerirá una suscripción Advanced o Jade activa.",
+    "permissionNote": "El permiso queda fijo al crear el token. Para cambiarlo, cree otro y revoque el anterior. Leer y validar posiciones requiere Advanced o Jade activos; modificarlas también requiere escritura de posiciones.",
     "permissions": {
       "read_only": "Solo lectura",
       "holdings_write": "Escritura de posiciones"
@@ -1619,7 +1619,11 @@
       "endpointsTitle": "Endpoints",
       "reports": "Informes: todos los planes. Indique fechas inicial y final inclusivas, hora del Este. Devuelve hasta los 5 informes disponibles más recientes del rango, con Markdown, total_in_range y truncated.",
       "snapshots": "Instantáneas de posiciones: plan Advanced o Jade. Indique fechas inicial y final inclusivas, hora del Este, para un máximo de 30 días.",
-      "intel": "Información: plan Advanced o Jade. Indique una fecha, hora del Este, de los últimos 7 días, incluido hoy. Devuelve titulares y cuerpos aceptados relacionados con sus posiciones, además de artículos macro para las temáticas de su último informe disponible en esa fecha o antes. Sin enlaces a fuentes."
+      "intel": "Información: plan Advanced o Jade. Indique una fecha, hora del Este, de los últimos 7 días, incluido hoy. Devuelve titulares y cuerpos aceptados relacionados con sus posiciones, además de artículos macro para las temáticas de su último informe disponible en esa fecha o antes. Sin enlaces a fuentes.",
+      "holdingsRead": "Posiciones actuales: Advanced o Jade activos. Los tokens de solo lectura pueden leer y validar. IDs estables y cadenas decimales conservan posiciones en observación y cuentas separadas; los metadatos del sistema van aparte.",
+      "holdingsWrite": "Envíe la versión actual. PUT completo debe conservar o eliminar explícitamente cada ID existente e incluir al menos una posición. PUT de una posición reemplaza los campos editables; PATCH conserva campos omitidos. Elimine la última posición en la interfaz web.",
+      "holdingsValidate": "Valide PUT completo, creación, reemplazo individual o PATCH sin guardar, capturar precios ni enviar avisos de datos. Validar no reserva la versión.",
+      "strict": "POST y PUT completo requieren Idempotency-Key. Los reintentos idénticos devuelven el éxito original durante 24 horas; el contenido diferente produce conflicto. Ante un conflicto de versión, vuelva a leer y concilie. No hay acceso a corredores ni ejecución de operaciones. La vista previa de valoración y el esquema OpenAPI para agentes aún no están disponibles."
     }
   },
   "downloadConfirm": {
@@ -2059,7 +2063,7 @@
         "lead": "Todo lo incluido en Briefing, más:",
         "features": [
           "Un resumen cada día de lunes a viernes",
-          "Su agente de IA puede leer instantáneas diarias de posiciones",
+          "Su agente puede leer instantáneas diarias y gestionar posiciones actuales con permiso de escritura",
           "Su agente de IA puede leer información relacionada con sus posiciones",
           "Hasta 50 posiciones guardadas mientras Advanced está activo, incluidas efectivo y posiciones en observación"
         ]

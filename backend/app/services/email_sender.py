@@ -1106,24 +1106,26 @@ def send_subscription_notice(
 _API_ACCESS_NOTICE_COPY: dict[str, dict[str, str]] = {
     "en": {
         "subject": "Portfonia - your holding data was read through the API",
-        "body": "Your holding snapshots were read today through a Portfonia API token. If you asked your AI agent to do this, no action is needed. If you did not, open this link to revoke all of your API tokens immediately and stop further access: {revoke_url}",
+        "body": "Your current holdings or holding snapshots were read today through a Portfonia API token. If you asked your AI agent to do this, no action is needed. If you did not, open this link to revoke all of your API tokens immediately and stop further access: {revoke_url}",
     },
     "zh": {
         "subject": "Portfonia - 您的持仓数据已通过 API 读取",
-        "body": "今天有人通过 Portfonia API token 读取了您的持仓快照。如果这是您让 AI智能体进行的操作，无需采取任何行动。如果不是，请打开以下链接，立即吊销您的全部 API token，阻止进一步访问：{revoke_url}",  # noqa: RUF001
+        "body": "今天有人通过 Portfonia API token 读取了您的当前持仓或持仓快照。如果这是您让 AI智能体进行的操作，无需采取任何行动。如果不是，请打开以下链接，立即吊销您的全部 API token，阻止进一步访问：{revoke_url}",  # noqa: RUF001
     },
     "zh-Hant": {
         "subject": "Portfonia - 您的持倉資料已透過 API 讀取",
-        "body": "今天有人透過 Portfonia API token 讀取了您的持倉快照。如果這是您請 AI 智能體進行的操作，無需採取任何行動。如果不是，請開啟以下連結，立即撤銷您的全部 API token，阻止進一步存取：{revoke_url}",  # noqa: RUF001
+        "body": "今天有人透過 Portfonia API token 讀取了您的目前持倉或持倉快照。如果這是您請 AI 智能體進行的操作，無需採取任何行動。如果不是，請開啟以下連結，立即撤銷您的全部 API token，阻止進一步存取：{revoke_url}",  # noqa: RUF001
     },
 }
 
 
-def send_api_access_notice(email: str, revoke_url: str, *, locale: str = "en") -> bool:
+def _send_api_data_notice(
+    email: str, revoke_url: str, locale: str, copies: dict[str, dict[str, str]]
+) -> bool:
     """Send the metadata-only notice; never include holding values or API tokens."""
     try:
         settings = get_settings()
-        copy = _API_ACCESS_NOTICE_COPY.get(locale, _API_ACCESS_NOTICE_COPY["en"])
+        copy = copies.get(locale, copies["en"])
         with httpx.Client(timeout=15.0) as client:
             response = client.post(
                 _RESEND_SEND_URL,
@@ -1147,3 +1149,27 @@ def send_api_access_notice(email: str, revoke_url: str, *, locale: str = "en") -
             f" status={status}" if status is not None else "",
         )
         return False
+
+
+_API_MODIFICATION_NOTICE_COPY: dict[str, dict[str, str]] = {
+    "en": {
+        "subject": "Portfonia - your holdings were modified through the API",
+        "body": "Your current holdings were modified today through a Portfonia API token. If you asked your agent to do this, no action is needed. Otherwise, revoke all your API tokens to stop future access: {revoke_url}. Revocation does not undo changes already saved; check your holdings in the browser.",
+    },
+    "zh": {
+        "subject": "Portfonia - 您的持仓已通过 API 修改",
+        "body": "今天有人通过 Portfonia API token 修改了您的当前持仓。如果这是您让智能体进行的操作，无需采取行动。否则，请打开以下链接吊销全部 API token，阻止今后的访问：{revoke_url}。吊销不会撤销已保存的修改，请在网页中检查持仓。",  # noqa: RUF001
+    },
+    "zh-Hant": {
+        "subject": "Portfonia - 您的持倉已透過 API 修改",
+        "body": "今天有人透過 Portfonia API token 修改了您的目前持倉。如果這是您請智能體進行的操作，無需採取行動。否則，請開啟以下連結撤銷全部 API token，阻止今後的存取：{revoke_url}。撤銷不會撤銷已儲存的修改，請在網頁中檢查持倉。",  # noqa: RUF001
+    },
+}
+
+
+def send_api_access_notice(email: str, revoke_url: str, *, locale: str = "en") -> bool:
+    return _send_api_data_notice(email, revoke_url, locale, _API_ACCESS_NOTICE_COPY)
+
+
+def send_api_modification_notice(email: str, revoke_url: str, *, locale: str = "en") -> bool:
+    return _send_api_data_notice(email, revoke_url, locale, _API_MODIFICATION_NOTICE_COPY)

@@ -1,17 +1,19 @@
 # Portfonia
 
-> Portfonia provides a read-only personal data API for a user's own AI agent: reports, complete daily holding snapshots and holding-related intelligence. Access uses personal API tokens and subscription entitlements. Portfonia provides information and context, not investment advice.
+> Portfonia provides a personal data API for a user's own AI agent: reports, complete daily holding snapshots, holding-related intelligence and strict current-holdings management. Access uses personal API tokens and subscription entitlements. Portfonia provides information and context, not investment advice.
 
 ## Docs
 
 - [API reference](https://portfonia.com/agent.md): Authentication, endpoints, response schemas, limits and data handling.
 - [Human guide and token settings](https://portfonia.com/agent): Getting started and personal token management.
 
-## Planned holdings management (not available yet)
+## Current holdings management
 
-Web and file saves limit stored rows to 30 on Briefing, 50 while Advanced is active, and 100 while Jade is active. Cash and watched rows count. A new API token is read-only unless holdings write is chosen at creation, and that choice cannot be changed later. Holdings routes, their schema and OpenAPI are not available. Current Agent endpoints remain read-only.
+- [Current holdings contract](https://portfonia.com/agent.md#current-holdings-advanced-or-jade): Active Advanced/Jade can GET current holdings and validate complete replacement, creation, single replacement or PATCH with either token permission. POST/PUT/PATCH/DELETE changes require holdings-write permission. Stable IDs, decimal strings, explicit deletions and current versions apply; empty books and last-row Agent deletion are rejected. POST and complete PUT require a 24-hour idempotency key, with exact original-result replay. Read the contract before building your own synchronization workflow.
 
-- [Strict future holdings contract](https://portfonia.com/agent.md#planned-holdings-management-strict-contract-not-available-yet): Complete submissions must account for every existing ID and explicitly list deletions; empty submissions and deleting the last holding are rejected. Read the version, retry, permission, quota and source-download rules before building a future pipeline. Token permission, web and file row caps, and the single-row rate-limit profile are already in effect. They do not make the holdings routes available.
+Stored-row limits are Basic 30, active Advanced 50, active Jade 100, counting cash and watches. Single-row writes share 30/minute and 100/hour; other calls keep the existing counters. Current-holdings and snapshot reads share one daily read notice; changed writes have one separate modification notice. Revocation stops future access without undoing changes. Request audit records metadata only; replay results are stored encrypted for 24 hours.
+
+Discovery is currently this file and agent.md. Cached valuation preview and the Agent-only OpenAPI URL are not available yet. Do not call planned routes or the disabled full production openapi.json.
 
 ## Guides
 

@@ -66,3 +66,29 @@ def send_api_access_notice_task(self: Any, user_id: str) -> None:
             if self.request.retries < self.max_retries:
                 raise self.retry(countdown=300)
             logger.error("API access notice delivery failed after retry user_id=%s", uid)
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.notification_tasks.send_api_modification_notice_task", bind=True, max_retries=1
+)
+def send_api_modification_notice_task(self: Any, user_id: str) -> None:
+    """One independently claimed modification notice with the existing retry policy."""
+    from app.core.database import SessionLocal
+    from app.models.user import User
+    from app.services.api_token_revoke_link import create_link
+    from app.services.email_sender import send_api_modification_notice
+    from app.services.user_directory import recipient_email_with_purpose
+
+    with SessionLocal() as session:
+        uid = UUID(user_id)
+        recipient = recipient_email_with_purpose(session, uid)
+        if recipient is None:
+            logger.info("API modification notice skipped: no verified recipient user_id=%s", uid)
+            return
+        user = session.get(User, uid)
+        assert user is not None
+        revoke_url = f"https://portfonia.com/agent/revoke?t={create_link(uid)}"
+        if not send_api_modification_notice(recipient[0], revoke_url, locale=user.locale):
+            if self.request.retries < self.max_retries:
+                raise self.retry(countdown=300)
+            logger.error("API modification notice delivery failed after retry user_id=%s", uid)
