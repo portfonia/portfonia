@@ -17,7 +17,16 @@ from app.core.agent_limits import enforce_agent_limits
 from app.core.database import get_session
 from app.core.rate_limit import UNAVAILABLE_DETAIL, RateLimitUnavailable, get_backend
 from app.schemas.agent import AgentIntelOut, AgentReportsOut
-from app.schemas.agent_holdings import Create, Patch, ReplaceAll, Validation
+from app.schemas.agent_holdings import (
+    Create,
+    HoldingDeleted,
+    HoldingResult,
+    HoldingsBook,
+    HoldingsValidationResult,
+    Patch,
+    ReplaceAll,
+    Validation,
+)
 from app.schemas.portfolio import SnapshotExportOut
 from app.services import agent_holdings, api_tokens
 from app.services.agent_pull import pull_intel, pull_reports
@@ -45,19 +54,17 @@ def advanced_access(
 router = APIRouter(dependencies=[Depends(agent_limits)])
 
 
-def _request_documentation(
-    schema: TypeAdapter[object], path: str, method: str
-) -> dict[str, object]:
+def _request_documentation(schema: TypeAdapter[object]) -> dict[str, object]:
     # Bodies are parsed after authentication by the existing dependencies. Document
     # them without adding eager Body validation or changing that execution order.
-    pointer = path.replace("~", "~0").replace("/", "~1").replace("{", "{{").replace("}", "}}")
-    reference = (
-        f"#/paths/{pointer}/{method}/requestBody/content/application~1json/schema/$defs/{{model}}"
-    )
     return {
         "requestBody": {
             "required": True,
-            "content": {"application/json": {"schema": schema.json_schema(ref_template=reference)}},
+            "content": {
+                "application/json": {
+                    "schema": schema.json_schema(ref_template="#/components/schemas/{model}")
+                }
+            },
         }
     }
 
@@ -166,7 +173,9 @@ def _data_notice(uid: UUID, *, modified: bool) -> None:
         )
 
 
-@router.get("/holdings", dependencies=[Depends(holdings_access)])
+@router.get(
+    "/holdings", dependencies=[Depends(holdings_access)], responses={200: {"model": HoldingsBook}}
+)
 def current_holdings(
     request: Request,
     principal: AgentPrincipal = Depends(agent_principal),
@@ -207,10 +216,9 @@ async def parse_holdings_body[T](request: Request, schema: TypeAdapter[T]) -> T:
 
 @router.post(
     "/holdings/validate",
+    responses={200: {"model": HoldingsValidationResult}},
     dependencies=[Depends(holdings_access)],
-    openapi_extra=_request_documentation(
-        TypeAdapter(Validation), "/agent/v1/holdings/validate", "post"
-    ),
+    openapi_extra=_request_documentation(TypeAdapter(Validation)),
 )
 def validate_holdings(
     request: Request,
@@ -257,9 +265,11 @@ def _write_result(
 
 @router.post(
     "/holdings",
+    status_code=201,
+    responses={201: {"model": HoldingResult}},
     dependencies=[Depends(holdings_write_access)],
     openapi_extra={
-        **_request_documentation(TypeAdapter(Create), "/agent/v1/holdings", "post"),
+        **_request_documentation(TypeAdapter(Create)),
         "parameters": [
             {
                 "name": "Idempotency-Key",
@@ -283,8 +293,9 @@ def create_current_holding(
 
 @router.put(
     "/holdings",
+    responses={200: {"model": HoldingsBook}},
     dependencies=[Depends(holdings_write_access)],
-    openapi_extra=_request_documentation(TypeAdapter(ReplaceAll), "/agent/v1/holdings", "put"),
+    openapi_extra=_request_documentation(TypeAdapter(ReplaceAll)),
 )
 def replace_current_holdings(
     request: Request,
@@ -298,10 +309,9 @@ def replace_current_holdings(
 
 @router.put(
     "/holdings/{holding_id}",
+    responses={200: {"model": HoldingResult}},
     dependencies=[Depends(holdings_write_access)],
-    openapi_extra=_request_documentation(
-        TypeAdapter(Create), "/agent/v1/holdings/{holding_id}", "put"
-    ),
+    openapi_extra=_request_documentation(TypeAdapter(Create)),
 )
 def replace_current_holding(
     request: Request,
@@ -316,10 +326,9 @@ def replace_current_holding(
 
 @router.patch(
     "/holdings/{holding_id}",
+    responses={200: {"model": HoldingResult}},
     dependencies=[Depends(holdings_write_access)],
-    openapi_extra=_request_documentation(
-        TypeAdapter(Patch), "/agent/v1/holdings/{holding_id}", "patch"
-    ),
+    openapi_extra=_request_documentation(TypeAdapter(Patch)),
 )
 def patch_current_holding(
     request: Request,
@@ -332,7 +341,11 @@ def patch_current_holding(
     return _write_result(request, principal, session, body, hid=holding_id)
 
 
-@router.delete("/holdings/{holding_id}", dependencies=[Depends(holdings_write_access)])
+@router.delete(
+    "/holdings/{holding_id}",
+    dependencies=[Depends(holdings_write_access)],
+    responses={200: {"model": HoldingDeleted}},
+)
 async def delete_current_holding(
     request: Request,
     holding_id: UUID,

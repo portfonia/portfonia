@@ -69,6 +69,8 @@ app = FastAPI(
     **_api_doc_urls(settings.APP_ENV),
 )
 
+app.openapi = agent_schema.with_body_components(app.openapi)  # type: ignore[method-assign]
+
 app.middleware("http")(audit_agent_request)
 
 # The Next.js UI calls this API from a separate origin (FRONTEND_URL). Without

@@ -1,5 +1,6 @@
 """Strict Agent transport schemas; domain validation is shared by writes and previews."""
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
@@ -155,4 +156,53 @@ class ValidatePatch(Patch):
 
 Validation = Annotated[
     ValidateCreate | ValidateAll | ValidateReplace | ValidatePatch, Field(discriminator="operation")
+]
+
+
+class HoldingMetadata(StrictModel):
+    id: UUID
+    asset_class: str
+    capture_supported: bool
+    last_manual_update: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    position: int | None
+
+
+class HoldingsBook(StrictModel):
+    version: Version
+    holdings: list[AgentHoldingRecord]
+    metadata: list[HoldingMetadata]
+
+
+class HoldingResult(StrictModel):
+    version: Version
+    holding: AgentHoldingRecord
+
+
+class HoldingDeleted(StrictModel):
+    version: Version
+    deleted_id: UUID
+
+
+class HoldingsValidationIssue(StrictModel):
+    code: str
+    path: str
+    message: str
+
+
+class HoldingsValidationSuccess(StrictModel):
+    valid: Literal[True]
+    version: Version
+    normalized: Validation
+
+
+class HoldingsValidationFailure(StrictModel):
+    valid: Literal[False]
+    version: Version
+    errors: list[HoldingsValidationIssue]
+
+
+HoldingsValidationResult = Annotated[
+    HoldingsValidationSuccess | HoldingsValidationFailure, Field(discriminator="valid")
 ]

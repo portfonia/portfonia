@@ -1,6 +1,6 @@
 """Public description of the implemented Agent data API."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from copy import deepcopy
 from typing import cast
 
@@ -16,6 +16,28 @@ OPERATIONS = {
     "/agent/v1/holdings/{holding_id}": {"put", "patch", "delete"},
     "/agent/v1/holdings/validate": {"post"},
 }
+
+
+def with_body_components(
+    generate: Callable[[], dict[str, object]],
+) -> Callable[[], dict[str, object]]:
+    """Register definitions from manually documented bodies in the app schema."""
+
+    def openapi() -> dict[str, object]:
+        document = generate()
+        paths = cast(dict[str, dict[str, dict[str, object]]], document["paths"])
+        components = cast(dict[str, dict[str, object]], document["components"])["schemas"]
+        for path, methods in OPERATIONS.items():
+            for method in methods:
+                body = paths[path][method].get("requestBody")
+                if not isinstance(body, dict):
+                    continue
+                schema = body["content"]["application/json"]["schema"]
+                for name, definition in schema.pop("$defs", {}).items():
+                    components.setdefault(name, definition)
+        return document
+
+    return openapi
 
 
 def _refs(value: object) -> Iterator[str]:

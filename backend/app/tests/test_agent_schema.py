@@ -34,7 +34,7 @@ def refs(value: object) -> Iterator[str]:
 
 def resolve(document: object, ref: str) -> object:
     value = document
-    assert ref.startswith("#/")
+    assert ref.startswith("#/components/schemas/")
     for part in ref[2:].split("/"):
         value = cast(dict[str, object], value)[part.replace("~1", "/").replace("~0", "~")]
     return value
@@ -106,6 +106,7 @@ def test_production_exposes_only_agent_schema() -> None:
     production = FastAPI(**_api_doc_urls("production"))
     production.include_router(agent.router, prefix="/agent/v1")
     production.include_router(agent_schema.router)
+    production.openapi = agent_schema.with_body_components(production.openapi)  # type: ignore[method-assign]
     production.middleware("http")(audit_agent_request)
     with TestClient(production) as client:
         for url in ("/openapi.json", "/docs", "/redoc"):
@@ -136,3 +137,31 @@ def test_schema_read_has_no_data_access_side_effects(
     assert (
         db_session.execute(text("SELECT count(*) FROM api_audit_log")).scalar_one() == audit_before
     )
+
+
+def test_schema_documents_existing_holdings_success_responses(app_client: TestClient) -> None:
+    document = app_client.get(URL).json()
+    expected = [
+        ("/agent/v1/holdings", "post", "201", {"version", "holding"}),
+        ("/agent/v1/holdings", "get", "200", {"version", "holdings", "metadata"}),
+        ("/agent/v1/holdings", "put", "200", {"version", "holdings", "metadata"}),
+        ("/agent/v1/holdings/{holding_id}", "put", "200", {"version", "holding"}),
+        ("/agent/v1/holdings/{holding_id}", "patch", "200", {"version", "holding"}),
+        ("/agent/v1/holdings/{holding_id}", "delete", "200", {"version", "deleted_id"}),
+    ]
+    for path, method, status, fields in expected:
+        responses = document["paths"][path][method]["responses"]
+        assert {code for code in responses if code.startswith("2")} == {status}
+        body = responses[status]["content"]["application/json"]["schema"]
+        model = resolve(document, body["$ref"])
+        assert isinstance(model, dict)
+        assert set(model["properties"]) == fields
+        assert set(model["required"]) == fields
+    validation = document["paths"]["/agent/v1/holdings/validate"]["post"]["responses"]
+    assert {code for code in validation if code.startswith("2")} == {"200"}
+    body = validation["200"]["content"]["application/json"]["schema"]
+    variants = [resolve(document, entry["$ref"]) for entry in body["oneOf"]]
+    assert [
+        set(cast(dict[str, object], cast(dict[str, object], variant)["properties"]))
+        for variant in variants
+    ] == [{"valid", "version", "normalized"}, {"valid", "version", "errors"}]
