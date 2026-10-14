@@ -496,13 +496,11 @@ def apply_agent_book(
 ) -> tuple[list[Holding], list[Holding], bool]:
     """Apply already checked Agent targets inside the caller's locked transaction.
 
+    The caller must first run agent_holdings.plan() under the same user lock;
+    that plan owns the final cap check for these targets and deletions.
     Dynamic dictionaries are the shared ORM field mapping, as in the web writer.
     This primitive never commits: the caller saves encrypted replay alongside it.
     """
-    after = len(existing) - len(deleted) + sum(row is None for row, _, _ in targets)
-    _ensure_cap(
-        user, len(existing), after, introduces_rows=any(row is None for row, _, _ in targets)
-    )
     account_ids = resolve_accounts_for_holdings(
         session,
         user.id,

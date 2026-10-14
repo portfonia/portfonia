@@ -8,6 +8,7 @@ from typing import cast
 from uuid import UUID
 
 from fastapi import HTTPException
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -299,7 +300,10 @@ def mutate(
             session.commit()
             return previous.response_status, payload, True, False
     submitted = body.version if body is not None else version
-    assert submitted is not None
+    if submitted is None:
+        raise RequestValidationError(
+            [{"type": "missing", "loc": ("body", "version"), "msg": "Field required", "input": {}}]
+        )
     try:
         prepared = plan(user, rows, body, hid, submitted)
         saved, capture, changed = holdings_write.apply_agent_book(
@@ -340,7 +344,8 @@ def validate(session: Session, uid: UUID, body: Validation) -> dict[str, object]
         result = {"valid": True, "version": version, "normalized": normalized}
     except HTTPException as exc:
         detail = exc.detail
-        assert isinstance(detail, dict)
+        if not isinstance(detail, dict):
+            raise
         result = {
             "valid": False,
             "version": version,

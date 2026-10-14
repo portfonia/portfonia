@@ -482,9 +482,18 @@ def test_read_only_validate_basic_denied_and_route_limit_profiles(
 
     token = app_client.post("/me/api-tokens", json={"name": "reader"}).json()
     headers = {"Authorization": f"Bearer {token['token']}"}
+    store = get_backend()
+    single_key = f"agent:single:minute:{TEST_USER_ID}"
+    # CounterBackend has no read-only counter accessor. Each probe adds one.
+    single_before_get = store.incr_with_ttl(single_key, 60)
     assert app_client.get(URL, headers=headers).status_code == 200
+    single_after_get = store.incr_with_ttl(single_key, 60)
+    assert single_after_get == single_before_get + 1
     body = {"operation": "create", "version": "0", "holding": ROW}
+    single_before_validate = store.incr_with_ttl(single_key, 60)
     assert app_client.post(URL + "/validate", headers=headers, json=body).json()["valid"] is True
+    single_after_validate = store.incr_with_ttl(single_key, 60)
+    assert single_after_validate == single_before_validate + 1
     assert (
         app_client.post(URL, headers=headers, json={"version": "0", "holding": ROW}).json()[
             "detail"
@@ -492,7 +501,6 @@ def test_read_only_validate_basic_denied_and_route_limit_profiles(
         == "holdings_write_required"
     )
     # Reads and validation increment the old bucket, but not single-write counters.
-    store = get_backend()
     assert store.ttl(f"agent:burst:{TEST_USER_ID}") > 0
     assert store.ttl(f"agent:hour:{URL}/validate:{TEST_USER_ID}") > 0
     assert store.ttl(f"agent:single:minute:{TEST_USER_ID}") > 0  # denied POST still counts
