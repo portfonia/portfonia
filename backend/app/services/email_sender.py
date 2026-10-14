@@ -1153,16 +1153,16 @@ def _send_api_data_notice(
 
 _API_MODIFICATION_NOTICE_COPY: dict[str, dict[str, str]] = {
     "en": {
-        "subject": "Portfonia - your holdings were modified through the API",
-        "body": "Your current holdings were modified today through a Portfonia API token. If you asked your agent to do this, no action is needed. Otherwise, revoke all your API tokens to stop future access: {revoke_url}. Revocation does not undo changes already saved; check your holdings in the browser.",
+        "subject": "Portfonia - a holdings write was made through the API",
+        "body": "A holdings write request was made today through a Portfonia API token. If you asked your agent to do this, no action is needed. Otherwise, revoke all your API tokens to stop future access: {revoke_url}. Revocation does not undo changes already saved; check your holdings in the browser.",
     },
     "zh": {
-        "subject": "Portfonia - 您的持仓已通过 API 修改",
-        "body": "今天有人通过 Portfonia API token 修改了您的当前持仓。如果这是您让智能体进行的操作，无需采取行动。否则，请打开以下链接吊销全部 API token，阻止今后的访问：{revoke_url}。吊销不会撤销已保存的修改，请在网页中检查持仓。",  # noqa: RUF001
+        "subject": "Portfonia - 已通过 API 执行持仓写入请求",
+        "body": "今天通过 Portfonia API token 执行了一次持仓写入请求。如果这是您让智能体进行的操作，无需采取行动。否则，请打开以下链接吊销全部 API token，阻止今后的访问：{revoke_url}。吊销不会撤销已保存的修改，请在网页中检查持仓。",  # noqa: RUF001
     },
     "zh-Hant": {
-        "subject": "Portfonia - 您的持倉已透過 API 修改",
-        "body": "今天有人透過 Portfonia API token 修改了您的目前持倉。如果這是您請智能體進行的操作，無需採取行動。否則，請開啟以下連結撤銷全部 API token，阻止今後的存取：{revoke_url}。撤銷不會撤銷已儲存的修改，請在網頁中檢查持倉。",  # noqa: RUF001
+        "subject": "Portfonia - 已透過 API 執行持倉寫入請求",
+        "body": "今天透過 Portfonia API token 執行了一次持倉寫入請求。如果這是您請智能體進行的操作，無需採取行動。否則，請開啟以下連結撤銷全部 API token，阻止今後的存取：{revoke_url}。撤銷不會撤銷已儲存的修改，請在網頁中檢查持倉。",  # noqa: RUF001
     },
 }
 

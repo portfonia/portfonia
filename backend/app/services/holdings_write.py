@@ -93,10 +93,6 @@ def _bump(user: User) -> None:
     user.holdings_version = int(user.holdings_version) + 1
 
 
-def _canonical(holding: Holding) -> tuple[object, ...]:
-    return tuple(getattr(holding, field) for field in _USER_FIELDS)
-
-
 def tickers_with_sparse_history(
     session: Session, user_id: UUID, only: set[str] | None = None
 ) -> list[str]:
@@ -407,11 +403,9 @@ def reorder_holdings(session: Session, user_id: UUID, ids: list[UUID]) -> list[H
             detail="ids must be a permutation of all of this user's holding ids.",
         )
     by_id = {row.id: row for row in existing}
-    changed = any(by_id[holding_id].position != idx for idx, holding_id in enumerate(ids))
     for idx, holding_id in enumerate(ids):
         by_id[holding_id].position = idx
-    if changed:
-        _bump(user)
+    _bump(user)
     session.commit()
     return [by_id[i] for i in ids]
 
@@ -429,8 +423,9 @@ def update_holding(
     if holding is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Holding not found.")
     if not updates:
+        _bump(user)
+        session.commit()
         return holding
-    before = _canonical(holding)
     merged = _holding_dict(holding)
     merged.update(updates)
     try:
@@ -466,8 +461,7 @@ def update_holding(
             archive_unreferenced=False,
         )
         holding.account_id = account_ids[0]
-    if _canonical(holding) != before:
-        _bump(user)
+    _bump(user)
     session.commit()
     if ticker_changed or fund_changed:
         _enqueue_sparse_for(session, user_id, [holding], log_prefix="update_holding")
@@ -515,7 +509,6 @@ def apply_agent_book(
     )
     result: list[Holding] = []
     capture: list[Holding] = []
-    changed = bool(deleted)
     now = datetime.now(tz=UTC)
     for (holding, data, position), account_id in zip(targets, account_ids, strict=True):
         if holding is None:
@@ -523,10 +516,8 @@ def apply_agent_book(
             if holding.pricing_mode == "manual":
                 holding.last_manual_update = now
             session.add(holding)
-            changed = True
             capture.append(holding)
         else:
-            before = _canonical(holding)
             identity_changed = holding.ticker != data.get(
                 "ticker"
             ) or holding.fund_code != data.get("fund_code")
@@ -538,23 +529,19 @@ def apply_agent_book(
                 setattr(holding, field, value)
             holding.account_id = account_id
             holding.position = position
-            row_changed = before != _canonical(holding)
-            if row_changed:
-                changed = True
-                if holding.pricing_mode == "manual" and manual_value_changed:
-                    holding.last_manual_update = now
-                if identity_changed:
-                    holding.market_price = None
-                    holding.price_as_of = None
-                    holding.price_fetched_at = None
-                    capture.append(holding)
+            if holding.pricing_mode == "manual" and manual_value_changed:
+                holding.last_manual_update = now
+            if identity_changed:
+                holding.market_price = None
+                holding.price_as_of = None
+                holding.price_fetched_at = None
+                capture.append(holding)
         result.append(holding)
     for holding in deleted:
         session.delete(holding)
-    if changed:
-        _bump(user)
+    _bump(user)
     session.flush()
-    return result, capture, changed
+    return result, capture, True
 
 
 def enqueue_agent_capture(session: Session, user_id: UUID, holdings: list[Holding]) -> None:

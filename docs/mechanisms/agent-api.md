@@ -263,13 +263,13 @@ These routes manage the caller's current holdings records. They do not access
 broker accounts or execute trades. GET and validation accept either token
 permission; every mutation requires `holdings_write`. All holdings calls require
 an active Advanced or Jade subscription. Report/snapshot/intelligence routes
-remain read-only. Cached valuation preview and the Agent-only OpenAPI discovery
-URL are not available yet; use this reference for the implemented routes.
+remain read-only. The Agent-only OpenAPI discovery URL is not available yet;
+use this reference for the implemented routes.
 
 | Method / path | Body and result |
 | --- | --- |
 | `GET /agent/v1/holdings` | No body. 200 complete book. |
-| `PUT /agent/v1/holdings` | `{version, holdings, delete_ids}`. 200 complete book. Idempotency-Key required. |
+| `PUT /agent/v1/holdings` | `{version, holdings, delete_ids}`. 200 complete book. |
 | `POST /agent/v1/holdings` | `{version, holding}`. 201 `{version, holding}`. Idempotency-Key required. |
 | `PUT /agent/v1/holdings/{holding_id}` | `{version, holding}`. 200 `{version, holding}`. |
 | `PATCH /agent/v1/holdings/{holding_id}` | `{version, changes}`. 200 `{version, holding}`. |
@@ -314,10 +314,11 @@ the browser UI. Ownership errors never disclose another user's row existence.
 
 Single PUT replaces all writable fields and clears omitted optional fields to
 null/defaults. PATCH retains omitted fields; explicit null clears nullable
-fields only. Required fields cannot be null. Empty PATCH is a no-op. New single
+fields only. Required fields cannot be null. Empty PATCH preserves stored fields,
+including legacy values and prices, but increments the version. New single
 rows append; single updates retain order. Whole and single changes are atomic,
-including account resolution. Normalized no-ops retain their version and
-system timestamps. Manual creation/value changes update the manual timestamp.
+including account resolution. Every successful mutation increments the version
+once, including unchanged writes. Manual creation/value changes update the manual timestamp.
 
 Every write requires the current canonical nonnegative integer string version
 (`"0"`, `"1"`, etc.), in the body except DELETE's quoted If-Match header.
@@ -327,14 +328,13 @@ the version in an old payload. Basic/Advanced/Jade caps are 30/50/100 stored
 rows, counting cash and watches. Existing over-limit books remain readable and
 editable/reducible; operations introducing rows must end within the cap.
 
-POST and whole PUT require a trimmed 1-128-character ASCII Idempotency-Key
+Only POST creation requires a trimmed 1-128-character ASCII Idempotency-Key
 using letters, digits, `.`, `_`, `:` or `-`. Keys are shared across the user's
-tokens, independently for creation and complete replacement. Preserve the
-original key, version and payload for a retry. Successful results are retained
-for 24 absolute hours: identical canonical content returns the original status,
+tokens. Preserve the original key, version and payload for a retry. Within
+24 absolute hours, identical canonical content returns the original status,
 body, IDs and version with `Idempotency-Replayed: true`, before stale-version
-checking. Decimal spelling/default omission and JSON key order are canonicalized;
-array order remains significant. Different content under the same key returns
+checking. Decimal spelling/default omission and JSON key order are canonicalized.
+Different content under the same key returns
 409 idempotency_conflict. At exact expiry the key can be reused. Failed attempts
 do not reserve a key. Authentication, current entitlement and limits still
 apply to replay. Its old version is intentional; reread before another write.
@@ -372,21 +372,14 @@ Existing 401/429/503 auth/protection and other endpoints' error shapes are
 unchanged. GET/whole PUT audit counts returned rows; single operations count
 one; validate counts candidate rows. Request audit never stores bodies, keys or
 replay payloads. Successful replay bodies are stored separately with encryption
-at rest and expire after 24 hours.
+at rest; POST retries within 24 hours return the original result.
 
-Current-holdings GET and snapshots share one access email per ET day. Changed
-writes have at most one separate modification email per ET day. Validation,
-no-op writes and replay send no data notice. A notification failure after commit
+Only successful snapshot reads trigger an access email, at most once per ET day.
+Every successful Agent write request, including unchanged writes, may trigger
+a separate daily modification email describing the write request. Current-holdings
+GET, validation and idempotent replay send no data notice. A notification failure after commit
 preserves the success and replay result. Notice links revoke all tokens without
 sign-in/confirmation to stop future access; revocation does not undo saved changes.
-
-Users build and schedule their own synchronization. Preserve other institutions'
-rows, stable source/account/row-to-ID mapping and user-maintained fields absent
-from a source download (watches, notes and grouping labels). Do not infer deletion
-from failed, incomplete, empty or stale downloads, or guess an ambiguous ID.
-The platform version detects platform edits, not source-file freshness. After a
-lost POST/whole-PUT response, retry the original payload/key within 24 hours,
-then reread and reconcile. Outside retention, reconcile before another mutation.
 
 ### Implementation boundaries
 
@@ -403,7 +396,7 @@ replacement is used for Agent writes. Existing history/snapshots are unchanged.
 GET/validate acquire a shared User-row lock for coherent reads; web/file/Agent
 writers acquire the same row exclusively. Mutation inputs use Decimal directly;
 the parser LLM and ParsedRow's float amounts are not involved. Empty PATCH
-explicitly bypasses legacy normalization. No-op writes leave timestamps alone.
+explicitly bypasses legacy normalization while incrementing the version once.
 Post-commit captures use existing sparse ticker/fund helpers only for new rows
 or changed instruments. Notification failures log only user/kind metadata.
 
@@ -411,19 +404,18 @@ Migration `d75400000001`, following `d75300000001`, adds `agent_idempotency`:
 non-null user FK with ON DELETE CASCADE, operation, SHA-256 key/request hashes,
 status, EncryptedString response JSON and created/expiry timestamps, with unique
 user/operation/key_hash and an expiry index. Key reuse/lookup is serialized by
-the user lock. The existing operational sweep deletes expired results in
-1000-row batches and returns agent_idempotency_deleted; no new Beat entry.
-User purge explicitly removes replay rows before user deletion, with unchanged
-purge response counts. Read notices retain the snapshot marker; modification
+the user lock. Lookup removes an expired record when its POST key is reused.
+Account deletion removes records through the FK cascade; there is no retention
+sweep or explicit purge deletion. Read notices retain the snapshot marker; modification
 notices use a separate ET-day marker and the existing verified-recipient, locale
 and signed revoke-all mechanism, with one retry after 300 seconds. Emails remain
 English/Simplified/Traditional; Spanish UI receives the English fallback.
 
 ### Remaining batch and backlog
 
-#755 owns cached temporary valuation and the public Agent-only OpenAPI/schema
-discovery package. Neither route/schema is made available by #754. E reorder
+#755 owns the public Agent-only OpenAPI/schema discovery package.
+That schema is not made available by #754. E reorder
 and F capability lookup remain backlog. No broker downloads/logins, source
 reference/date persistence, server pipeline scheduling or trade execution is
 implemented. The earlier docs-only creation-only retry proposal is superseded
-by #754's owner-confirmed 24-hour POST and complete-PUT idempotency contract.
+by the 24-hour POST creation retry contract; whole PUT has no idempotency replay.

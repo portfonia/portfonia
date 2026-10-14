@@ -1389,7 +1389,7 @@
         {
           "heading": "7. AI Agent access",
           "body": [
-            "If you create an API token, we store a one-way hash of it together with its name, its permission (read-only or holdings-write), and its creation, expiry and last-use times. Each request made with a token is logged with the time, the token used, the endpoint and dates requested, the result, and the IP address and User-Agent of the caller. We keep these logs for 90 days to protect your account and to detect misuse. Current-holdings and snapshot reads share one notice per Eastern Time day; changed writes have a separate daily modification notice. Validation, unchanged writes and replay send no data notice. These links revoke all tokens to prevent future access, without undoing saved changes. Successful creation and complete-replacement results are stored encrypted for 24-hour retries; request bodies and idempotency keys are not stored in the request audit. Data returned through the API is delivered to the agent you chose; how that agent stores or uses it is under your control."
+            "If you create an API token, we store a one-way hash of it together with its name, its permission (read-only or holdings-write), and its creation, expiry and last-use times. Each request made with a token is logged with the time, the token used, the endpoint and dates requested, the result, and the IP address and User-Agent of the caller. We keep these logs for 90 days to protect your account and to detect misuse. Only snapshot reads trigger the daily access notice; every successful Agent write request, including unchanged writes, may trigger a separate daily modification notice. Only POST creation uses an idempotency key, and a retry within 24 hours returns the original result; these results are encrypted, and request bodies and idempotency keys are not stored in the request audit. Data returned through the API is delivered to the agent you chose; how that agent stores or uses it is under your control."
           ]
         },
         {
@@ -1569,7 +1569,7 @@
     "limitsTitle": "Access limits and notices",
     "limits": "Limits combine all your tokens. Single-row holdings POST/PUT/PATCH/DELETE share 30 requests per minute and 100 per hour; request 31 in one minute locks all Agent access for 15 minutes. Other calls, including GET, whole PUT and validate, allow 20 per endpoint per hour and 10 across endpoints per minute; request 11 locks access for 15 minutes. A refusal returns Retry-After.",
     "quiet": "Requests pause from five minutes before a heavy scheduled job’s scheduled time until five minutes after it finishes, including intelligence collection and scheduled briefings.",
-    "notice": "Current-holdings and snapshot reads share at most one notice per Eastern Time day. Changed holdings writes have one separate daily modification notice; validation, unchanged writes and replay send none. The link revokes all tokens without sign-in or confirmation to stop future access. Revocation does not undo saved changes.",
+    "notice": "Only snapshot reads trigger an access notice, at most once per Eastern Time day. Every successful Agent write request, including unchanged writes, may trigger a separate daily modification notice. Current-holdings reads, validation and idempotent replay send none. The link revokes all tokens without sign-in or confirmation to stop future access. Revocation does not undo saved changes.",
     "signIn": "Sign in",
     "signInNote": "to manage your API tokens.",
     "settingsTitle": "Token settings",
@@ -1623,7 +1623,7 @@
       "holdingsRead": "Current holdings: active Advanced or Jade. Read-only tokens can read and validate. Stable IDs and decimal strings preserve watches and separate accounts; system metadata is separate.",
       "holdingsWrite": "Save the current version. Complete PUT must retain or explicitly delete every existing ID and include at least one holding. Single-row PUT replaces writable fields; PATCH keeps omitted fields. Clear the last holding in the browser UI.",
       "holdingsValidate": "Validate complete PUT, creation, single-row replacement or PATCH without saving, capturing prices or sending a data notice. Validation does not reserve the version.",
-      "strict": "POST and whole PUT require an Idempotency-Key. Matching retries return the original success for 24 hours; changed content conflicts. On a version conflict, reread and reconcile. No broker access or trade execution is provided. Cached valuation preview and the Agent-only OpenAPI schema are not available yet."
+      "strict": "Only POST creation requires an Idempotency-Key. Matching retries within 24 hours return the original success; changed content conflicts. Every successful mutation increments the version once, including unchanged writes. On a version conflict, reread and reconcile. No broker access or trade execution is provided. The Agent-only OpenAPI schema is not available yet."
     }
   },
   "downloadConfirm": {

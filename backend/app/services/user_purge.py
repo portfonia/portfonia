@@ -11,7 +11,6 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.models.account import Account
-from app.models.agent_idempotency import AgentIdempotency
 from app.models.api_audit_log import ApiAuditLog
 from app.models.api_token import ApiToken
 from app.models.credit_ledger import CreditLedgerEntry
@@ -93,7 +92,6 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
             session.execute(delete(ApiAuditLog).where(ApiAuditLog.user_id == user_id)),
         )
     )
-    session.execute(delete(AgentIdempotency).where(AgentIdempotency.user_id == user_id))
     api_tokens = _rowcount(
         cast(
             CursorResult[Any], session.execute(delete(ApiToken).where(ApiToken.user_id == user_id))
