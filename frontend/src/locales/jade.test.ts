@@ -27,8 +27,8 @@ it.each(["en", "zh-Hans", "zh-Hant"] as const)("D9 %s includes the Jade price, s
   expect(c.welcome.subscriptionPlans).toContain("9.99");
   const name = c.profile.subscriptionTitle.jade;
   expect(c.legal.terms.sections[3].body[3]).toContain(name);
-  expect(c.agent.docs.snapshots).toContain(name);
-  expect(c.agent.docs.intel).toContain(name);
+  expect(c.agent.docs.snapshotsAccess).toContain(name);
+  expect(c.agent.docs.intelAccess).toContain(name);
   expect(c.legal.pricing.lastUpdated).toContain("2026-10-13");
   for (const page of [c.legal.terms, c.legal.privacy]) expect(page.lastUpdated).toContain("2026-10-13");
   const newCopy = [c.jade.intro, c.jade.price, c.profile.subscriptionDescription.jade, c.profile.subscriptionJadeCadence, c.profile.jadeManage, c.profile.jadeScheduleNote, c.legal.pricing.sections[0].body[3], c.legal.terms.sections[3].body[3]].join(" ");

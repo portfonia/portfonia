@@ -15,9 +15,6 @@ import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, A
 const AGENT_PATHS = {
   llms: "llms.txt",
   reference: "agent.md",
-  reports: "/agent/v1/reports?start=YYYY-MM-DD&end=YYYY-MM-DD",
-  snapshots: "/agent/v1/snapshots?start=YYYY-MM-DD&end=YYYY-MM-DD",
-  intel: "/agent/v1/intel?date=YYYY-MM-DD",
 };
 
 export function AgentBody() {
@@ -37,14 +34,18 @@ export function AgentBody() {
     </Card>
     <Card>
       <CardHeader><CardTitle role="heading" aria-level={2}>{t("docs.endpointsTitle")}</CardTitle></CardHeader>
-      <CardContent className="flex flex-col gap-2">
-        <div><code className="break-all">{AGENT_PATHS.reports}</code><p>{t("docs.reports")}</p></div>
-        <div><code className="break-all">{AGENT_PATHS.snapshots}</code><p>{t("docs.snapshots")}</p></div>
-        <div><code className="break-all">{AGENT_PATHS.intel}</code><p>{t("docs.intel")}</p></div>
-        <div><code className="break-all">{"GET /agent/v1/holdings"}</code><p>{t("docs.holdingsRead")}</p></div>
-        <div className="flex flex-col gap-1">{["PUT /agent/v1/holdings", "POST /agent/v1/holdings", "PUT /agent/v1/holdings/{holding_id}", "PATCH /agent/v1/holdings/{holding_id}", "DELETE /agent/v1/holdings/{holding_id}"].map((path) => <code key={path} className="break-all">{path}</code>)}<p>{t("docs.holdingsWrite")}</p></div>
-        <div><code className="break-all">{"POST /agent/v1/holdings/validate"}</code><p>{t("docs.holdingsValidate")}</p></div>
-        <p>{t("docs.strict")}</p>
+      <CardContent className="flex flex-col gap-6">
+        <p>{t("docs.endpointsLead")}</p>
+        {(["reports", "snapshots", "intel", "holdingsRead", "holdingsReplaceAll", "holdingsAdd", "holdingsReplace", "holdingsPatch", "holdingsDelete", "holdingsValidate"] as const).map(endpoint => (
+          <section key={endpoint} className="flex flex-col gap-1">
+            <h3 className="font-medium">{t(`docs.${endpoint}Heading`)}</h3>
+            <code className="break-all">{t.raw(`docs.${endpoint}Path`)}</code>
+            <p>{t(`docs.${endpoint}Access`)}</p>
+            <p>{t(`docs.${endpoint}Action`)}</p>
+            <p>{t(`docs.${endpoint}Note`)}</p>
+          </section>
+        ))}
+        <p>{t("docs.endpointsClosing")}</p>
       </CardContent>
     </Card>
     <Card>
