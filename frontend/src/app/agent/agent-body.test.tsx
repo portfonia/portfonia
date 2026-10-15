@@ -1,5 +1,5 @@
 import { StrictMode } from "react";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, waitFor, cleanup, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { NextIntlClientProvider } from "next-intl";
@@ -80,10 +80,17 @@ it.each(Object.keys(catalogs) as Locale[])("acceptance_09 documents all endpoint
     expect(screen.getByText(copy)).toBeInTheDocument();
     expect(Object.values(agent.docs)).not.toContain(copy);
   }
-  for (const endpoint of ["/agent/v1/reports?start=YYYY-MM-DD&end=YYYY-MM-DD", "/agent/v1/snapshots?start=YYYY-MM-DD&end=YYYY-MM-DD", "/agent/v1/intel?date=YYYY-MM-DD"]) {
-    expect(screen.getByText(endpoint)).toBeInTheDocument();
+  const endpointsCard = screen.getByRole("heading", { name: agent.docs.endpointsTitle }).closest('[data-slot="card"]')!;
+  const endpoints = within(endpointsCard as HTMLElement);
+  if (locale === "en") {
+    expect(endpoints.getByText("Detailed fields and calling conventions for each endpoint are in llms.txt and agent.md. The following is a summary of each endpoint.")).toBeInTheDocument();
+    expect(endpoints.getByText("These endpoints do not connect to a broker and do not submit trades. Every request leaves an audit record. The audit does not store the holdings body or the full token.")).toBeInTheDocument();
+    expect(endpointsCard.textContent).not.toContain("?");
+    expect(endpointsCard.textContent).not.toContain("https://api.portfonia.com/agent/openapi.json");
   }
-  expect(screen.getByText(agent.docs.strict)).toHaveTextContent("https://api.portfonia.com/agent/openapi.json");
+  for (const endpoint of ["GET /agent/v1/reports", "GET /agent/v1/snapshots", "GET /agent/v1/intel", "GET /agent/v1/holdings", "PUT /agent/v1/holdings", "POST /agent/v1/holdings", "PUT /agent/v1/holdings/{holding_id}", "PATCH /agent/v1/holdings/{holding_id}", "DELETE /agent/v1/holdings/{holding_id}", "POST /agent/v1/holdings/validate"]) {
+    expect(endpoints.getByText(endpoint)).toBeInTheDocument();
+  }
   expect(screen.getByRole("link", { name: "llms.txt" })).toHaveAttribute("href", "/llms.txt");
   expect(screen.getByRole("link", { name: "agent.md" })).toHaveAttribute("href", "/agent.md");
 });

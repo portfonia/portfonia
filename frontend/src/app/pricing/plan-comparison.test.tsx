@@ -239,6 +239,8 @@ it("A5 comparison renders the credit footnote", () => {
 
 it.each(["en", "es", "zh-Hans", "zh-Hant"] as const)("A6 %s comparison contains no buttons and exactly five Jade guide links", locale => {
   renderPricing(locale);
+  const formerBuyCreditsLabel = { en: "Buy credits", es: "Comprar cr\u00e9ditos", "zh-Hans": "\u8d2d\u4e70 credits", "zh-Hant": "\u8cfc\u8cb7 credits" }[locale];
+  expect(screen.queryByRole("link", { name: formerBuyCreditsLabel })).not.toBeInTheDocument();
   const block = screen.getByRole("region", { name: catalogs[locale].pricingPlans.heading });
   expect(block.querySelectorAll("button")).toHaveLength(0);
   const links = Array.from(block.querySelectorAll("a"));

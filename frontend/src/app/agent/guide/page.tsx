@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { catalogs } from "@/locales";
-import { buildPageMetadata, localizedPath } from "@/lib/seo";
+import { buildPageMetadata } from "@/lib/seo";
 import { getRouteLocale } from "@/lib/seo-server";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -26,7 +25,6 @@ export default async function AgentGuidePage() {
         <h2 className="font-serif text-xl">{copy.effectHeading}</h2>
         <p className="mt-3 text-sm leading-relaxed text-foreground/80">{copy.effect}</p>
       </section>
-      <Link href={localizedPath("/agent", locale)} className="text-sm underline">{copy.tokenLink}</Link>
     </div>
   </main>;
 }
