@@ -100,7 +100,7 @@ Example: `GET /agent/v1/snapshots?start=2026-10-04&end=2026-10-04`:
 {"start": "2026-10-04", "end": "2026-10-04", "days": []}
 ```
 
-Successful snapshot, current-holdings and change-history reads share a notice
+Successful snapshot, current-holdings, change-history and Jade reads share a notice
 email, at most once per ET day.
 The notice includes a link that immediately revokes all the user's tokens,
 without sign-in or confirmation. Reports and intelligence do not trigger
@@ -292,6 +292,244 @@ API token on the account at once, including other agents' tokens. Create new
 tokens afterwards for agents you still want to run. Revocation stops future
 access and does not undo saved changes.
 
+## Jade risk results (Jade)
+
+An active Jade subscription is required; both `read_only` and `holdings_write`
+tokens may read. These JSON-only endpoints return the caller's own results using
+the same response models and values as the web tools. They read the shared
+nightly price cache without fetching providers or saving results. Every series
+is returned in full; there is no series-omission switch or CSV format. The
+tracking result includes the saved reference components; reference writes and
+a separate reference-read endpoint are not available to Agents.
+
+| GET path | Query parameters |
+| --- | --- |
+| `/agent/v1/jade/replay` | `base_currency`, `benchmark`, `range` |
+| `/agent/v1/jade/tail-risk` | `base_currency`, `benchmark` (fixed five-year history) |
+| `/agent/v1/jade/stress` | Required `scenario`, `base_currency`, `benchmark` |
+| `/agent/v1/jade/style` | `base_currency`, `benchmark` (fixed three-month window) |
+| `/agent/v1/jade/tracking` | `base_currency`, `range` (uses the saved reference) |
+
+`base_currency` defaults to your report currency, otherwise USD; allowed values
+are USD, CNY, CNH, HKD, GBP, EUR, JPY, SGD, AUD, CAD, CHF, KRW, TWD, MOP and NZD.
+`benchmark` defaults to `sp500`; choices are `sp500` (SPY), `dow30` (DIA),
+`nasdaq` (ONEQ) and `csi300` (510300.SS). `range` defaults to `1Y`; choices are
+`1M`, `3M`, `6M`, `YTD`, `1Y`, `3Y`, `5Y` (calendar spans).
+Stress requires exactly one `scenario`: `dotcom_2000`, `gfc_2008`, `covid_2020`,
+`rates_2022` or `tariffs_2025`. A missing or unknown scenario returns 422;
+`scenarios` contains exactly the selected entry, never all five.
+
+Across all five routes and all tokens of one user, the combined Jade limit is
+one request every 180 seconds and at most ten per fixed 3600-second window.
+These limits apply after the existing Agent burst and per-route hourly checks;
+quiet windows and the account lock also apply. Jade refusals return 429 with
+positive `Retry-After` seconds, without creating an account lock. The interval
+is claimed before the hourly check, entitlement and query validation: a request
+later rejected with 403, 422 or the Jade hourly 429 still consumes the interval.
+An interval refusal does not extend that interval. Authentication precedes all
+limits. Successful Jade reads share the once-per-ET-day access notice with
+snapshot, current-holdings and change-history reads.
+
+### Field reference and disclosure codes
+
+Dates are `YYYY-MM-DD`. Ratios, returns, volatility and weights are decimal
+strings with six decimals, where `"0.010000"` means 1%; `beta` has four decimals.
+Display-currency amounts (`portfolio_value`, `var_amount`, `cvar_amount`,
+`shock_amount`) have two decimals. Counts are JSON integers; flags are booleans.
+Tracking component weights are integer percentages. Null means unavailable or
+inapplicable, never an inferred zero. Names and symbols identify instruments;
+disclosure decisions use the following codes and flags, without localized text.
+
+Fields shared by replay, tail risk and style:
+
+| Field | Meaning and availability |
+| --- | --- |
+| `status` | `no_holdings`: no positively valued holdings; `pending`: portfolio history is not ready or no holdings could be included; `insufficient`: too few usable return samples; `ok`: portfolio calculation is available. Replay needs ten returns; style also needs all basis histories attempted and 42 overlapping three-day returns. Tail risk inherits fixed-5Y replay status. |
+| `base_currency` | Currency used for valuation and historical FX conversion. |
+| `benchmark` | Requested benchmark code listed above. |
+| `benchmark_symbol`, `benchmark_name` | Selected benchmark ETF identity. |
+| `benchmark_status` | `pending`: cache not attempted; `unavailable`: attempted but history/FX or samples do not support a result; `ok`: benchmark calculation available. Portfolio results can remain available when the benchmark is not. |
+| `window_start`, `window_end` | Requested calendar bounds ending on the latest cached S&P 500 session on or before today ET; style uses 3M and tail risk 5Y. |
+| `first_valid_date` | First usable portfolio level date, or null. |
+| `sample_count` | Replay/tail-risk valid daily return count; style overlapping three-day return count on common basis dates. |
+| `coverage` | Coverage object below, retained even when calculations are unavailable. |
+
+`coverage` is also returned by each stress scenario and tracking:
+
+| Field | Meaning and availability |
+| --- | --- |
+| `own_share` | Included value share using own price or fund NAV history. |
+| `head_proxy_share` | Share using beta-scaled proxy history before own history begins. |
+| `proxy_share` | Share using a class/market ETF throughout. |
+| `cash_share` | Share held constant in its own currency, then converted through historical FX. |
+| `cash_assumed_share` | Share treated as cash (wealth-management products and applicable CNY/CNH bond funds without usable own history). |
+| `approx_share_at_start` | Sum of head-proxy, proxy and cash-assumed shares at the start. |
+| `data_quality` | True at approximation share >= 0.66; a disclosure flag, not a result suppression. |
+| `pending_share` | Pending positive value divided by included plus pending value; null when no pending value. |
+
+Included shares use included positive current value as denominator. If nothing
+is included they are zero. Proxies can mask instrument-specific tail losses and
+mechanically improve fitted/tracking similarity; they do not establish safety.
+
+Replay adds `range`, `skipped_days` (sample-calendar dates lacking a complete
+portfolio level), `points`, `metrics` and `holdings`. `points[]` has `date`,
+`portfolio` and `benchmark`: cumulative returns from each series' first usable
+value, with null benchmark values when unavailable. Points are empty unless the
+portfolio is ok. `metrics` has nullable `portfolio` and `benchmark` objects:
+
+| Metrics field | Meaning |
+| --- | --- |
+| `cumulative_return` | Last value / first value minus one. |
+| `annualized_return` | Compound return annualized using actual calendar days and 365.25 days/year. |
+| `annualized_vol` | Sample standard deviation of daily returns times sqrt(252). |
+| `max_drawdown` | Most negative peak-to-trough return. |
+| `max_drawdown_peak`, `max_drawdown_trough` | Corresponding dates, earliest ties. |
+| `worst_day`, `worst_day_date` | Lowest daily return and its end date. |
+| `worst_month`, `worst_month_label` | Lowest calendar-month return and `YYYY-MM`; both null for 1M. |
+
+`holdings[]` in replay and stress contains:
+
+| Field | Meaning and availability |
+| --- | --- |
+| `holding_id`, `name` | Caller-owned saved holding UUID and name. |
+| `weight` | Included current-value share, null for excluded rows. |
+| `method` | `own`: own adjusted ticker history; `fund_nav`: own total-return NAV; `head_proxy`: beta-scaled ETF fill before own history; `proxy`: ETF throughout; `cash`: cash in own currency; `cash_assumed`: cash approximation; `excluded`: not used in the calculation. |
+| `excluded_reason` | Null for included rows. `unvalued`: no positive valuation; `watch_only`: watched row with zero shares; `pending`: required history not attempted; `data_unavailable`: attempted data or FX does not support inclusion. |
+| `proxy_symbol`, `proxy_name` | Proxy identity when a proxy is selected; can remain set after exclusion. |
+| `beta`, `beta_samples` | Head-proxy scaling coefficient and paired return sample count; null otherwise. Beta defaults to 1 when fewer than 60 pairs or no positive proxy variance. |
+| `own_first_date` | Earliest usable own-history date, when known. |
+
+Replay holdings also have `own_history_unavailable` (true when attempted own
+history cannot be used), `own_vol` (own annualized volatility, null below ten
+paired returns) and `proxy_segment_vol` (annualized volatility of the filled
+segment, null below two proxy returns).
+Stress holdings instead add `asset_class` (classification or null), `proxy_for`
+(primary proxy symbol when a substitute is used, else null), and `price_only`
+(true when the chosen proxy lacks dividend adjustment).
+
+Tail risk adds:
+
+| Field | Meaning and availability |
+| --- | --- |
+| `month_windows` | Number of overlapping 21-position monthly return windows. |
+| `month_independent` | Approximate non-overlapping count: floor(daily returns / 21). |
+| `portfolio_value` | Included current value in display currency, null unless ok. |
+| `levels` | 95% and 99% confidence entries; empty unless portfolio status is ok. |
+| `histogram` | Daily-return bins `{lower, upper, count}` in ascending order (0.5 percentage-point width); empty unless ok. Bounds are return ratios. |
+| `tolerance_status` | `ok` for a valid questionnaire; `no_questionnaire` when its reference cannot be computed. |
+| `proxy_understates` | True when proxy/head-proxy share is positive; proxies may understate instrument-specific tail losses. |
+
+Each `levels[]` entry has `level` (95 or 99), `available` (95 available for an
+ok portfolio, 99 requires 500 daily returns), `tail_days` and `tail_windows`
+(the worst ceil(n * (100-level) / 100) daily/monthly observations, nullable when
+unavailable). `daily` and `monthly` are nullable historical loss cells;
+`normal_daily` and `normal_monthly` are nullable normal-distribution comparison
+cells; `benchmark_daily` and `benchmark_monthly` are nullable historical
+benchmark cells, independently gated by benchmark samples. Monthly cells need
+monthly observations; normal monthly needs at least two. `reference_daily` and
+`reference_monthly` are nullable questionnaire-implied normal VaR ratios; a
+questionnaire reference can exist even when a confidence level is unavailable.
+Each cell has `var` (loss boundary) and `cvar` (mean loss in the tail), plus
+nullable `var_amount` and `cvar_amount` (only historical portfolio cells have
+amounts). Positive means loss; a tail gain yields a negative loss ratio.
+
+Stress's envelope has `base_currency`, requested `benchmark`, primary
+`benchmark_symbol`, primary `benchmark_name`, and one-element `scenarios`.
+Each scenario contains:
+
+| Field | Meaning and availability |
+| --- | --- |
+| `id` | Selected scenario code. |
+| `peak_date`, `trough_date` | Fixed historical episode peak and trough. |
+| `window_start`, `window_end` | Scenario history bounds including context around the shock. |
+| `status`, `first_valid_date`, `sample_count` | Portfolio availability, first usable date and valid return count, using the same status codes; ten returns needed for ok. |
+| `portfolio_value` | Included current value; null unless ok. |
+| `shock_return`, `shock_amount` | Peak-to-trough return and its display-currency amount; null unless ok. Negative is a loss. |
+| `max_drawdown`, `max_drawdown_peak`, `max_drawdown_trough` | Worst drawdown over the full scenario window and dates; null unless ok. |
+| `benchmark_symbol`, `benchmark_name` | Resolved scenario benchmark identity, including a substitute if needed. |
+| `benchmark_status` | Same codes as replay; ok also requires usable peak and trough values. |
+| `benchmark_shock_return`, `benchmark_max_drawdown` | Benchmark shock and window drawdown; null without ok portfolio and benchmark. |
+| `contributions` | `{asset_class, contribution}` entries sorted by contribution then class; peak-value-normalized shock contributions, empty unless ok. |
+| `points` | `{date, portfolio, benchmark}` full path of returns relative to the fixed peak value (not first-point rebasing); benchmark nullable, empty unless portfolio is ok. |
+| `coverage`, `holdings`, `proxy_understates` | Objects/codes defined above; proxy-understatement flag is true for positive proxy/head-proxy share. |
+| `substitutions` | Chosen alternatives `{primary, symbol, name, price_only}` for included holdings and an available benchmark; `primary` is the original ETF, `symbol` and `name` identify the substitute, `price_only` means no dividends. Empty when no alternatives were used. |
+| `price_only` (holding/substitution), `benchmark_price_only` | Whether the selected holding proxy/substitution or scenario benchmark is a price-only index. |
+| `price_index_symbols` | Sorted unique price-only proxy/available-benchmark symbols; empty when none. |
+| `fx_source` | `standard` for normal cached FX in 2020/2022/2025; `fred` for the 2000/2008 FRED historical FX windows, including CNY-for-CNH and HKD-peg-for-MOP approximations. |
+
+Style adds `horizon_days` (3), `min_samples` (42), nullable `portfolio` and
+`benchmark_fit`, `points` and `proxy_inflates_fit`. Each fit has `weights` (all
+13 `{symbol, weight}` basis ETF weights, nonnegative and summing to one before
+serialization), nullable `r_squared` (1 - residual variance / return variance,
+null for constant returns, possibly negative), `residual_vol` (annualized
+unexplained volatility), and `low_fit` (true when non-null unrounded R² < 0.60).
+Rounding each weight independently may change their displayed sum slightly.
+`points[]` has `date`, `portfolio`, `style_mix`: cumulative returns of unchanged
+holdings and the fitted fixed mix. Non-ok portfolio results have null fits and
+empty points; benchmark fitting has its own availability gate.
+`proxy_inflates_fit` is true when proxy/head-proxy share is positive, disclosing
+that proxy history can inflate the fit. The fitted mix is a statistical
+explanation, not actual holdings or a proposed allocation.
+
+Tracking's complete fields are `status`, `range`, `base_currency`, `window_start`,
+`window_end`, `first_valid_date` (inherited portfolio replay context),
+`components`, `benchmark_saved`, `benchmark_status`, `sample_count`,
+`horizon_days`, `min_samples`, `metrics`, `points`, `coverage`, `proxy_note`.
+`components[]` has `symbol` and integer-percent `weight`, preserving saved
+order; `benchmark_saved=false` selects the unsaved 60% SPY / 40% AGG example.
+Reference choices are SPY, QQQ, DIA, ONEQ, IWF, IWD, IWM, ACWI, EFA, EEM, 2800.HK,
+510300.SS, ISF.L, EXSA.DE, 1306.T, 069500.KS, AGG, TLT, BIL, GLD, DBC, VNQ, XLE,
+and CASH (constant in display currency). They are read here, not editable.
+`benchmark_status` is null until portfolio status is ok, then `pending` if any
+reference series is unattempted, `unavailable` if common-date endpoint coverage
+fails, or `ok`. `sample_count` counts overlapping five-position active returns;
+`horizon_days=5`, `min_samples=10`. `metrics` is null and `points=[]` unless both
+portfolio and reference are ok. Metrics fields are `portfolio_return`,
+`benchmark_return` (daily constant-weight reference), `excess_return` (their
+cumulative difference), `annualized_excess` (difference between separately
+annualized returns) and nullable `tracking_error` (annualized sample deviation
+of five-day active returns, null below ten samples). `points[]` has `date` and
+`excess` (cumulative portfolio return minus cumulative reference return).
+`proxy_note` is true when proxy/head-proxy share is positive. `coverage` follows
+replay. Overlapping returns are not independent observations.
+
+### Short response examples
+
+These are JSON response excerpts: other envelope fields are omitted for
+brevity. Series arrays are explicitly truncated to one illustrative point/bin
+below; actual responses return the entire series. Values are illustrative,
+not a user's results. Consult each guide for the method and limitations.
+
+[Replay guide](https://portfonia.com/guides/jade-replay):
+
+```json
+{"range":"5Y","status":"ok","base_currency":"USD","points":[{"date":"2026-10-08","portfolio":"0.100000","benchmark":"0.120000"}]}
+```
+
+[Tail-risk guide](https://portfonia.com/guides/jade-var):
+
+```json
+{"status":"ok","portfolio_value":"10000.00","tolerance_status":"no_questionnaire","proxy_understates":false,"histogram":[{"lower":"-0.010000","upper":"-0.005000","count":12}]}
+```
+
+[Stress guide](https://portfonia.com/guides/jade-stress), `scenario=covid_2020`:
+
+```json
+{"base_currency":"USD","benchmark":"sp500","scenarios":[{"id":"covid_2020","status":"ok","shock_return":"-0.200000","shock_amount":"-2000.00","fx_source":"standard","points":[{"date":"2020-03-23","portfolio":"-0.200000","benchmark":"-0.300000"}]}]}
+```
+
+[Style guide](https://portfonia.com/guides/jade-style):
+
+```json
+{"status":"ok","horizon_days":3,"min_samples":42,"proxy_inflates_fit":false,"points":[{"date":"2026-10-08","portfolio":"0.040000","style_mix":"0.035000"}]}
+```
+
+[Tracking guide](https://portfonia.com/guides/jade-tracking):
+
+```json
+{"status":"ok","range":"1Y","components":[{"symbol":"SPY","weight":60},{"symbol":"AGG","weight":40}],"benchmark_saved":false,"benchmark_status":"ok","proxy_note":false,"points":[{"date":"2026-10-08","excess":"0.010000"}]}
+```
+
 ## Token information
 
 `GET /agent/v1/token` checks the current token without a paid-subscription
@@ -300,6 +538,7 @@ audit. Returns `name`, the stored 12-character `prefix`, `permission`, ET ISO 86
 `created_at`, nullable ET `expires_at`, and `capabilities` booleans. `reports` is
 always true; `snapshots`, `intel` and `holdings_read` require active Advanced or
 Jade; `holdings_write` also requires the token's `holdings_write` permission.
+`jade` requires active Jade, regardless of token permission.
 Change history follows `holdings_read`. No quota or plaintext token is returned.
 
 ## Holding change history
@@ -348,8 +587,8 @@ attempt to bypass account limits by switching tokens.
 | HTTP status | Meaning |
 | --- | --- |
 | 401 | Missing, unknown, expired or revoked token; inactive user; or session JWT used instead of an API token (`unauthorized`). |
-| 403 | Advanced subscription required (`subscription_required`). |
-| 422 | Missing or invalid date parameters or an invalid range. |
+| 403 | Advanced or Jade subscription required (`subscription_required`). |
+| 422 | Missing or invalid parameters, including dates, ranges or Jade scenario. |
 | 429 | Request limit, burst lock or scheduled quiet window (`too many attempts, try again later`); includes positive `Retry-After` seconds. |
 | 503 | Rate-limit protection is unavailable; access fails closed (`temporarily unavailable`). |
 

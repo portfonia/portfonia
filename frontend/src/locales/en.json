@@ -1390,7 +1390,7 @@
           "heading": "7. AI Agent access",
           "body": [
             "If you create an API token, we store a one-way hash of it together with its name, its permission (read-only or holdings-write), and its creation, expiry and last-use times. Each request made with a token is logged with the time, the token used, the endpoint and dates requested, the result, and the IP address and User-Agent of the caller. We keep these logs for 90 days to protect your account and to detect misuse. Every successful Agent write request, including unchanged writes, may trigger a separate daily modification notice. Only POST creation uses an idempotency key, and a retry within 24 hours returns the original result; these results are encrypted, and request bodies and idempotency keys are not stored in the request audit. Data returned through the API is delivered to the agent you chose; how that agent stores or uses it is under your control.",
-            "Holding change history from web, file upload and Agent writes is stored encrypted for 30 days and is visible to you and your Agent. Successful reads of current holdings, holding change history and snapshots share at most one access notice per Eastern Time day."
+            "Holding change history from web, file upload and Agent writes is stored encrypted for 30 days and is visible to you and your Agent. Successful reads of current holdings, holding change history, snapshots and Jade risk results share at most one access notice per Eastern Time day."
           ]
         },
         {
@@ -1679,7 +1679,12 @@
       "changesPath": "GET /agent/v1/holdings/changes",
       "changesAccess": "Applies during an active Advanced or Jade period. Read-only tokens and holdings-write tokens are both accepted.",
       "changesAction": "Read field-level before and after values from web, file upload and Agent writes.",
-      "changesNote": "Give inclusive Eastern Time dates within the last 30 days. At most the 100 newest groups are returned; narrow the range when truncated. History is encrypted and kept for 30 days. Reads share one daily access notice with current holdings and snapshots."
+      "changesNote": "Give inclusive Eastern Time dates within the last 30 days. At most the 100 newest groups are returned; narrow the range when truncated. History is encrypted and kept for 30 days. Reads share one daily access notice with current holdings and snapshots.",
+      "jadeHeading": "Read Jade risk results",
+      "jadeAccess": "Active Jade; read-only and holdings-write tokens",
+      "jadeAction": "Read the results of your five Jade risk tools, including every series.",
+      "jadeNote": "Tools: replay, tail-risk, stress, style and tracking. Stress requires one scenario per request. Together these routes allow one request per 3 minutes and at most 10 per hour per user, in addition to the existing Agent limits and quiet windows.",
+      "jadePath": "GET /agent/v1/jade/{tool}"
     },
     "guideLink": "See what your agent can do and how."
   },
@@ -2142,6 +2147,7 @@
           "Historical stress scenarios: five past market shocks",
           "Style exposure",
           "Tracking against your reference: a portfolio you define, with tracking error",
+          "Your AI agent can read these risk results",
           "Up to 100 saved holding rows while Jade is active, including cash and watched rows"
         ]
       }

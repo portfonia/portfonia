@@ -429,6 +429,7 @@ def test_19_token(
             "intel": advanced,
             "holdings_read": advanced,
             "holdings_write": advanced and permission == "holdings_write",
+            "jade": False,
         }
         assert body["permission"] == permission and len(body["prefix"]) == 12
         assert body["name"] == ("writer" if permission == "holdings_write" else "reader")

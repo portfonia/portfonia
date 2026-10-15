@@ -46,6 +46,7 @@ class AgentCapabilities(BaseModel):
     intel: bool
     holdings_read: bool
     holdings_write: bool
+    jade: bool
 
 
 class AgentTokenOut(BaseModel):

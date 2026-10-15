@@ -116,3 +116,10 @@ it.each(["en", "es", "zh-Hans", "zh-Hant"] as const)("754 current holdings endpo
     expect(screen.getByText(endpoint)).toBeInTheDocument();
   }
 });
+
+it("770 renders the Jade endpoint summary", () => {
+  render(wrapper(<AgentBody />));
+  expect(screen.getByRole("heading", { name: "Read Jade risk results" })).toBeInTheDocument();
+  expect(screen.getByText("GET /agent/v1/jade/{tool}")).toBeInTheDocument();
+  expect(screen.getByText("Active Jade; read-only and holdings-write tokens")).toBeInTheDocument();
+});

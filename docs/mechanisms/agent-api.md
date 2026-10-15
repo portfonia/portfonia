@@ -460,3 +460,20 @@ The existing retention task also removes groups older than 30 days in 1000-row
 batches and reports `holding_changes_deleted`; no Beat entry changes. User
 removal cascades through the group FK. No backfill or production operation is
 part of implementation. See the holdings pipeline for transaction hooks.
+
+## Jade risk results (#770)
+
+Five read-only `GET /agent/v1/jade/{replay,tail-risk,stress,style,tracking}`
+routes require active Jade and accept either token permission. They reuse the
+web response models, caller-scoped cached computations and report-currency
+fallback. Stress requires one `scenario` and computes only that scenario;
+web stress retains all five. The five routes share per-user 180-second and
+ten-per-hour buckets after normal Agent limits. Authentication and limits
+precede entitlement and query validation, so rejected entitlement/parameter
+calls also consume the interval. Success shares the existing daily read notice.
+`GET /agent/v1/token` adds `capabilities.jade` independently of token permission.
+The Agent OpenAPI schema publishes the five GET paths, without web routes or
+reference writes. The complete field/code reference is in public `agent.md`.
+Both data-notice copies put the revoke-all URL on its own line with one blank
+line before and after; the read copy also names Jade risk results. No migration,
+new notice marker, provider call or result cache is introduced.
