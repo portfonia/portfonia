@@ -50,6 +50,7 @@ describe("locale catalogs stay structurally in sync (issue #209)", () => {
       "emailVerification",
       "guides",
       "holdings",
+      "holdingChanges",
       "home",
       "jade",
       "legal",
@@ -168,7 +169,7 @@ it("acceptance_16 agent copy and legal sections match #651", () => {
 describe("issue #652 agent documentation catalogs", () => {
   it.each(LOCALE_VALUES)("acceptance_09 %s carries the implemented getting-started and endpoint keys", locale => {
     const agent = catalogs[locale].agent;
-    expect(Object.keys(agent.docs).sort()).toEqual(["gettingStartedTitle", "gettingStarted", "endpointsTitle", "endpointsLead", "reportsHeading", "reportsPath", "reportsAccess", "reportsAction", "reportsNote", "snapshotsHeading", "snapshotsPath", "snapshotsAccess", "snapshotsAction", "snapshotsNote", "intelHeading", "intelPath", "intelAccess", "intelAction", "intelNote", "holdingsReadHeading", "holdingsReadPath", "holdingsReadAccess", "holdingsReadAction", "holdingsReadNote", "holdingsReplaceAllHeading", "holdingsReplaceAllPath", "holdingsReplaceAllAccess", "holdingsReplaceAllAction", "holdingsReplaceAllNote", "holdingsAddHeading", "holdingsAddPath", "holdingsAddAccess", "holdingsAddAction", "holdingsAddNote", "holdingsReplaceHeading", "holdingsReplacePath", "holdingsReplaceAccess", "holdingsReplaceAction", "holdingsReplaceNote", "holdingsPatchHeading", "holdingsPatchPath", "holdingsPatchAccess", "holdingsPatchAction", "holdingsPatchNote", "holdingsDeleteHeading", "holdingsDeletePath", "holdingsDeleteAccess", "holdingsDeleteAction", "holdingsDeleteNote", "holdingsValidateHeading", "holdingsValidatePath", "holdingsValidateAccess", "holdingsValidateAction", "holdingsValidateNote", "endpointsClosing"].sort());
+    expect(Object.keys(agent.docs).sort()).toEqual(["tokenHeading", "tokenPath", "tokenAccess", "tokenAction", "tokenNote", "changesHeading", "changesPath", "changesAccess", "changesAction", "changesNote", "gettingStartedTitle", "gettingStarted", "endpointsTitle", "endpointsLead", "reportsHeading", "reportsPath", "reportsAccess", "reportsAction", "reportsNote", "snapshotsHeading", "snapshotsPath", "snapshotsAccess", "snapshotsAction", "snapshotsNote", "intelHeading", "intelPath", "intelAccess", "intelAction", "intelNote", "holdingsReadHeading", "holdingsReadPath", "holdingsReadAccess", "holdingsReadAction", "holdingsReadNote", "holdingsReplaceAllHeading", "holdingsReplaceAllPath", "holdingsReplaceAllAccess", "holdingsReplaceAllAction", "holdingsReplaceAllNote", "holdingsAddHeading", "holdingsAddPath", "holdingsAddAccess", "holdingsAddAction", "holdingsAddNote", "holdingsReplaceHeading", "holdingsReplacePath", "holdingsReplaceAccess", "holdingsReplaceAction", "holdingsReplaceNote", "holdingsPatchHeading", "holdingsPatchPath", "holdingsPatchAccess", "holdingsPatchAction", "holdingsPatchNote", "holdingsDeleteHeading", "holdingsDeletePath", "holdingsDeleteAccess", "holdingsDeleteAction", "holdingsDeleteNote", "holdingsValidateHeading", "holdingsValidatePath", "holdingsValidateAccess", "holdingsValidateAction", "holdingsValidateNote", "endpointsClosing"].sort());
     for (const copy of Object.values(agent.docs)) {
       expect(copy.trim().length).toBeGreaterThan(0);
       expect([agent.intro, agent.limitsTitle, agent.limits, agent.quiet, agent.notice, agent.tokenRule]).not.toContain(copy);

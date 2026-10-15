@@ -19,6 +19,7 @@ from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.models.user import User
 from app.schemas.holdings import HoldingPatch, ParsedRow
+from app.services import holding_changes
 from app.services.accounts import resolve_accounts_for_holdings
 from app.services.holding_ordering import sorted_holdings
 from app.services.holding_parser import (
@@ -339,6 +340,7 @@ def confirm_holdings(
 ) -> list[Holding]:
     rows = [row.model_copy(update={"watch_tier": None}) for row in rows]
     user, existing = lock_user_book(session, user_id)
+    change_before = holding_changes.snapshot(existing)
     before = len(existing)
     after = len(rows) if mode == "replace" else before + len(rows)
     introduces = len(rows) > 0
@@ -355,6 +357,7 @@ def confirm_holdings(
                 archive_unreferenced=True,
             )
             _bump(user)
+            holding_changes.record(session, user_id, change_before, source="file")
         session.commit()
         if changed:
             _enqueue_replaced_book(session, user_id)
@@ -367,6 +370,7 @@ def confirm_holdings(
             archive_unreferenced=False,
         )
         _bump(user)
+        holding_changes.record(session, user_id, change_before, source="file")
         session.commit()
         _enqueue_sparse_for(session, user_id, inserted, log_prefix="confirm_holdings")
     else:
@@ -378,6 +382,7 @@ def confirm_holdings(
 
 def create_holding(session: Session, user_id: UUID, row: ParsedRow) -> Holding:
     user, existing = lock_user_book(session, user_id)
+    change_before = holding_changes.snapshot(existing)
     _ensure_cap(user, len(existing), len(existing) + 1, introduces_rows=True)
     inserted = insert_from_rows(
         session,
@@ -387,6 +392,7 @@ def create_holding(session: Session, user_id: UUID, row: ParsedRow) -> Holding:
         archive_unreferenced=False,
     )
     _bump(user)
+    holding_changes.record(session, user_id, change_before, source="web")
     session.commit()
     _enqueue_sparse_for(session, user_id, inserted, log_prefix="create_holding")
     holding = inserted[0]
@@ -396,6 +402,7 @@ def create_holding(session: Session, user_id: UUID, row: ParsedRow) -> Holding:
 
 def reorder_holdings(session: Session, user_id: UUID, ids: list[UUID]) -> list[Holding]:
     user, existing = lock_user_book(session, user_id)
+    change_before = holding_changes.snapshot(existing)
     existing_ids = {row.id for row in existing}
     if len(ids) != len(existing_ids) or set(ids) != existing_ids:
         raise HTTPException(
@@ -406,6 +413,7 @@ def reorder_holdings(session: Session, user_id: UUID, ids: list[UUID]) -> list[H
     for idx, holding_id in enumerate(ids):
         by_id[holding_id].position = idx
     _bump(user)
+    holding_changes.record(session, user_id, change_before, source="web")
     session.commit()
     return [by_id[i] for i in ids]
 
@@ -419,6 +427,7 @@ def update_holding(
 ) -> Holding:
     updates = patch.model_dump(exclude_unset=True)
     user, existing = lock_user_book(session, user_id)
+    change_before = holding_changes.snapshot(existing)
     holding = next((row for row in existing if row.id == holding_id), None)
     if holding is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Holding not found.")
@@ -462,6 +471,7 @@ def update_holding(
         )
         holding.account_id = account_ids[0]
     _bump(user)
+    holding_changes.record(session, user_id, change_before, source="web")
     session.commit()
     if ticker_changed or fund_changed:
         _enqueue_sparse_for(session, user_id, [holding], log_prefix="update_holding")
@@ -471,11 +481,13 @@ def update_holding(
 
 def delete_holding(session: Session, user_id: UUID, holding_id: UUID) -> None:
     user, existing = lock_user_book(session, user_id)
+    change_before = holding_changes.snapshot(existing)
     holding = next((row for row in existing if row.id == holding_id), None)
     if holding is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Holding not found.")
     session.delete(holding)
     _bump(user)
+    holding_changes.record(session, user_id, change_before, source="web")
     session.commit()
 
 
@@ -486,6 +498,7 @@ def apply_agent_book(
     deleted: list[Holding],
     *,
     whole: bool,
+    token_id: UUID,
 ) -> tuple[list[Holding], list[Holding], bool]:
     """Apply already checked Agent targets inside the caller's locked transaction.
 
@@ -494,6 +507,9 @@ def apply_agent_book(
     Dynamic dictionaries are the shared ORM field mapping, as in the web writer.
     This primitive never commits: the caller saves encrypted replay alongside it.
     """
+    change_before = holding_changes.snapshot(
+        session.scalars(select(Holding).where(Holding.user_id == user.id)).all()
+    )
     account_ids = resolve_accounts_for_holdings(
         session,
         user.id,
@@ -541,6 +557,7 @@ def apply_agent_book(
         session.delete(holding)
     _bump(user)
     session.flush()
+    holding_changes.record(session, user.id, change_before, source="agent", token_id=token_id)
     return result, capture, True
 
 

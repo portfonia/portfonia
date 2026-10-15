@@ -85,3 +85,22 @@ def cleanup_api_audit(session: Session) -> int:
         )
         total += int(result.rowcount)
         session.commit()
+
+
+def cleanup_holding_changes(session: Session) -> int:
+    from app.models.holding_change_group import HoldingChangeGroup
+
+    cutoff = api_tokens.now_et() - timedelta(days=30)
+    total = 0
+    while True:
+        ids = session.scalars(
+            select(HoldingChangeGroup.id).where(HoldingChangeGroup.created_at < cutoff).limit(1000)
+        ).all()
+        if not ids:
+            return total
+        result = cast(
+            CursorResult[tuple[()]],
+            session.execute(delete(HoldingChangeGroup).where(HoldingChangeGroup.id.in_(ids))),
+        )
+        total += int(result.rowcount)
+        session.commit()

@@ -1,4 +1,5 @@
 import logging
+from datetime import date
 from typing import Literal
 from uuid import UUID
 
@@ -12,6 +13,7 @@ from app.core.deps import Principal, current_principal
 from app.models.holding import Holding
 from app.models.upload_job import UploadJob
 from app.models.user import User
+from app.schemas.holding_changes import HoldingChangesOut
 from app.schemas.holdings import (
     HoldingOut,
     HoldingPatch,
@@ -19,7 +21,7 @@ from app.schemas.holdings import (
     ReorderIn,
     UploadJobOut,
 )
-from app.services import holding_parser, holdings_write
+from app.services import holding_changes, holding_parser, holdings_write
 from app.services.holding_ordering import sorted_holdings as _sorted_holdings
 from app.services.holdings_export import holdings_export_filename, render_export, render_template
 from app.tasks.holdings_tasks import parse_holdings_upload
@@ -188,6 +190,16 @@ def create_holding(
 ) -> Holding:
     """Create one holding from a structured body. Does not call the LLM."""
     return holdings_write.create_holding(session, principal.user_id, row)
+
+
+@router.get("/changes", response_model=HoldingChangesOut)
+def holding_change_history(
+    start: date,
+    end: date,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> HoldingChangesOut:
+    return holding_changes.list_changes(session, principal.user_id, start, end)
 
 
 @router.patch("/reorder", response_model=list[HoldingOut])

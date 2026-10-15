@@ -16,6 +16,8 @@ from app.core.agent_auth import AgentPrincipal, agent_principal
 from app.core.agent_limits import enforce_agent_limits
 from app.core.database import get_session
 from app.core.rate_limit import UNAVAILABLE_DETAIL, RateLimitUnavailable, get_backend
+from app.core.timezones import ET
+from app.models.api_token import ApiToken
 from app.schemas.agent import AgentIntelOut, AgentReportsOut
 from app.schemas.agent_holdings import (
     Create,
@@ -27,8 +29,9 @@ from app.schemas.agent_holdings import (
     ReplaceAll,
     Validation,
 )
+from app.schemas.holding_changes import AgentCapabilities, AgentTokenOut, HoldingChangesOut
 from app.schemas.portfolio import SnapshotExportOut
-from app.services import agent_holdings, api_tokens
+from app.services import agent_holdings, api_tokens, holding_changes
 from app.services.agent_pull import pull_intel, pull_reports
 from app.services.portfolio_snapshot_export import export_snapshot_range
 from app.services.subscription import is_advanced
@@ -184,7 +187,54 @@ def current_holdings(
     """Requires a personal API token and an active Advanced or Jade subscription. Both read_only and holdings_write tokens may read. Rate-limit and quiet-window responses include Retry-After."""
     result = agent_holdings.get_book(session, principal.user_id)
     request.state.agent_item_count = len(cast(list[object], result["holdings"]))
+    _data_notice(principal.user_id, modified=False)
     return JSONResponse(result)
+
+
+@router.get(
+    "/holdings/changes",
+    response_model=HoldingChangesOut,
+    dependencies=[Depends(holdings_access)],
+    summary="Read your holding change history (Advanced)",
+)
+def holding_change_history(
+    request: Request,
+    start: Annotated[date, Query()],
+    end: Annotated[date, Query()],
+    principal: AgentPrincipal = Depends(agent_principal),
+    session: Session = Depends(get_session),
+) -> HoldingChangesOut:
+    """Requires a personal API token and an active Advanced or Jade subscription; either permission may read. Inclusive ET dates within the last 30 days, at most 100 groups. Rate-limit and quiet-window responses include Retry-After."""
+    result = holding_changes.list_changes(session, principal.user_id, start, end)
+    request.state.agent_item_count = len(result.items)
+    _data_notice(principal.user_id, modified=False)
+    return result
+
+
+@router.get(
+    "/token", response_model=AgentTokenOut, summary="Inspect your token and current capabilities"
+)
+def token_information(
+    principal: AgentPrincipal = Depends(agent_principal), session: Session = Depends(get_session)
+) -> AgentTokenOut:
+    """Requires a personal API token; available without a paid subscription and sends no data notice. Change history follows holdings_read. Rate-limit and quiet-window responses include Retry-After."""
+    token = session.get(ApiToken, principal.token_id)
+    assert token is not None
+    advanced = is_advanced(principal.user)
+    return AgentTokenOut(
+        name=token.name,
+        prefix=token.token_prefix,
+        permission=principal.permission,
+        created_at=token.created_at.astimezone(ET),
+        expires_at=token.expires_at.astimezone(ET) if token.expires_at else None,
+        capabilities=AgentCapabilities(
+            reports=True,
+            snapshots=advanced,
+            intel=advanced,
+            holdings_read=advanced,
+            holdings_write=advanced and principal.permission == "holdings_write",
+        ),
+    )
 
 
 async def create_body(request: Request) -> Create:
@@ -247,6 +297,7 @@ def _write_result(
         principal.user_id,
         principal.permission,
         body,
+        token_id=principal.token_id,
         hid=hid,
         version=version,
         key=request.headers.get("idempotency-key")

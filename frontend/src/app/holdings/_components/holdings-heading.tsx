@@ -14,6 +14,7 @@ export function HoldingsHeading() {
           {t("viewPortfolioLink")}
         </Link>
       </div>
+      <Link href="/holdings/changes" className="text-sm underline underline-offset-4">{t("changeHistoryLink")}</Link>
       <p className="mt-1 text-sm text-muted-foreground">{t("pageSubtitle")}</p>
       <p className="mt-1 text-sm text-muted-foreground">{t("capNote")}</p>
     </header>

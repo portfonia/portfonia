@@ -610,7 +610,7 @@ def test_notices_shared_read_distinct_modification_noop_replay_and_failures(
         "app.tasks.notification_tasks.send_api_modification_notice_task.delay", modified
     )
     assert app_client.get(URL, headers=writer).status_code == 200
-    assert read.call_count == 0
+    assert read.call_count == 1
     date = api_tokens.now_et().date().isoformat()
     assert (
         app_client.get(
@@ -681,10 +681,15 @@ def test_real_postgres_concurrent_same_key_replay(whole: bool, session_test_db: 
     from app.services.agent_holdings import mutate
 
     uid = uuid4()
+    from app.models.api_token import ApiToken
+    from app.services.api_tokens import new_token
+
     with SessionLocal() as setup:
         user = seed_user(setup, uid)
         user.subscription_status = "active"
         user.subscription_type = "daily"
+        token, _ = new_token(setup, uid, "sync", None, "holdings_write")
+        token_id = token.id
         setup.commit()
     body = (
         ReplaceAll.model_validate({"version": "0", "holdings": [ROW], "delete_ids": []})
@@ -699,7 +704,9 @@ def test_real_postgres_concurrent_same_key_replay(whole: bool, session_test_db: 
         try:
             barrier.wait(timeout=5)
             with SessionLocal() as session:
-                results.append(mutate(session, uid, "holdings_write", body, key="same"))
+                results.append(
+                    mutate(session, uid, "holdings_write", body, token_id=token_id, key="same")
+                )
         except Exception as exc:
             failures.append(exc)
 
@@ -735,6 +742,7 @@ def test_real_postgres_concurrent_same_key_replay(whole: bool, session_test_db: 
         with SessionLocal() as cleanup:
             cleanup.execute(delete(Holding).where(Holding.user_id == uid))
             cleanup.execute(delete(Account).where(Account.user_id == uid))
+            cleanup.execute(delete(ApiToken).where(ApiToken.user_id == uid))
             cleanup.execute(delete(User).where(User.id == uid))
             cleanup.commit()
 
@@ -751,6 +759,9 @@ def test_real_postgres_concurrent_delete_preserves_last_row(session_test_db: Non
     from app.services.agent_holdings import mutate
 
     uid = uuid4()
+    from app.models.api_token import ApiToken
+    from app.services.api_tokens import new_token
+
     with SessionLocal() as setup:
         user = seed_user(setup, uid)
         user.subscription_status = "active"
@@ -760,6 +771,8 @@ def test_real_postgres_concurrent_delete_preserves_last_row(session_test_db: Non
             for i in range(2)
         ]
         setup.add_all(rows)
+        token, _ = new_token(setup, uid, "sync", None, "holdings_write")
+        token_id = token.id
         setup.commit()
         ids = [r.id for r in rows]
     barrier = threading.Barrier(2)
@@ -769,7 +782,9 @@ def test_real_postgres_concurrent_delete_preserves_last_row(session_test_db: Non
         barrier.wait(timeout=5)
         with SessionLocal() as session:
             try:
-                status, _, _, _ = mutate(session, uid, "holdings_write", None, hid=hid, version="0")
+                status, _, _, _ = mutate(
+                    session, uid, "holdings_write", None, token_id=token_id, hid=hid, version="0"
+                )
                 codes.append(status)
             except HTTPException as exc:
                 codes.append(exc.status_code)
@@ -786,12 +801,21 @@ def test_real_postgres_concurrent_delete_preserves_last_row(session_test_db: Non
             remaining = check.scalars(select(Holding).where(Holding.user_id == uid)).all()
             assert len(remaining) == 1
             with pytest.raises(HTTPException) as refused:
-                mutate(check, uid, "holdings_write", None, hid=remaining[0].id, version="1")
+                mutate(
+                    check,
+                    uid,
+                    "holdings_write",
+                    None,
+                    token_id=token_id,
+                    hid=remaining[0].id,
+                    version="1",
+                )
             assert isinstance(refused.value.detail, dict)
             assert refused.value.detail["code"] == "last_holding_requires_ui"
     finally:
         with SessionLocal() as cleanup:
             cleanup.execute(delete(Holding).where(Holding.user_id == uid))
+            cleanup.execute(delete(ApiToken).where(ApiToken.user_id == uid))
             cleanup.execute(delete(User).where(User.id == uid))
             cleanup.commit()
 
@@ -808,6 +832,7 @@ def test_real_postgres_get_waits_for_writer_coherent_version(session_test_db: No
     from app.services.holdings_write import lock_user_book
 
     uid = uuid4()
+
     with SessionLocal() as setup:
         user = seed_user(setup, uid)
         user.subscription_status = "active"

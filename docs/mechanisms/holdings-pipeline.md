@@ -1111,3 +1111,34 @@ and this issue deliberately did not add one. Edits PATCH one field at a
 time via the existing `PATCH /holdings/{id}`, same as every other
 inline-editable cell in this app; no new backend surface at all. Entry
 point is a button next to "Add holding" on `/holdings/edit`.
+
+## Holding change history (#769)
+
+`services/holding_changes.py` snapshots the 15 user-input fields plus `position`
+and records field-level diffs through `holdings_write.py`. Web create, update,
+delete and reorder use source `web`; file confirm uses `file`; `apply_agent_book`
+uses `agent` and receives the authenticated token ID through `agent_holdings`.
+The record stores token name and the existing 12-character prefix, never token
+plaintext. Captured prices, classification and other system columns are excluded.
+
+A changed write creates one `holding_change_groups` row in the same transaction.
+The encrypted `changes` JSON lists affected IDs, row names, created/updated/deleted
+kinds and field before/after values. Amounts use canonical decimal strings;
+position is an integer and null remains null. Created and updated rows follow
+new position, nulls last; deletions follow old position. File replacement records
+all prior IDs as deleted and all replacement IDs as created. No-op writes keep
+existing version behavior but create no group. Rollback and replay add no group.
+
+Every signed-in user can read their own groups through
+`GET /holdings/changes?start=&end=` and `/holdings/changes`, linked from holdings.
+Both inclusive ET dates must fall between today minus 29 days and today.
+Responses contain the 100 newest groups (time and ID descending), with
+`truncated` prompting a narrower range. The page renders ET time, source, Agent
+token attribution and per-field differences, with loading, error and empty
+states and stacked narrow-screen field lists. Agent access and public reference
+are documented in `agent-api.md`.
+
+Migration `d76900000001` follows `d75400000001`, with a user/time index and user
+FK cascade. The existing operational cleanup task deletes groups older than
+30 days in 1000-row batches and reports `holding_changes_deleted`. No new Beat
+entry, backfill or production migration is included in this implementation.
