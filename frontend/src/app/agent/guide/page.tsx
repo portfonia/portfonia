@@ -22,6 +22,16 @@ export default async function AgentGuidePage() {
         <p className="mt-3 text-sm leading-relaxed text-foreground/80">{copy.how}</p>
       </section>
       <section>
+        <h2 className="font-serif text-xl">{copy.runHeading}</h2>
+        <ol className="mt-3 list-decimal space-y-3 pl-5 text-sm leading-relaxed text-foreground/80">
+          {copy.steps.map(step => <li key={step}>{step}</li>)}
+        </ol>
+      </section>
+      <section>
+        <h2 className="font-serif text-xl">{copy.limitsHeading}</h2>
+        <p className="mt-3 text-sm leading-relaxed text-foreground/80">{copy.limits}</p>
+      </section>
+      <section>
         <h2 className="font-serif text-xl">{copy.effectHeading}</h2>
         <p className="mt-3 text-sm leading-relaxed text-foreground/80">{copy.effect}</p>
       </section>

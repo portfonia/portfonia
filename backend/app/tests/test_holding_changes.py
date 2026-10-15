@@ -36,7 +36,7 @@ def writer(
 ) -> dict[str, str]:
     user = seed_user(db_session, TEST_USER_ID)
     user.subscription_status = "active"
-    user.subscription_type = "daily"
+    user.subscription_type = "jade"
     user.subscription_expires_on = today_et() + timedelta(days=30)
     db_session.commit()
     monkeypatch.setattr("app.core.agent_limits.quiet_retry_after", lambda _: None)
@@ -429,7 +429,7 @@ def test_19_token(
             "intel": advanced,
             "holdings_read": advanced,
             "holdings_write": advanced and permission == "holdings_write",
-            "jade": False,
+            "jade": advanced,
         }
         assert body["permission"] == permission and len(body["prefix"]) == 12
         assert body["name"] == ("writer" if permission == "holdings_write" else "reader")

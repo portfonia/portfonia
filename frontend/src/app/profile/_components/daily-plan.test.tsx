@@ -23,6 +23,6 @@ it("daily_acceptance_12 Daily quote uses its briefing title and description", as
   fireEvent.change(screen.getByRole("combobox", { name: "Report schedule" }), { target: { value: "daily" } });
   const dialog = await screen.findByRole("alertdialog");
   expect(within(dialog).getByRole("heading", { name: "Daily briefing" })).toBeInTheDocument();
-  expect(within(dialog).getByText("A briefing on your portfolio every weekday, Monday to Friday. Advanced plan: includes AI Agent data access. Active Advanced and Jade also support reading and managing current holdings through your own agent; changes require a holdings-write token.")).toBeInTheDocument();
+  expect(within(dialog).getByText("A briefing on your portfolio every weekday, Monday to Friday. Advanced plan: includes AI Agent data access.")).toBeInTheDocument();
   expect(getSubscriptionQuote).toHaveBeenCalledExactlyOnceWith("daily");
 });
