@@ -204,6 +204,16 @@ entitlement, 422 validation, 429 with positive `Retry-After`, and 503
 protection unavailability. All dates are ET and holdings data remains
 private, handled on the user's behalf.
 
+Issue #766 replaces the Endpoints card with a summary for a person. It opens
+with one lead sentence, then ten blocks in a fixed order. Each block is a
+heading plus four unmarked lines: path, who may call it, what it does, and
+any other note. A closing sentence follows. Paths have no query string, and
+the card does not show the OpenAPI URL. English matches the #766 Design
+comment. Spanish and both Chinese catalogs translate those sentences.
+`llms.txt` and `agent.md` still hold the field lists and calling conventions,
+including `total_in_range` and `truncated` on report reads, which the page
+summary does not mention.
+
 ## Access notices and signed revocation
 
 After a successful snapshot read, an atomic
