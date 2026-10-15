@@ -231,7 +231,8 @@
       "critical": "Critical"
     },
     "exportDescription": "Current holdings export (re-importable)",
-    "templateDescription": "Holdings upload template"
+    "templateDescription": "Holdings upload template",
+    "changeHistoryLink": "Change history"
   },
   "questionnaire": {
     "pageTitle": "Investment style",
@@ -1388,7 +1389,8 @@
         {
           "heading": "7. AI Agent access",
           "body": [
-            "If you create an API token, we store a one-way hash of it together with its name, its permission (read-only or holdings-write), and its creation, expiry and last-use times. Each request made with a token is logged with the time, the token used, the endpoint and dates requested, the result, and the IP address and User-Agent of the caller. We keep these logs for 90 days to protect your account and to detect misuse. Only snapshot reads trigger the daily access notice; every successful Agent write request, including unchanged writes, may trigger a separate daily modification notice. Only POST creation uses an idempotency key, and a retry within 24 hours returns the original result; these results are encrypted, and request bodies and idempotency keys are not stored in the request audit. Data returned through the API is delivered to the agent you chose; how that agent stores or uses it is under your control."
+            "If you create an API token, we store a one-way hash of it together with its name, its permission (read-only or holdings-write), and its creation, expiry and last-use times. Each request made with a token is logged with the time, the token used, the endpoint and dates requested, the result, and the IP address and User-Agent of the caller. We keep these logs for 90 days to protect your account and to detect misuse. Every successful Agent write request, including unchanged writes, may trigger a separate daily modification notice. Only POST creation uses an idempotency key, and a retry within 24 hours returns the original result; these results are encrypted, and request bodies and idempotency keys are not stored in the request audit. Data returned through the API is delivered to the agent you chose; how that agent stores or uses it is under your control.",
+            "Holding change history from web, file upload and Agent writes is stored encrypted for 30 days and is visible to you and your Agent. Successful reads of current holdings, holding change history, snapshots and Jade risk results share at most one access notice per Eastern Time day."
           ]
         },
         {
@@ -1568,7 +1570,7 @@
     "limitsTitle": "Access limits and notices",
     "limits": "Limits combine all your tokens. Single-row holdings POST/PUT/PATCH/DELETE share 30 requests per minute and 100 per hour; request 31 in one minute locks all Agent access for 15 minutes. Other calls, including GET, whole PUT and validate, allow 20 per endpoint per hour and 10 across endpoints per minute; request 11 locks access for 15 minutes. A refusal returns Retry-After.",
     "quiet": "Requests pause from five minutes before a heavy scheduled job’s scheduled time until five minutes after it finishes, including intelligence collection and scheduled briefings.",
-    "notice": "Only snapshot reads trigger an access notice, at most once per Eastern Time day. Every successful Agent write request, including unchanged writes, may trigger a separate daily modification notice. Current-holdings reads, validation and idempotent replay send none. The link revokes all tokens without sign-in or confirmation to stop future access. Revocation does not undo saved changes.",
+    "notice": "Successful reads of current holdings, holding change history and snapshots share one access notice per Eastern Time day. Every successful Agent write request, including unchanged writes, may trigger a separate daily modification notice. Validation and idempotent replay send no data notice. The link revokes every API token on the account at once, including tokens used by other agents. Create new tokens afterwards for agents you still want to run. Revocation does not undo saved changes.",
     "signIn": "Sign in",
     "signInNote": "to manage your API tokens.",
     "settingsTitle": "Token settings",
@@ -1636,7 +1638,7 @@
       "holdingsReadPath": "GET /agent/v1/holdings",
       "holdingsReadAccess": "Applies during an active Advanced or Jade period. Read-only tokens and holdings-write tokens are both accepted.",
       "holdingsReadAction": "Read the current holdings book as saved.",
-      "holdingsReadNote": "Cash and watched holdings are included. The same instrument kept in different accounts is stored separately.",
+      "holdingsReadNote": "Cash and watched holdings are included. The same instrument kept in different accounts is stored separately. Successful reads of current holdings, holding change history and snapshots share at most one access notice per Eastern Time day.",
       "holdingsReplaceAllHeading": "Update the whole holdings book",
       "holdingsReplaceAllPath": "PUT /agent/v1/holdings",
       "holdingsReplaceAllAccess": "Applies during an active Advanced or Jade period. Only a holdings-write token is accepted.",
@@ -1667,7 +1669,22 @@
       "holdingsValidateAccess": "Applies during an active Advanced or Jade period. Read-only tokens and holdings-write tokens are both accepted.",
       "holdingsValidateAction": "Check whether a whole-book update, an addition, a single-holding replacement, or a partial change would be accepted.",
       "holdingsValidateNote": "Nothing is saved, no prices are fetched, no holdings notice is sent, and the version is not reserved. A passing check does not mean a later write will succeed.",
-      "endpointsClosing": "These endpoints do not connect to a broker and do not submit trades. Every request leaves an audit record. The audit does not store the holdings body or the full token."
+      "endpointsClosing": "These endpoints do not connect to a broker and do not submit trades. Every request leaves an audit record. The audit does not store the holdings body or the full token.",
+      "tokenHeading": "Inspect this token",
+      "tokenPath": "GET /agent/v1/token",
+      "tokenAccess": "No paid subscription is required. Uses the normal read limits and quiet windows; sends no access notice.",
+      "tokenAction": "Read this token’s name, prefix, permission, creation and expiry times, and current capabilities.",
+      "tokenNote": "No paid subscription is required. Uses the normal read limits and quiet windows; sends no access notice.",
+      "changesHeading": "Read holding change history",
+      "changesPath": "GET /agent/v1/holdings/changes",
+      "changesAccess": "Applies during an active Advanced or Jade period. Read-only tokens and holdings-write tokens are both accepted.",
+      "changesAction": "Read field-level before and after values from web, file upload and Agent writes.",
+      "changesNote": "Give inclusive Eastern Time dates within the last 30 days. At most the 100 newest groups are returned; narrow the range when truncated. History is encrypted and kept for 30 days. Reads share one daily access notice with current holdings and snapshots.",
+      "jadeHeading": "Read Jade risk results",
+      "jadeAccess": "Active Jade; read-only and holdings-write tokens",
+      "jadeAction": "Read the results of your five Jade risk tools, including every series.",
+      "jadeNote": "Tools: replay, tail-risk, stress, style and tracking. Stress requires one scenario per request. Together these routes allow one request per 3 minutes and at most 10 per hour per user, in addition to the existing Agent limits and quiet windows.",
+      "jadePath": "GET /agent/v1/jade/{tool}"
     },
     "guideLink": "See what your agent can do and how."
   },
@@ -2130,6 +2147,7 @@
           "Historical stress scenarios: five past market shocks",
           "Style exposure",
           "Tracking against your reference: a portfolio you define, with tracking error",
+          "Your AI agent can read these risk results",
           "Up to 100 saved holding rows while Jade is active, including cash and watched rows"
         ]
       }
@@ -2478,5 +2496,25 @@
     "how": "Sign in and open the AI Agent page. To update holdings, choose Holdings write. The token is shown only once. Copy it, give your own agent the token and https://portfonia.com/llms.txt, then ask in ordinary language, for example to read the latest briefing or to update one holding's quantity and cost with the figures you provide.",
     "effectHeading": "What you get",
     "effect": "A write updates the current holdings stored in Portfonia. Later briefings, and Jade holdings replay, tail risk, stress tests, style exposure, and tracking, use that current book. Every request is audit-logged. A successful write may also send one modification notice that day."
+  },
+  "holdingChanges": {
+    "title": "Change history",
+    "start": "Start date (ET)",
+    "end": "End date (ET)",
+    "submit": "Show changes",
+    "loading": "Loading changes…",
+    "empty": "No changes in this range",
+    "error": "Could not load changes",
+    "truncated": "Showing the 100 newest changes. Please narrow the date range.",
+    "web": "Web",
+    "file": "File upload",
+    "agent": "Agent · {name} · {prefix}",
+    "created": "Created",
+    "updated": "Updated",
+    "deleted": "Deleted",
+    "field": "Field",
+    "before": "Before",
+    "after": "After",
+    "position": "Position"
   }
 }

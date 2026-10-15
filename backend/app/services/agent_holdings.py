@@ -268,6 +268,7 @@ def mutate(
     permission: str,
     body: Create | ReplaceAll | Patch | None,
     *,
+    token_id: UUID,
     hid: UUID | None = None,
     version: str | None = None,
     key: str | None = None,
@@ -301,7 +302,12 @@ def mutate(
     try:
         prepared = plan(user, rows, body, hid, submitted)
         saved, capture, changed = holdings_write.apply_agent_book(
-            session, user, prepared.targets, prepared.deleted, whole=prepared.whole
+            session,
+            user,
+            prepared.targets,
+            prepared.deleted,
+            whole=prepared.whole,
+            token_id=token_id,
         )
         if isinstance(body, ReplaceAll):
             payload = book(user, saved)

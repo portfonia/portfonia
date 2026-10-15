@@ -1210,3 +1210,27 @@ export async function saveJadeBenchmark(components: TrackingComponent[]): Promis
   if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<JadeBenchmark>;
 }
+
+export interface HoldingChangeGroup {
+  id: string;
+  changed_at: string;
+  source: "web" | "file" | "agent";
+  token: { name: string; prefix: string } | null;
+  rows: {
+    holding_id: string;
+    holding_name: string;
+    kind: "created" | "updated" | "deleted";
+    fields: { field: string; before: string | number | null; after: string | number | null }[];
+  }[];
+}
+export interface HoldingChanges {
+  start: string;
+  end: string;
+  truncated: boolean;
+  items: HoldingChangeGroup[];
+}
+export async function listHoldingChanges(start: string, end: string): Promise<HoldingChanges> {
+  const res = await fetch(`/api/holdings/changes?${new URLSearchParams({ start, end })}`, { cache: "no-store" });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<HoldingChanges>;
+}

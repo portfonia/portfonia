@@ -490,9 +490,10 @@ renders no buy-credits button after the legal text. The old guide link used
 because `/agent` is not in `SEO_PAGES`. The owner rejected pointing it at
 `/agent`. Plan-comparison links stay. The `/agent` Endpoints card is a
 person-facing summary copied from the #766 Design comment: a lead sentence,
-ten blocks of four unmarked lines, and a closing sentence. Getting started
-still links `/llms.txt` and `/agent.md`. Those two files and the OpenAPI
-schema are unchanged.
+blocks of four unmarked lines (ten at #766, thirteen after #769 and #770; see
+`agent-api.md`), and a closing sentence. Getting started still links
+`/llms.txt` and `/agent.md`. #766 left those two files and the OpenAPI schema
+unchanged.
 
 `lib/seo.ts` defines this exact page set, canonical `https://portfonia.com`,
 URL helpers, protected prefixes, language alternates, and metadata builders.

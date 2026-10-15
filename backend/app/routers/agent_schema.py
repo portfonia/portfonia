@@ -9,6 +9,13 @@ from fastapi import APIRouter, Request
 router = APIRouter()
 
 OPERATIONS = {
+    "/agent/v1/jade/replay": {"get"},
+    "/agent/v1/jade/tail-risk": {"get"},
+    "/agent/v1/jade/stress": {"get"},
+    "/agent/v1/jade/style": {"get"},
+    "/agent/v1/jade/tracking": {"get"},
+    "/agent/v1/token": {"get"},
+    "/agent/v1/holdings/changes": {"get"},
     "/agent/v1/reports": {"get"},
     "/agent/v1/snapshots": {"get"},
     "/agent/v1/intel": {"get"},

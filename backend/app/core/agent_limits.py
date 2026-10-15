@@ -74,5 +74,12 @@ def enforce_agent_limits(user_id: str, method: str, route: str, now: datetime) -
         hour = f"agent:hour:{route}:{user_id}"
         if store.incr_with_ttl(hour, 3600) > 20:
             _refuse(store.ttl(hour))
+        if route.startswith("/agent/v1/jade/"):
+            interval = f"agent:jade:interval:{user_id}"
+            if not store.set_nx(interval, 180):
+                _refuse(store.ttl(interval))
+            hour = f"agent:jade:hour:{user_id}"
+            if store.incr_with_ttl(hour, 3600) > 10:
+                _refuse(store.ttl(hour))
     except RateLimitUnavailable:
         raise HTTPException(503, UNAVAILABLE_DETAIL) from None

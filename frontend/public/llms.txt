@@ -7,11 +7,20 @@
 - [API reference](https://portfonia.com/agent.md): Authentication, endpoints, response schemas, limits and data handling.
 - [Human guide and token settings](https://portfonia.com/agent): Getting started and personal token management.
 
+## Token information and change history
+
+- `GET /agent/v1/token`: token metadata and current capabilities, with normal read limits and no data notice.
+- `GET /agent/v1/holdings/changes?start=&end=`: active Advanced/Jade, either permission, inclusive ET dates within the last 30 days, at most 100 groups newest first and a truncated flag. Field-level changes are stored encrypted for 30 days.
+
+## Jade risk results
+
+- [Jade risk results contract](https://portfonia.com/agent.md#jade-risk-results-jade): Active Jade, either token permission; five GET tools (replay, tail-risk, stress, style, tracking), unchanged web models and complete series; stress requires one scenario per request.
+
 ## Current holdings management
 
 - [Current holdings contract](https://portfonia.com/agent.md#current-holdings-advanced-or-jade): Active Advanced/Jade can GET current holdings and validate complete replacement, creation, single replacement or PATCH with either token permission. POST/PUT/PATCH/DELETE changes require holdings-write permission. Stable IDs, decimal strings, explicit deletions and current versions apply; empty books and last-row Agent deletion are rejected. Only POST creation requires an idempotency key; a retry within 24 hours returns the original result. Every successful mutation increments the version once, including unchanged writes.
 
-Stored-row limits are Basic 30, active Advanced 50, active Jade 100, counting cash and watches. Single-row writes share 30/minute and 100/hour; other calls keep the existing counters. Only snapshot reads trigger the daily access notice; every successful Agent write request may trigger a separate daily modification notice. Revocation stops future access without undoing changes. Request audit records metadata only; POST replay results are stored encrypted; retries within 24 hours return the original result.
+Stored-row limits are Basic 30, active Advanced 50, active Jade 100, counting cash and watches. Single-row writes share 30/minute and 100/hour; other calls keep the existing counters. The five Jade routes additionally share one request per 3 minutes and at most 10 per hour per user; existing burst, per-route limits and quiet windows also apply. Current holdings, change history, snapshot and Jade reads share the daily access notice; every successful Agent write request may trigger a separate daily modification notice. Revocation stops future access without undoing changes. Request audit records metadata only; POST replay results are stored encrypted; retries within 24 hours return the original result.
 
 Discovery includes this file, agent.md and the Agent-only OpenAPI schema: https://api.portfonia.com/agent/openapi.json. Do not call planned routes or the disabled full production openapi.json.
 

@@ -16,6 +16,9 @@ from app.core.agent_auth import AgentPrincipal, agent_principal
 from app.core.agent_limits import enforce_agent_limits
 from app.core.database import get_session
 from app.core.rate_limit import UNAVAILABLE_DETAIL, RateLimitUnavailable, get_backend
+from app.core.timezones import ET
+from app.models.api_token import ApiToken
+from app.routers.portfolio import BaseCurrency, BenchmarkCode
 from app.schemas.agent import AgentIntelOut, AgentReportsOut
 from app.schemas.agent_holdings import (
     Create,
@@ -27,11 +30,26 @@ from app.schemas.agent_holdings import (
     ReplaceAll,
     Validation,
 )
+from app.schemas.holding_changes import AgentCapabilities, AgentTokenOut, HoldingChangesOut
+from app.schemas.jade import (
+    JadeReplayOut,
+    JadeStressOut,
+    JadeStyleOut,
+    JadeTailRiskOut,
+    JadeTrackingOut,
+)
 from app.schemas.portfolio import SnapshotExportOut
-from app.services import agent_holdings, api_tokens
+from app.services import agent_holdings, api_tokens, holding_changes
 from app.services.agent_pull import pull_intel, pull_reports
+from app.services.jade_replay import compute_replay
+from app.services.jade_replay_config import DEFAULT_REPLAY_RANGE, ReplayRange, ScenarioId
+from app.services.jade_stress import compute_stress
+from app.services.jade_style import compute_style
+from app.services.jade_tail_risk import compute_tail_risk
+from app.services.jade_tracking import compute_tracking
 from app.services.portfolio_snapshot_export import export_snapshot_range
-from app.services.subscription import is_advanced
+from app.services.subscription import is_advanced, is_jade
+from app.services.user_scope import report_currency_for
 from app.tasks.notification_tasks import send_api_access_notice_task
 
 
@@ -48,6 +66,13 @@ def advanced_access(
     principal: AgentPrincipal = Depends(agent_principal), _limits: None = Depends(agent_limits)
 ) -> None:
     if not is_advanced(principal.user):
+        raise HTTPException(403, "subscription_required")
+
+
+def jade_access(
+    principal: AgentPrincipal = Depends(agent_principal), _limits: None = Depends(agent_limits)
+) -> None:
+    if not is_jade(principal.user):
         raise HTTPException(403, "subscription_required")
 
 
@@ -184,7 +209,55 @@ def current_holdings(
     """Requires a personal API token and an active Advanced or Jade subscription. Both read_only and holdings_write tokens may read. Rate-limit and quiet-window responses include Retry-After."""
     result = agent_holdings.get_book(session, principal.user_id)
     request.state.agent_item_count = len(cast(list[object], result["holdings"]))
+    _data_notice(principal.user_id, modified=False)
     return JSONResponse(result)
+
+
+@router.get(
+    "/holdings/changes",
+    response_model=HoldingChangesOut,
+    dependencies=[Depends(holdings_access)],
+    summary="Read your holding change history (Advanced)",
+)
+def holding_change_history(
+    request: Request,
+    start: Annotated[date, Query()],
+    end: Annotated[date, Query()],
+    principal: AgentPrincipal = Depends(agent_principal),
+    session: Session = Depends(get_session),
+) -> HoldingChangesOut:
+    """Requires a personal API token and an active Advanced or Jade subscription; either permission may read. Inclusive ET dates within the last 30 days, at most 100 groups. Rate-limit and quiet-window responses include Retry-After."""
+    result = holding_changes.list_changes(session, principal.user_id, start, end)
+    request.state.agent_item_count = len(result.items)
+    _data_notice(principal.user_id, modified=False)
+    return result
+
+
+@router.get(
+    "/token", response_model=AgentTokenOut, summary="Inspect your token and current capabilities"
+)
+def token_information(
+    principal: AgentPrincipal = Depends(agent_principal), session: Session = Depends(get_session)
+) -> AgentTokenOut:
+    """Requires a personal API token; available without a paid subscription and sends no data notice. Change history follows holdings_read. Rate-limit and quiet-window responses include Retry-After."""
+    token = session.get(ApiToken, principal.token_id)
+    assert token is not None
+    advanced = is_advanced(principal.user)
+    return AgentTokenOut(
+        name=token.name,
+        prefix=token.token_prefix,
+        permission=principal.permission,
+        created_at=token.created_at.astimezone(ET),
+        expires_at=token.expires_at.astimezone(ET) if token.expires_at else None,
+        capabilities=AgentCapabilities(
+            reports=True,
+            snapshots=advanced,
+            intel=advanced,
+            holdings_read=advanced,
+            holdings_write=advanced and principal.permission == "holdings_write",
+            jade=is_jade(principal.user),
+        ),
+    )
 
 
 async def create_body(request: Request) -> Create:
@@ -247,6 +320,7 @@ def _write_result(
         principal.user_id,
         principal.permission,
         body,
+        token_id=principal.token_id,
         hid=hid,
         version=version,
         key=request.headers.get("idempotency-key")
@@ -365,3 +439,122 @@ async def delete_current_holding(
             422, "invalid_holding", "If-Match must be one quoted canonical version."
         )
     return _write_result(request, principal, session, None, hid=holding_id, version=header[1:-1])
+
+
+@router.get(
+    "/jade/replay",
+    response_model=JadeReplayOut,
+    dependencies=[Depends(jade_access)],
+    summary="Read your Jade replay risk results",
+)
+def jade_replay(
+    base_currency: Annotated[BaseCurrency | None, Query()] = None,
+    benchmark: BenchmarkCode = "sp500",
+    range: ReplayRange = DEFAULT_REPLAY_RANGE,
+    session: Session = Depends(get_session),
+    principal: AgentPrincipal = Depends(agent_principal),
+) -> JadeReplayOut:
+    """Requires a personal API token and an active Jade subscription. Rate-limit and quiet-window responses include Retry-After."""
+    result = compute_replay(
+        session,
+        principal.user_id,
+        base_currency or report_currency_for(session, principal.user_id, "USD"),
+        benchmark,
+        range,
+    )
+    _data_notice(principal.user_id, modified=False)
+    return result
+
+
+@router.get(
+    "/jade/tail-risk",
+    response_model=JadeTailRiskOut,
+    dependencies=[Depends(jade_access)],
+    summary="Read your Jade tail-risk risk results",
+)
+def jade_tail_risk(
+    base_currency: Annotated[BaseCurrency | None, Query()] = None,
+    benchmark: BenchmarkCode = "sp500",
+    session: Session = Depends(get_session),
+    principal: AgentPrincipal = Depends(agent_principal),
+) -> JadeTailRiskOut:
+    """Requires a personal API token and an active Jade subscription. Rate-limit and quiet-window responses include Retry-After."""
+    result = compute_tail_risk(
+        session,
+        principal.user_id,
+        base_currency or report_currency_for(session, principal.user_id, "USD"),
+        benchmark,
+    )
+    _data_notice(principal.user_id, modified=False)
+    return result
+
+
+@router.get(
+    "/jade/stress",
+    response_model=JadeStressOut,
+    dependencies=[Depends(jade_access)],
+    summary="Read your Jade stress risk results",
+)
+def jade_stress(
+    scenario: ScenarioId,
+    base_currency: Annotated[BaseCurrency | None, Query()] = None,
+    benchmark: BenchmarkCode = "sp500",
+    session: Session = Depends(get_session),
+    principal: AgentPrincipal = Depends(agent_principal),
+) -> JadeStressOut:
+    """Requires a personal API token and an active Jade subscription. Rate-limit and quiet-window responses include Retry-After."""
+    result = compute_stress(
+        session,
+        principal.user_id,
+        base_currency or report_currency_for(session, principal.user_id, "USD"),
+        benchmark,
+        scenario=scenario,
+    )
+    _data_notice(principal.user_id, modified=False)
+    return result
+
+
+@router.get(
+    "/jade/style",
+    response_model=JadeStyleOut,
+    dependencies=[Depends(jade_access)],
+    summary="Read your Jade style risk results",
+)
+def jade_style(
+    base_currency: Annotated[BaseCurrency | None, Query()] = None,
+    benchmark: BenchmarkCode = "sp500",
+    session: Session = Depends(get_session),
+    principal: AgentPrincipal = Depends(agent_principal),
+) -> JadeStyleOut:
+    """Requires a personal API token and an active Jade subscription. Rate-limit and quiet-window responses include Retry-After."""
+    result = compute_style(
+        session,
+        principal.user_id,
+        base_currency or report_currency_for(session, principal.user_id, "USD"),
+        benchmark,
+    )
+    _data_notice(principal.user_id, modified=False)
+    return result
+
+
+@router.get(
+    "/jade/tracking",
+    response_model=JadeTrackingOut,
+    dependencies=[Depends(jade_access)],
+    summary="Read your Jade tracking risk results",
+)
+def jade_tracking(
+    base_currency: Annotated[BaseCurrency | None, Query()] = None,
+    range: ReplayRange = DEFAULT_REPLAY_RANGE,
+    session: Session = Depends(get_session),
+    principal: AgentPrincipal = Depends(agent_principal),
+) -> JadeTrackingOut:
+    """Requires a personal API token and an active Jade subscription. Rate-limit and quiet-window responses include Retry-After."""
+    result = compute_tracking(
+        session,
+        principal.user_id,
+        base_currency or report_currency_for(session, principal.user_id, "USD"),
+        range,
+    )
+    _data_notice(principal.user_id, modified=False)
+    return result

@@ -55,7 +55,7 @@ def test_schema_operation_inventory_security_and_references(app_client: TestClie
         for method in route.methods
     }
     assert operations == inventory
-    assert len(operations) == 10
+    assert len(operations) == 17
     assert schema["servers"] == [{"url": "https://api.portfonia.com"}]
     assert schema["components"]["securitySchemes"] == {
         "bearerAuth": {"type": "http", "scheme": "bearer"}

@@ -231,7 +231,8 @@
       "critical": "Crítico"
     },
     "exportDescription": "Exportación de posiciones actuales (reimportable)",
-    "templateDescription": "Plantilla para cargar posiciones"
+    "templateDescription": "Plantilla para cargar posiciones",
+    "changeHistoryLink": "Historial de cambios"
   },
   "questionnaire": {
     "pageTitle": "Estilo de inversión",
@@ -1388,7 +1389,8 @@
         {
           "heading": "7. Acceso de agentes de IA",
           "body": [
-            "Si crea un token de API, almacenamos su hash irreversible, su nombre, su permiso (solo lectura o escritura de posiciones) y las fechas de creación, vencimiento y último uso. Cada solicitud registra hora, token, endpoint y fechas solicitadas, resultado, IP y User-Agent del solicitante. Conservamos estos registros 90 días para proteger su cuenta y detectar uso indebido. Solo las lecturas de instantáneas generan el aviso diario de acceso; cada solicitud de escritura exitosa del agente, incluso sin cambios, puede generar un aviso diario separado. Solo la creación mediante POST usa una clave de idempotencia, y un reintento dentro de 24 horas devuelve el resultado original; estos resultados se almacenan cifrados, y la auditoría no guarda cuerpos de solicitudes ni claves de idempotencia. Los datos de la API se entregan al agente que usted elige; usted controla cómo los almacena o usa ese agente."
+            "Si crea un token de API, almacenamos su hash irreversible, su nombre, su permiso (solo lectura o escritura de posiciones) y las fechas de creación, vencimiento y último uso. Cada solicitud registra hora, token, endpoint y fechas solicitadas, resultado, IP y User-Agent del solicitante. Conservamos estos registros 90 días para proteger su cuenta y detectar uso indebido. Cada solicitud de escritura exitosa del agente, incluso sin cambios, puede generar un aviso diario separado. Solo la creación mediante POST usa una clave de idempotencia, y un reintento dentro de 24 horas devuelve el resultado original; estos resultados se almacenan cifrados, y la auditoría no guarda cuerpos de solicitudes ni claves de idempotencia. Los datos de la API se entregan al agente que usted elige; usted controla cómo los almacena o usa ese agente.",
+            "El historial de cambios de las tenencias realizados desde la web, una carga de archivo o un agente se almacena cifrado durante 30 días y es visible para ti y tu agente. Las lecturas correctas de las tenencias actuales, su historial de cambios, las instantáneas y los resultados de riesgo de Jade comparten como máximo un aviso de acceso por día en hora del Este."
           ]
         },
         {
@@ -1568,7 +1570,7 @@
     "limitsTitle": "Límites de acceso y avisos",
     "limits": "Los límites combinan todos sus tokens. POST/PUT/PATCH/DELETE de una sola posición comparten 30 solicitudes por minuto y 100 por hora; la solicitud 31 bloquea todo el acceso de agentes durante 15 minutos. Las demás llamadas, incluidas GET, PUT completo y validación, permiten 20 por endpoint por hora y 10 entre endpoints por minuto; la solicitud 11 bloquea el acceso 15 minutos. Un rechazo devuelve Retry-After.",
     "quiet": "Las solicitudes se pausan desde cinco minutos antes de la hora programada de una tarea pesada hasta cinco minutos después de terminar, incluidas la recopilación de información y los resúmenes programados.",
-    "notice": "Solo las lecturas de instantáneas generan un aviso de acceso, como máximo uno por día, hora del Este. Cada solicitud de escritura exitosa del agente, incluso sin cambios, puede generar un aviso diario separado. Las lecturas de posiciones actuales, la validación y los reintentos reproducidos no envían avisos. El enlace revoca todos los tokens sin iniciar sesión ni confirmar, para detener accesos futuros. La revocación no deshace cambios guardados.",
+    "notice": "Las lecturas correctas de las tenencias actuales, su historial de cambios y las instantáneas comparten un aviso de acceso por día en hora del Este. Cada solicitud de escritura exitosa del agente, incluso sin cambios, puede generar un aviso diario separado. La validación y los reintentos idempotentes no envían avisos de datos. El enlace revoca todos los tokens de API de la cuenta a la vez, incluidos los que usan otros agentes. Después, crea nuevos tokens para los agentes que quieras seguir usando. La revocación no deshace los cambios guardados.",
     "signIn": "Inicie sesión",
     "signInNote": "para gestionar sus tokens de API.",
     "settingsTitle": "Configuración de tokens",
@@ -1636,7 +1638,7 @@
       "holdingsReadPath": "GET /agent/v1/holdings",
       "holdingsReadAccess": "Se aplica durante un período activo de Advanced o Jade. Se aceptan tanto tokens de solo lectura como tokens de escritura de posiciones.",
       "holdingsReadAction": "Leer la cartera actual de posiciones tal como está guardada.",
-      "holdingsReadNote": "Se incluyen el efectivo y las posiciones en observación. El mismo instrumento en cuentas diferentes se guarda por separado.",
+      "holdingsReadNote": "Se incluyen el efectivo y las posiciones en observación. El mismo instrumento en cuentas diferentes se guarda por separado. Las lecturas correctas de las tenencias actuales, su historial de cambios y las instantáneas comparten como máximo un aviso de acceso por día en hora del Este.",
       "holdingsReplaceAllHeading": "Actualizar toda la cartera de posiciones",
       "holdingsReplaceAllPath": "PUT /agent/v1/holdings",
       "holdingsReplaceAllAccess": "Se aplica durante un período activo de Advanced o Jade. Solo se acepta un token de escritura de posiciones.",
@@ -1667,7 +1669,22 @@
       "holdingsValidateAccess": "Se aplica durante un período activo de Advanced o Jade. Se aceptan tanto tokens de solo lectura como tokens de escritura de posiciones.",
       "holdingsValidateAction": "Comprobar si se aceptaría una actualización de toda la cartera, una adición, un reemplazo de una posición o un cambio parcial.",
       "holdingsValidateNote": "No se guarda nada, no se obtienen precios, no se envía ningún aviso de posiciones y no se reserva la versión. Superar la comprobación no significa que una escritura posterior vaya a tener éxito.",
-      "endpointsClosing": "Estos endpoints no se conectan a un corredor ni envían operaciones. Cada solicitud deja un registro de auditoría. La auditoría no almacena el cuerpo de las posiciones ni el token completo."
+      "endpointsClosing": "Estos endpoints no se conectan a un corredor ni envían operaciones. Cada solicitud deja un registro de auditoría. La auditoría no almacena el cuerpo de las posiciones ni el token completo.",
+      "tokenHeading": "Consultar este token",
+      "tokenPath": "GET /agent/v1/token",
+      "tokenAccess": "No requiere una suscripción de pago. Usa los límites de lectura y períodos de pausa habituales; no envía un aviso de acceso.",
+      "tokenAction": "Lee el nombre, prefijo, permiso, fechas de creación y vencimiento de este token, y sus capacidades actuales.",
+      "tokenNote": "No requiere una suscripción de pago. Usa los límites de lectura y períodos de pausa habituales; no envía un aviso de acceso.",
+      "changesHeading": "Leer el historial de cambios de las tenencias",
+      "changesPath": "GET /agent/v1/holdings/changes",
+      "changesAccess": "Se aplica durante un período activo de Advanced o Jade. Se aceptan tanto tokens de solo lectura como tokens de escritura de posiciones.",
+      "changesAction": "Lee los valores anteriores y posteriores de cada campo modificado desde la web, una carga de archivo o un agente.",
+      "changesNote": "Indica fechas inclusivas de los últimos 30 días en hora del Este. Se devuelven hasta los 100 grupos más recientes; acota el período si el resultado se trunca. El historial se cifra y se conserva durante 30 días. Estas lecturas comparten un aviso diario de acceso con las tenencias actuales y las instantáneas.",
+      "jadeHeading": "Leer resultados de riesgo de Jade",
+      "jadeAccess": "Suscripción Jade activa; tokens de solo lectura y de escritura de posiciones",
+      "jadeAction": "Lea los resultados de sus cinco herramientas de riesgo de Jade, incluidas todas las series.",
+      "jadeNote": "Herramientas: replay, tail-risk, stress, style y tracking. Cada solicitud de estrés requiere un solo escenario. En conjunto, estas rutas permiten una solicitud cada 3 minutos y un máximo de 10 por hora por usuario, además de los límites y períodos de pausa existentes para agentes.",
+      "jadePath": "GET /agent/v1/jade/{tool}"
     },
     "guideLink": "Vea qué puede hacer su agente y cómo."
   },
@@ -2130,6 +2147,7 @@
           "Escenarios de estrés histórico: cinco crisis pasadas",
           "Exposición por estilo",
           "Seguimiento frente a su referencia: una cartera definida por usted y su error de seguimiento",
+          "Su agente de IA puede leer estos resultados de riesgo",
           "Hasta 100 posiciones guardadas mientras Jade está activo, incluidas efectivo y posiciones en observación"
         ]
       }
@@ -2478,5 +2496,25 @@
     "how": "Inicie sesión y abra la página Agente de IA. Para actualizar posiciones, elija Escritura de posiciones. El token se muestra una sola vez. Cópielo, entregue a su propio agente el token y https://portfonia.com/llms.txt y luego pídale en lenguaje cotidiano, por ejemplo, que lea el último resumen o actualice la cantidad y el costo de una posición con las cifras que usted proporcione.",
     "effectHeading": "Qué obtiene",
     "effect": "Una escritura actualiza las posiciones actuales guardadas en Portfonia. Los resúmenes posteriores y las herramientas de Jade de simulación histórica de posiciones, riesgo de cola, pruebas de estrés, exposición por estilo y seguimiento usan esa cartera actual. Cada solicitud queda registrada en el registro de auditoría. Una escritura exitosa también puede enviar un aviso de modificación ese día."
+  },
+  "holdingChanges": {
+    "title": "Historial de cambios",
+    "start": "Fecha inicial (hora del Este)",
+    "end": "Fecha final (hora del Este)",
+    "submit": "Mostrar cambios",
+    "loading": "Cargando cambios…",
+    "empty": "No hay cambios en este período",
+    "error": "No se pudieron cargar los cambios",
+    "truncated": "Se muestran los 100 cambios más recientes. Acota el período de fechas.",
+    "web": "Web",
+    "file": "Carga de archivo",
+    "agent": "Agente · {name} · {prefix}",
+    "created": "Creada",
+    "updated": "Actualizada",
+    "deleted": "Eliminada",
+    "field": "Campo",
+    "before": "Antes",
+    "after": "Después",
+    "position": "Orden"
   }
 }
