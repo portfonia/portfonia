@@ -1,7 +1,8 @@
 # Personal agent API access (#651, #652)
 
 A user's own agent can read reports on every plan and complete daily holding
-snapshots, intelligence and current holdings on an active Advanced plan (Daily or Jade).
+snapshots and intelligence on an active Advanced plan (Daily or Jade). Current holdings,
+validation, writes and Agent change-history reads require active Jade (#775).
 Issue #754 adds holdings management with a holdings-write token and read-only
 validation. See the current-holdings contract below.
 The public `/agent` page explains the implemented endpoints and provides token
@@ -45,7 +46,7 @@ or `holdings_write`, default and backfill `read_only` (migration
 `read_only`. List and create responses include `permission`. There is no
 route that changes it. Existing rows stay read-only. Any signed-in user may
 create either mode. `AgentPrincipal` carries the stored permission. Unknown
-values return 422. Holdings calls require an active Advanced or Jade subscription (#754);
+values return 422. Holdings calls require an active Jade subscription (#754);
 mutations additionally require holdings_write permission.
 
 ## Request limits and scheduled quiet windows
@@ -64,7 +65,8 @@ query validation or endpoint entitlement:
 4. Otherwise, `agent:burst:{user_id}`: fixed 60-second window from its first
    increment; the eleventh request sets a 900-second lock and returns 429.
 5. Otherwise, `agent:hour:{endpoint}:{user_id}`: 20 per 3600-second fixed window.
-6. Endpoint entitlement, via `is_advanced(user)` for snapshots, intelligence and holdings (403
+6. Endpoint entitlement, via `is_advanced(user)` for snapshots and intelligence, and
+   `is_jade(user)` for holdings, validation, writes and change history (403
    `subscription_required`).
 
 Limits combine all tokens belonging to the same user. Every 429 has a
@@ -274,7 +276,7 @@ authorization. This PR implements #754; no production operation is implied.
 These routes manage the caller's current holdings records. They do not access
 broker accounts or execute trades. GET and validation accept either token
 permission; every mutation requires `holdings_write`. All holdings calls require
-an active Advanced or Jade subscription. Report/snapshot/intelligence routes
+an active Jade subscription. Report/snapshot/intelligence routes
 remain read-only. The Agent-only OpenAPI schema is available at
 [https://api.portfonia.com/agent/openapi.json](https://api.portfonia.com/agent/openapi.json).
 
@@ -440,14 +442,15 @@ by the 24-hour POST creation retry contract; whole PUT has no idempotency replay
 requirement or data notice. It uses normal read limits, quiet windows and request
 audit. Returns `name`, the stored 12-character `prefix`, `permission`, ET ISO 8601
 `created_at`, nullable ET `expires_at`, and `capabilities` booleans. `reports` is
-always true; `snapshots`, `intel` and `holdings_read` require active Advanced or
-Jade; `holdings_write` also requires the token's `holdings_write` permission.
+always true; `snapshots` and `intel` require active Advanced (Daily or Jade).
+`holdings_read` requires active Jade; `holdings_write` requires active Jade
+and the token's `holdings_write` permission.
 Change history follows `holdings_read`. No quota or plaintext token is returned.
 
 ## Holding change history
 
 `GET /agent/v1/holdings/changes?start=YYYY-MM-DD&end=YYYY-MM-DD` requires active
-Advanced or Jade and accepts either token permission. Both inclusive ET dates
+Jade and accepts either token permission. Both inclusive ET dates
 are required: `today ET - 29 days <= start <= end <= today ET`; invalid ranges
 return 422. Reads use normal read limits and share the daily access notice with
 current holdings and snapshots. Audit item count is the returned group count.
@@ -489,3 +492,9 @@ reference writes. The complete field/code reference is in public `agent.md`.
 Both data-notice copies put the revoke-all URL on its own line with one blank
 line before and after; the read copy also names Jade risk results. No migration,
 new notice marker, provider call or result cache is introduced.
+
+Issue #775 makes programmatic current-holdings reads, validation, writes and change
+history Jade-only, updates token capabilities, and renames the public token card
+"Verify token permissions". Snapshot and intelligence access remains Advanced.
+The four-locale public Agent guide now explains the complete agent-driven holdings
+pipeline; #774 completes the shared-access-notice lists on the Agent page.

@@ -206,7 +206,7 @@ def current_holdings(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
-    """Requires a personal API token and an active Advanced or Jade subscription. Both read_only and holdings_write tokens may read. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a personal API token and an active Jade subscription. Both read_only and holdings_write tokens may read. Rate-limit and quiet-window responses include Retry-After."""
     result = agent_holdings.get_book(session, principal.user_id)
     request.state.agent_item_count = len(cast(list[object], result["holdings"]))
     _data_notice(principal.user_id, modified=False)
@@ -217,7 +217,7 @@ def current_holdings(
     "/holdings/changes",
     response_model=HoldingChangesOut,
     dependencies=[Depends(holdings_access)],
-    summary="Read your holding change history (Advanced)",
+    summary="Read your holding change history (Jade)",
 )
 def holding_change_history(
     request: Request,
@@ -226,16 +226,14 @@ def holding_change_history(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> HoldingChangesOut:
-    """Requires a personal API token and an active Advanced or Jade subscription; either permission may read. Inclusive ET dates within the last 30 days, at most 100 groups. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a personal API token and an active Jade subscription; either permission may read. Inclusive ET dates within the last 30 days, at most 100 groups. Rate-limit and quiet-window responses include Retry-After."""
     result = holding_changes.list_changes(session, principal.user_id, start, end)
     request.state.agent_item_count = len(result.items)
     _data_notice(principal.user_id, modified=False)
     return result
 
 
-@router.get(
-    "/token", response_model=AgentTokenOut, summary="Inspect your token and current capabilities"
-)
+@router.get("/token", response_model=AgentTokenOut, summary="Verify token permissions")
 def token_information(
     principal: AgentPrincipal = Depends(agent_principal), session: Session = Depends(get_session)
 ) -> AgentTokenOut:
@@ -253,8 +251,8 @@ def token_information(
             reports=True,
             snapshots=advanced,
             intel=advanced,
-            holdings_read=advanced,
-            holdings_write=advanced and principal.permission == "holdings_write",
+            holdings_read=is_jade(principal.user),
+            holdings_write=is_jade(principal.user) and principal.permission == "holdings_write",
             jade=is_jade(principal.user),
         ),
     )
@@ -299,7 +297,7 @@ def validate_holdings(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
-    """Read-only validation; requires a personal API token and an active Advanced or Jade subscription. Both token permissions may validate. Rate-limit and quiet-window responses include Retry-After."""
+    """Read-only validation; requires a personal API token and an active Jade subscription. Both token permissions may validate. Rate-limit and quiet-window responses include Retry-After."""
     request.state.agent_item_count = len(body.holdings) if isinstance(body, ReplaceAll) else 1
     return JSONResponse(agent_holdings.validate(session, principal.user_id, body))
 
@@ -361,7 +359,7 @@ def create_current_holding(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
-    """Requires a holdings_write token and an active Advanced or Jade subscription. POST creation requires Idempotency-Key; reuse the same key and body for a retry within 24 hours. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a holdings_write token and an active Jade subscription. POST creation requires Idempotency-Key; reuse the same key and body for a retry within 24 hours. Rate-limit and quiet-window responses include Retry-After."""
     return _write_result(request, principal, session, body)
 
 
@@ -377,7 +375,7 @@ def replace_current_holdings(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
-    """Requires a holdings_write token and an active Advanced or Jade subscription. Submit the current canonical version string and the complete surviving holdings with explicit delete_ids; omitted IDs are rejected. At least one row must remain. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a holdings_write token and an active Jade subscription. Submit the current canonical version string and the complete surviving holdings with explicit delete_ids; omitted IDs are rejected. At least one row must remain. Rate-limit and quiet-window responses include Retry-After."""
     return _write_result(request, principal, session, body)
 
 
@@ -394,7 +392,7 @@ def replace_current_holding(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
-    """Requires a holdings_write token and an active Advanced or Jade subscription. Supply the current canonical version string and a complete replacement holding. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a holdings_write token and an active Jade subscription. Supply the current canonical version string and a complete replacement holding. Rate-limit and quiet-window responses include Retry-After."""
     return _write_result(request, principal, session, body, hid=holding_id)
 
 
@@ -411,7 +409,7 @@ def patch_current_holding(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
-    """Requires a holdings_write token and an active Advanced or Jade subscription. Supply the current canonical version string and explicit changed fields. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a holdings_write token and an active Jade subscription. Supply the current canonical version string and explicit changed fields. Rate-limit and quiet-window responses include Retry-After."""
     return _write_result(request, principal, session, body, hid=holding_id)
 
 
@@ -426,7 +424,7 @@ async def delete_current_holding(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
-    """Requires a holdings_write token and an active Advanced or Jade subscription. Supply the quoted current canonical version string in If-Match, without a JSON body. Deleting the last holding is rejected. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a holdings_write token and an active Jade subscription. Supply the quoted current canonical version string in If-Match, without a JSON body. Deleting the last holding is rejected. Rate-limit and quiet-window responses include Retry-After."""
     if await request.body():
         raise agent_holdings.error(422, "invalid_holding", "DELETE accepts no JSON body.")
     header = request.headers.get("if-match")

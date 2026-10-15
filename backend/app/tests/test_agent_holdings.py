@@ -32,7 +32,7 @@ def writer(
     monkeypatch.setattr("app.tasks.capture_tasks.backfill_fund_navs_task.delay", lambda _: None)
     user = seed_user(db_session, TEST_USER_ID)
     user.subscription_status = "active"
-    user.subscription_type = "daily"
+    user.subscription_type = "jade"
     user.subscription_expires_on = today_et() + timedelta(days=30)
     db_session.commit()
     monkeypatch.setattr("app.core.agent_limits.quiet_retry_after", lambda _: None)
@@ -572,12 +572,14 @@ def test_shared_cap_conversion_downgrade_edits_and_validation(
 ) -> None:
     from app.tests.test_agent_foundation import _add_rows
 
-    _add_rows(db_session, 50)
+    _add_rows(db_session, 100)
     db_session.commit()
     result = app_client.post(URL, headers=writer, json={"version": "0", "holding": ROW})
     assert result.status_code == 409
     assert result.json()["detail"]["code"] == "holding_limit"
-    assert result.json()["detail"]["limit"] == 50 and result.json()["detail"]["current_count"] == 50
+    assert (
+        result.json()["detail"]["limit"] == 100 and result.json()["detail"]["current_count"] == 100
+    )
     validation = app_client.post(
         URL + "/validate",
         headers=writer,
@@ -687,7 +689,7 @@ def test_real_postgres_concurrent_same_key_replay(whole: bool, session_test_db: 
     with SessionLocal() as setup:
         user = seed_user(setup, uid)
         user.subscription_status = "active"
-        user.subscription_type = "daily"
+        user.subscription_type = "jade"
         token, _ = new_token(setup, uid, "sync", None, "holdings_write")
         token_id = token.id
         setup.commit()
@@ -765,7 +767,7 @@ def test_real_postgres_concurrent_delete_preserves_last_row(session_test_db: Non
     with SessionLocal() as setup:
         user = seed_user(setup, uid)
         user.subscription_status = "active"
-        user.subscription_type = "daily"
+        user.subscription_type = "jade"
         rows = [
             Holding(user_id=uid, name=f"row-{i}", pricing_mode="manual", currency="USD", position=i)
             for i in range(2)
@@ -836,7 +838,7 @@ def test_real_postgres_get_waits_for_writer_coherent_version(session_test_db: No
     with SessionLocal() as setup:
         user = seed_user(setup, uid)
         user.subscription_status = "active"
-        user.subscription_type = "daily"
+        user.subscription_type = "jade"
         setup.add(Holding(user_id=uid, name="old", pricing_mode="manual", currency="USD"))
         setup.commit()
     entered, finished = threading.Event(), threading.Event()
@@ -1013,3 +1015,69 @@ def test_malformed_json_obeys_auth_limits_and_entitlement(
         URL + "/validate", content="{broken", headers={**writer, "Content-Type": "application/json"}
     )
     assert locked.status_code == 429
+
+
+def test_775_daily_cannot_access_programmatic_holdings(
+    app_client: TestClient, db_session: Session, writer: dict[str, str]
+) -> None:
+    from app.models.user import User
+
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.subscription_type = "daily"
+    db_session.commit()
+    responses = [
+        app_client.get(URL, headers=writer),
+        app_client.post(
+            URL + "/validate",
+            headers=writer,
+            json={"operation": "create", "version": "0", "holding": ROW},
+        ),
+        app_client.get(
+            URL + "/changes",
+            headers=writer,
+            params={"start": str(today_et()), "end": str(today_et())},
+        ),
+        app_client.post(URL, headers=writer, json={"version": "0", "holding": ROW}),
+    ]
+    for response in responses:
+        assert response.status_code == 403, response.text
+        assert response.json()["detail"]["code"] == "subscription_required"
+
+
+def test_775_daily_keeps_snapshots(
+    app_client: TestClient, db_session: Session, writer: dict[str, str]
+) -> None:
+    from app.models.user import User
+
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.subscription_type = "daily"
+    db_session.commit()
+    response = app_client.get(
+        "/agent/v1/snapshots",
+        headers=writer,
+        params={"start": str(today_et()), "end": str(today_et())},
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_775_daily_token_capabilities(
+    app_client: TestClient, db_session: Session, writer: dict[str, str]
+) -> None:
+    from app.models.user import User
+
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.subscription_type = "daily"
+    db_session.commit()
+    response = app_client.get("/agent/v1/token", headers=writer)
+    assert response.status_code == 200, response.text
+    assert response.json()["capabilities"] == {
+        "reports": True,
+        "snapshots": True,
+        "intel": True,
+        "holdings_read": False,
+        "holdings_write": False,
+        "jade": False,
+    }

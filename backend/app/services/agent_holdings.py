@@ -18,7 +18,7 @@ from app.schemas.agent_holdings import Create, Patch, ReplaceAll, Validation, fi
 from app.schemas.holdings import VALID_CURRENCIES, validate_cash_wmf
 from app.services import agent_idempotency, holdings_write
 from app.services.holding_ordering import sorted_holdings
-from app.services.subscription import is_advanced
+from app.services.subscription import is_jade
 
 logger = logging.getLogger(__name__)
 INPUT_FIELDS = (
@@ -53,10 +53,8 @@ def error(status: int, code: str, message: str, **extra: object) -> HTTPExceptio
 
 
 def entitlement(user: User) -> None:
-    if not is_advanced(user):
-        raise error(
-            403, "subscription_required", "An active Advanced or Jade subscription is required."
-        )
+    if not is_jade(user):
+        raise error(403, "subscription_required", "An active Jade subscription is required.")
 
 
 def input_json(row: Holding) -> dict[str, object]:

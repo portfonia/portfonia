@@ -166,12 +166,12 @@ Example: `GET /agent/v1/intel?date=2026-10-04`:
 Intelligence carries no source links, URL keys, provider or publisher
 fields. Use the supplied text; do not infer or invent source attribution.
 
-## Current holdings (Advanced or Jade)
+## Current holdings (Jade)
 
 These routes manage the caller's current holdings records. They do not access
 broker accounts or execute trades. GET and validation accept either token
 permission; every mutation requires `holdings_write`. All holdings calls require
-an active Advanced or Jade subscription. Report/snapshot/intelligence routes
+an active Jade subscription. Report/snapshot/intelligence routes
 remain read-only. The Agent-only OpenAPI schema is available at
 [https://api.portfonia.com/agent/openapi.json](https://api.portfonia.com/agent/openapi.json).
 
@@ -530,21 +530,22 @@ not a user's results. Consult each guide for the method and limitations.
 {"status":"ok","range":"1Y","components":[{"symbol":"SPY","weight":60},{"symbol":"AGG","weight":40}],"benchmark_saved":false,"benchmark_status":"ok","proxy_note":false,"points":[{"date":"2026-10-08","excess":"0.010000"}]}
 ```
 
-## Token information
+## Verify token permissions
 
 `GET /agent/v1/token` checks the current token without a paid-subscription
 requirement or data notice. It uses normal read limits, quiet windows and request
 audit. Returns `name`, the stored 12-character `prefix`, `permission`, ET ISO 8601
 `created_at`, nullable ET `expires_at`, and `capabilities` booleans. `reports` is
-always true; `snapshots`, `intel` and `holdings_read` require active Advanced or
-Jade; `holdings_write` also requires the token's `holdings_write` permission.
+always true; `snapshots` and `intel` require active Advanced (Daily or Jade).
+`holdings_read` requires active Jade; `holdings_write` requires active Jade
+and the token's `holdings_write` permission.
 `jade` requires active Jade, regardless of token permission.
 Change history follows `holdings_read`. No quota or plaintext token is returned.
 
 ## Holding change history
 
 `GET /agent/v1/holdings/changes?start=YYYY-MM-DD&end=YYYY-MM-DD` requires active
-Advanced or Jade and accepts either token permission. Both inclusive ET dates
+Jade and accepts either token permission. Both inclusive ET dates
 are required: `today ET - 29 days <= start <= end <= today ET`; invalid ranges
 return 422. Reads use normal read limits and share the daily access notice with
 current holdings and snapshots. Audit item count is the returned group count.
@@ -587,7 +588,7 @@ attempt to bypass account limits by switching tokens.
 | HTTP status | Meaning |
 | --- | --- |
 | 401 | Missing, unknown, expired or revoked token; inactive user; or session JWT used instead of an API token (`unauthorized`). |
-| 403 | Advanced or Jade subscription required (`subscription_required`). |
+| 403 | Required subscription missing (`subscription_required`): Advanced for snapshots and intelligence, Jade for current holdings, change history and Jade results. |
 | 422 | Missing or invalid parameters, including dates, ranges or Jade scenario. |
 | 429 | Request limit, burst lock or scheduled quiet window (`too many attempts, try again later`); includes positive `Retry-After` seconds. |
 | 503 | Rate-limit protection is unavailable; access fails closed (`temporarily unavailable`). |
