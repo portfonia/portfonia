@@ -295,17 +295,18 @@ def test_13_limit(app_client: TestClient, db_session: Session, writer: dict[str,
 def test_14_ownership(app_client: TestClient, db_session: Session, writer: dict[str, str]) -> None:
     other = uuid4()
     seed_user(db_session, other)
+    other_group_id, own_group_id = uuid4(), uuid4()
     db_session.add_all(
         [
-            HoldingChangeGroup(user_id=other, source="web", changes="[]"),
-            HoldingChangeGroup(user_id=TEST_USER_ID, source="web", changes="[]"),
+            HoldingChangeGroup(id=other_group_id, user_id=other, source="web", changes="[]"),
+            HoldingChangeGroup(id=own_group_id, user_id=TEST_USER_ID, source="web", changes="[]"),
         ]
     )
     db_session.commit()
     for path, headers in [(WEB, {}), (AGENT, writer)]:
         response = app_client.get(path + "/changes", headers=headers, params=params())
         assert response.status_code == 200
-        assert len(response.json()["items"]) == 1
+        assert [item["id"] for item in response.json()["items"]] == [str(own_group_id)]
 
 
 def test_15_cleanup(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -313,15 +314,18 @@ def test_15_cleanup(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> Non
 
     seed_user(db_session, TEST_USER_ID)
     now = datetime.now(ET)
+    expired_id, retained_id = uuid4(), uuid4()
     db_session.add_all(
         [
             HoldingChangeGroup(
+                id=expired_id,
                 user_id=TEST_USER_ID,
                 source="web",
                 changes="[]",
                 created_at=now - timedelta(days=31),
             ),
             HoldingChangeGroup(
+                id=retained_id,
                 user_id=TEST_USER_ID,
                 source="web",
                 changes="[]",
@@ -332,7 +336,10 @@ def test_15_cleanup(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> Non
     db_session.commit()
     monkeypatch.setattr("app.core.database.SessionLocal", lambda: db_session)
     result = cleanup_operational_events.run()
-    assert result["holding_changes_deleted"] == 1 and len(groups(db_session)) == 1
+    assert result["holding_changes_deleted"] == 1
+    remaining_ids = {group.id for group in groups(db_session)}
+    assert expired_id not in remaining_ids
+    assert retained_id in remaining_ids
 
 
 def test_16_cascade(db_session: Session) -> None:
@@ -384,6 +391,11 @@ def test_18_shared_notice(
         == 200
     )
     assert notice.call_count == 1
+
+    get_backend().delete(f"agent:notice:{TEST_USER_ID}:{today_et()}")
+    response = app_client.get(AGENT + "/changes", headers=writer, params=params())
+    assert response.status_code == 200, response.text
+    assert notice.call_count == 2
 
 
 def test_19_token(
