@@ -453,7 +453,7 @@ Change history follows `holdings_read`. No quota or plaintext token is returned.
 Jade and accepts either token permission. Both inclusive ET dates
 are required: `today ET - 29 days <= start <= end <= today ET`; invalid ranges
 return 422. Reads use normal read limits and share the daily access notice with
-current holdings and snapshots. Audit item count is the returned group count.
+current holdings, snapshots and Jade risk results. Audit item count is the returned group count.
 
 Response: `{start, end, truncated, items}`. Up to 100 groups are returned, ordered
 by time descending then ID descending; narrow the range if `truncated` is true.

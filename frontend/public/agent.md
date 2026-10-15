@@ -283,7 +283,7 @@ one; validate counts candidate rows. Request audit never stores bodies, keys or
 replay payloads. Successful replay bodies are stored separately with encryption
 at rest; POST retries within 24 hours return the original result.
 
-Successful reads of current holdings, holding change history and snapshots
+Successful reads of current holdings, holding change history, snapshots and Jade risk results
 share at most one access email per ET day. Every successful Agent write request,
 including unchanged writes, may trigger a separate daily modification email.
 Validation and idempotent replay send no data notice. A notification failure
@@ -548,7 +548,7 @@ Change history follows `holdings_read`. No quota or plaintext token is returned.
 Jade and accepts either token permission. Both inclusive ET dates
 are required: `today ET - 29 days <= start <= end <= today ET`; invalid ranges
 return 422. Reads use normal read limits and share the daily access notice with
-current holdings and snapshots. Audit item count is the returned group count.
+current holdings, snapshots and Jade risk results. Audit item count is the returned group count.
 
 Response: `{start, end, truncated, items}`. Up to 100 groups are returned, ordered
 by time descending then ID descending; narrow the range if `truncated` is true.
