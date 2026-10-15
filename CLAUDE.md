@@ -405,7 +405,7 @@ entirely as Layer-3 observation vocabulary.
 | Database | PostgreSQL, self-hosted in Docker on the production VPS (not Supabase-managed — decided 2026-08-05 to cut hosting complexity). Supabase is used for **Auth only**. |
 | Task queue | Celery + Redis |
 | LLM | Pluggable (Claude / DeepSeek / etc.) — keep provider-swappable |
-| Local dev | Homebrew PostgreSQL 16 + Redis (native), used only to back `pytest`'s real-Postgres tests — the app itself does not run locally anymore (see System conventions table). Colima for Hermes gateway only. |
+| Local dev | Homebrew PostgreSQL 16 + Redis (native), used only to back `pytest`'s real-Postgres tests — the app itself does not run locally anymore (see System conventions table). Colima serves this project's local development and testing, mainly on-demand Docker builds; it is normally stopped (see Quality Gates). |
 | Production | Self-hosted on a free-tier cloud VM, Ubuntu 24.04 LTS. Provider, region, instance identifier, and IP are deliberately **not tracked in this repo** — see Obsidian doc below. |
 
 ### Three-layer deployment flow (MANDATORY)
@@ -546,7 +546,10 @@ gate here and still fails at deploy time, silently, until someone actually
 redeploys. When a change touches `frontend/public/`, either `Dockerfile`,
 or `docker-compose.yml`, run a real `docker build`/`docker compose build`
 before pushing — `bun run dev`/`next build` do not exercise the same path
-and will not catch this class of bug.
+and will not catch this class of bug. Docker runs in Colima, which is
+normally stopped on this machine: run `colima start` before the build and
+`colima stop` after it, whether the build passed or failed. A missing Docker
+socket means Colima is stopped, not that the build cannot be run.
 
 ## CI-First Protocol (MANDATORY)
 
