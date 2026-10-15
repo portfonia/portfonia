@@ -1206,7 +1206,7 @@
     "deliveryVerified": "报告将发送至 {deliveryEmail}。",
     "deliveryUnverified": "在 {deliveryEmail} 完成验证之前，报告不会发送。",
     "errorLoadFailed": "无法加载你的账户信息。",
-    "subscriptionPlans": "Portfonia 向订阅用户发送定期简报。有四种套餐：每周简报（每月 0.99 credits）、隔日简报（每月 1.99 credits，周一、周三、周五发送）、进阶每日简报（每月 2.49 credits，工作日发送，含 AI智能体数据接口）和润玉（每月 9.99 credits，投资组合风险工具、进阶全部功能和自选简报频率）。已保存的持仓（含现金和观察中的持仓）上限为 30 条、进阶有效期间 50 条、润玉有效期间 100 条。润玉可在润玉平台订阅。润玉有效期间，您的智能体也可读取和管理当前持仓；修改须使用持仓写入 token。",
+    "subscriptionPlans": "Portfonia 向订阅用户发送定期简报。有四种套餐：每周简报（每月 0.99 credits）、隔日简报（每月 1.99 credits，周一、周三、周五发送）、进阶每日简报（每月 2.49 credits，工作日发送，含 AI智能体数据接口）和润玉（每月 9.99 credits，投资组合风险工具、进阶全部功能和自选简报频率）。已保存的持仓（含现金和观察中的持仓）上限为 30 条、进阶有效期间 50 条、润玉有效期间 100 条。润玉可在润玉页面订阅。润玉有效期间，您的智能体也可读取和管理当前持仓；修改须使用持仓写入 token。",
     "subscriptionRequirements": "订阅前不会发送定期简报，部分功能也可能无法使用。您需要先验证邮箱，才能订阅。",
     "choosePlan": "选择套餐"
   },
@@ -1638,7 +1638,7 @@
       "holdingsReadPath": "GET /agent/v1/holdings",
       "holdingsReadAccess": "适用于润玉有效期间。只读 token 和持仓写入 token 均可使用。",
       "holdingsReadAction": "按保存的原样读取当前持仓簿。",
-      "holdingsReadNote": "包含现金和观察持仓。同一标的在不同账户中分别保存。 成功读取当前持仓、持仓变更记录、快照和润玉风险结果共用每个美东日期最多一次的读取提示。",
+      "holdingsReadNote": "包含现金和观察持仓。同一标的在不同账户中分别保存。成功读取当前持仓、持仓变更记录、快照和润玉风险结果共用每个美东日期最多一次的读取提示。",
       "holdingsReplaceAllHeading": "更新整个持仓簿",
       "holdingsReplaceAllPath": "PUT /agent/v1/holdings",
       "holdingsReplaceAllAccess": "适用于润玉有效期间。仅接受持仓写入 token。",

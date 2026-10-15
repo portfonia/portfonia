@@ -1206,7 +1206,7 @@
     "deliveryVerified": "報告將發送至 {deliveryEmail}。",
     "deliveryUnverified": "在 {deliveryEmail} 完成驗證之前，報告不會發送。",
     "errorLoadFailed": "無法載入你的帳戶資訊。",
-    "subscriptionPlans": "Portfonia 向訂閱使用者寄送定期簡報。有四種方案：每週簡報（每月 0.99 credits）、隔日簡報（每月 1.99 credits，週一、週三、週五寄送）、進階每日簡報（每月 2.49 credits，工作日寄送，含 AI 智能體資料介面）和潤玉（每月 9.99 credits，投資組合風險工具、進階所有功能與自選簡報排程）。已儲存的持倉（含現金與觀察中的持倉）上限為 30 筆、進階有效期間 50 筆、潤玉有效期間 100 筆。請至潤玉平台訂閱潤玉。潤玉有效期間，您的智能體也可讀取和管理目前持倉；修改須使用持倉寫入 token。",
+    "subscriptionPlans": "Portfonia 向訂閱使用者寄送定期簡報。有四種方案：每週簡報（每月 0.99 credits）、隔日簡報（每月 1.99 credits，週一、週三、週五寄送）、進階每日簡報（每月 2.49 credits，工作日寄送，含 AI 智能體資料介面）和潤玉（每月 9.99 credits，投資組合風險工具、進階所有功能與自選簡報排程）。已儲存的持倉（含現金與觀察中的持倉）上限為 30 筆、進階有效期間 50 筆、潤玉有效期間 100 筆。請至潤玉頁面訂閱潤玉。潤玉有效期間，您的智能體也可讀取和管理目前持倉；修改須使用持倉寫入 token。",
     "subscriptionRequirements": "訂閱前不會寄送定期簡報，部分功能也可能無法使用。您需要先驗證信箱，才能訂閱。",
     "choosePlan": "選擇方案"
   },
@@ -1638,7 +1638,7 @@
       "holdingsReadPath": "GET /agent/v1/holdings",
       "holdingsReadAccess": "適用於潤玉有效期間。唯讀 token 和持倉寫入 token 均可使用。",
       "holdingsReadAction": "按儲存的原樣讀取目前持倉簿。",
-      "holdingsReadNote": "包含現金和觀察持倉。同一標的在不同帳戶中分別儲存。 成功讀取目前持倉、持倉變更記錄、快照與潤玉風險結果共用每個美東日期最多一次的讀取通知。",
+      "holdingsReadNote": "包含現金和觀察持倉。同一標的在不同帳戶中分別儲存。成功讀取目前持倉、持倉變更記錄、快照與潤玉風險結果共用每個美東日期最多一次的讀取通知。",
       "holdingsReplaceAllHeading": "更新整個持倉簿",
       "holdingsReplaceAllPath": "PUT /agent/v1/holdings",
       "holdingsReplaceAllAccess": "適用於潤玉有效期間。僅接受持倉寫入 token。",
@@ -2490,7 +2490,7 @@
   },
   "agentGuide": {
     "title": "用您自己的智能體自動更新持倉",
-    "whatHeading": "流程做什麼",
+    "whatHeading": "流水線做什麼",
     "what": "潤玉有效期間，您自己的智能體可將金融機構匯出的持倉轉為 Portfonia 中更新後的目前持倉簿。它檢查來源、讀取持倉簿、準備並驗證變更、寫入，再檢視變更記錄。機構存取、匯出及定時執行由您自己的智能體和工具負責。Portfonia 不登入機構、不下載對帳單，也不安排這些執行；它儲存和更新持倉記錄，不執行交易。",
     "howHeading": "一次性設定",
     "how": "在 AI 智能體頁面，為要更新持倉的智能體建立持倉寫入 token；只讀取持倉的智能體使用唯讀 token。將 token 和 https://portfonia.com/llms.txt 交給智能體。它先呼叫 GET /agent/v1/token（驗證令牌權限）。要更新持倉的智能體在 capabilities.holdings_write 為 false 時停下；唯讀智能體在 capabilities.holdings_read 為 false 時停下。",
