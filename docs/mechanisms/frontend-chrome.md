@@ -483,6 +483,18 @@ Issues #702, #735, #737, #739 and #763 provide English (unprefixed), `/es`, `/zh
 `/`, `/about`, `/pricing`, `/waitlist`, `/privacy`, `/terms`, `/refund`,
 `/guides/jade-replay`, `/guides/jade-var`, `/guides`, `/guides/jade-stress`,
 `/guides/jade-style`, `/guides/jade-tracking`, and `/agent/guide` (fourteen public SEO pages).
+Issue #766 leaves this page set unchanged and removes two controls the owner
+rejected. The guide renders no trailing link in any locale, and Pricing
+renders no buy-credits button after the legal text. The old guide link used
+`localizedPath("/agent")`, which 404s for `es`, `zh-Hans`, and `zh-Hant`
+because `/agent` is not in `SEO_PAGES`. The owner rejected pointing it at
+`/agent`. Plan-comparison links stay. The `/agent` Endpoints card is a
+person-facing summary copied from the #766 Design comment: a lead sentence,
+blocks of four unmarked lines (ten at #766, thirteen after #769 and #770; see
+`agent-api.md`), and a closing sentence. Getting started still links
+`/llms.txt` and `/agent.md`. #766 left those two files and the OpenAPI schema
+unchanged.
+
 `lib/seo.ts` defines this exact page set, canonical `https://portfonia.com`,
 URL helpers, protected prefixes, language alternates, and metadata builders.
 It is safe for client imports. Only `lib/seo-server.ts` reads `next/headers`;
