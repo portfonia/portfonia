@@ -100,7 +100,8 @@ Example: `GET /agent/v1/snapshots?start=2026-10-04&end=2026-10-04`:
 {"start": "2026-10-04", "end": "2026-10-04", "days": []}
 ```
 
-Only successful snapshot reads trigger a notice email, at most once per ET day.
+Successful snapshot, current-holdings and change-history reads share a notice
+email, at most once per ET day.
 The notice includes a link that immediately revokes all the user's tokens,
 without sign-in or confirmation. Reports and intelligence do not trigger
 this notice.
@@ -282,12 +283,47 @@ one; validate counts candidate rows. Request audit never stores bodies, keys or
 replay payloads. Successful replay bodies are stored separately with encryption
 at rest; POST retries within 24 hours return the original result.
 
-Only successful snapshot reads trigger an access email, at most once per ET day.
-Every successful Agent write request, including unchanged writes, may trigger
-a separate daily modification email describing the write request. Current-holdings
-GET, validation and idempotent replay send no data notice. A notification failure after commit
-preserves the success and replay result. Notice links revoke all tokens without
-sign-in/confirmation to stop future access; revocation does not undo saved changes.
+Successful reads of current holdings, holding change history and snapshots
+share at most one access email per ET day. Every successful Agent write request,
+including unchanged writes, may trigger a separate daily modification email.
+Validation and idempotent replay send no data notice. A notification failure
+after commit preserves the success and replay result. Notice links revoke every
+API token on the account at once, including other agents' tokens. Create new
+tokens afterwards for agents you still want to run. Revocation stops future
+access and does not undo saved changes.
+
+## Token information
+
+`GET /agent/v1/token` checks the current token without a paid-subscription
+requirement or data notice. It uses normal read limits, quiet windows and request
+audit. Returns `name`, the stored 12-character `prefix`, `permission`, ET ISO 8601
+`created_at`, nullable ET `expires_at`, and `capabilities` booleans. `reports` is
+always true; `snapshots`, `intel` and `holdings_read` require active Advanced or
+Jade; `holdings_write` also requires the token's `holdings_write` permission.
+Change history follows `holdings_read`. No quota or plaintext token is returned.
+
+## Holding change history
+
+`GET /agent/v1/holdings/changes?start=YYYY-MM-DD&end=YYYY-MM-DD` requires active
+Advanced or Jade and accepts either token permission. Both inclusive ET dates
+are required: `today ET - 29 days <= start <= end <= today ET`; invalid ranges
+return 422. Reads use normal read limits and share the daily access notice with
+current holdings and snapshots. Audit item count is the returned group count.
+
+Response: `{start, end, truncated, items}`. Up to 100 groups are returned, ordered
+by time descending then ID descending; narrow the range if `truncated` is true.
+Each group has `id`, ET ISO 8601 `changed_at`, `source` (`web`, `file`, `agent`),
+nullable `token` (`{name, prefix}` for Agent writes), and `rows`. Each row has
+`holding_id`, `holding_name`, `kind` (`created`, `updated`, `deleted`) and `fields`.
+Each field has `field`, `before`, `after`: strings, integer position, or null.
+Amounts are fixed-point decimal strings without fractional trailing zeros.
+
+History records user-input changes from web, file upload and Agent writes,
+including row positions. Captured prices and other system fields are excluded.
+File replacement records old IDs as deleted and new IDs as created. Empty or
+unchanged writes, failed writes and idempotent replays create no history group.
+History is encrypted at rest, retained for 30 days and visible only to its user
+and their Agent. The signed-in `/holdings` page links to the history page.
 
 ## Limits, errors and token security
 

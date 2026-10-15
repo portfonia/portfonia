@@ -8,6 +8,7 @@ from app.models.credit_ledger import CreditLedgerEntry
 from app.models.forward_event import ForwardEvent
 from app.models.fx_rate import FxRate
 from app.models.holding import Holding
+from app.models.holding_change_group import HoldingChangeGroup
 from app.models.intel import InstrumentProfile, IntelCollectionRun, IntelSlotRun, NewsInstrument
 from app.models.invite import Invite
 from app.models.jade_price import JadePricePoint, JadePriceSeries
@@ -39,6 +40,7 @@ __all__ = [
     "ForwardEvent",
     "FxRate",
     "Holding",
+    "HoldingChangeGroup",
     "InstrumentProfile",
     "IntelArticle",
     "IntelArticleLink",
