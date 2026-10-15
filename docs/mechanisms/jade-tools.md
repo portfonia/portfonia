@@ -651,3 +651,17 @@ The tools, backend, questionnaire, proxies, robots, OG routes and root layout
 are unchanged. There is no data refresh or backtesting mechanism.
 Owner acceptance of the Spanish and Chinese copy precedes any review or merge;
 merge and deployment require separate authorization.
+
+## Personal Agent reads (#770)
+
+Active Jade subscribers can read all five tools using either personal-token
+permission at `GET /agent/v1/jade/{replay,tail-risk,stress,style,tracking}`.
+The routes reuse the web models, computations, defaults and complete series.
+Only stress differs: required `scenario` selects one scenario through the
+keyword-only `compute_stress(..., scenario=...)`; omitted service selection
+still computes all five for the unchanged web route. Existing precision stays:
+ratios/returns six decimals, beta four, display-currency amounts two.
+The five routes additionally share one request per 180 seconds and ten per hour
+per user; existing Agent limits and quiet windows apply. Successful reads share
+the daily private-data notice. `capabilities.jade` reports current entitlement.
+No reference read/write endpoint, export or computation change is added.

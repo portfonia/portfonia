@@ -55,6 +55,7 @@ const expected = {
             "Historical stress scenarios: five past market shocks",
             "Style exposure",
             "Tracking against your reference: a portfolio you define, with tracking error",
+            "Your AI agent can read these risk results",
             "Up to 100 saved holding rows while Jade is active, including cash and watched rows"
           ]
         }
@@ -111,6 +112,7 @@ const expected = {
             "\u5386\u53f2\u60c5\u666f\u538b\u529b\u6d4b\u8bd5\uff1a\u4e94\u6b21\u5386\u53f2\u5e02\u573a\u51b2\u51fb",
             "\u98ce\u683c\u655e\u53e3",
             "\u4e0e\u81ea\u5b9a\u53c2\u7167\u7684\u8ddf\u8e2a\u6bd4\u8f83\uff1a\u81ea\u5df1\u5b9a\u4e49\u53c2\u7167\u7ec4\u5408\uff0c\u8ba1\u7b97\u8ddf\u8e2a\u8bef\u5dee",
+            "\u60a8\u7684 AI\u667a\u80fd\u4f53\u53ef\u8bfb\u53d6\u8fd9\u4e9b\u98ce\u9669\u7ed3\u679c",
             "\u6da6\u7389\u6709\u6548\u671f\u95f4\u6700\u591a\u4fdd\u5b58 100 \u6761\u6301\u4ed3\uff0c\u73b0\u91d1\u548c\u89c2\u5bdf\u4e2d\u7684\u6301\u4ed3\u4e5f\u8ba1\u5165"
           ]
         }
@@ -167,6 +169,7 @@ const expected = {
             "\u6b77\u53f2\u60c5\u5883\u58d3\u529b\u6e2c\u8a66\uff1a\u4e94\u6b21\u6b77\u53f2\u5e02\u5834\u885d\u64ca",
             "\u98a8\u683c\u66dd\u96aa",
             "\u8207\u81ea\u8a02\u53c3\u7167\u7684\u8ffd\u8e64\u6bd4\u8f03\uff1a\u81ea\u884c\u5b9a\u7fa9\u53c3\u7167\u7d44\u5408\uff0c\u8a08\u7b97\u8ffd\u8e64\u8aa4\u5dee",
+            "\u60a8\u7684 AI \u667a\u80fd\u9ad4\u53ef\u8b80\u53d6\u9019\u4e9b\u98a8\u96aa\u7d50\u679c",
             "\u6f64\u7389\u6709\u6548\u671f\u9593\u6700\u591a\u5132\u5b58 100 \u7b46\u6301\u5009\uff0c\u73fe\u91d1\u8207\u89c0\u5bdf\u4e2d\u7684\u6301\u5009\u4e5f\u8a08\u5165"
           ]
         }
@@ -208,7 +211,7 @@ it("A2 English cards preserve order, exact prices, leads and feature counts", ()
   cards.forEach((card, i) => {
     const plan = catalogs.en.pricingPlans.plans[i];
     expect(within(card).getAllByRole("listitem").map(li => li.textContent)).toEqual(plan.features);
-    expect(within(card).getAllByRole("listitem")).toHaveLength([6, 4, 7][i]);
+    expect(within(card).getAllByRole("listitem")).toHaveLength([6, 4, 8][i]);
     expect(Array.from(card.querySelectorAll("p")).map(p => p.textContent)).toEqual([...plan.prices, ...(plan.lead ? [plan.lead] : [])]);
   });
   expect(catalogs.en.pricingPlans).toEqual(expected.en.pricingPlans);
@@ -286,4 +289,11 @@ it.each(["en", "zh-Hans", "zh-Hant"] as const)("A8 %s exact Pricing copy and non
 it("A10 Terms renders without a comparison heading", () => {
   render(<LocaleProvider routeLocale={null}><LegalDocument doc="terms" /></LocaleProvider>);
   expect(screen.queryByRole("heading", { name: "Plans at a glance" })).not.toBeInTheDocument();
+});
+
+it("770 Jade comparison renders Agent risk-result access", () => {
+  renderPricing();
+  const jade = comparison().querySelector('[data-plan="jade"]');
+  expect(jade).not.toBeNull();
+  expect(within(jade as HTMLElement).getByText("Your AI agent can read these risk results")).toBeInTheDocument();
 });

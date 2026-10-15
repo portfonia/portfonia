@@ -39,6 +39,7 @@ from app.services.jade_replay_config import (
     SCENARIOS,
     EtfSpec,
     Scenario,
+    ScenarioId,
 )
 from app.services.jade_substitutes import SeriesSpec, candidates
 from app.services.portfolio_calculator import HoldingValue, compute_portfolio
@@ -160,7 +161,12 @@ def weighted_path(
 
 
 def compute_stress(
-    session: Session, user_id: UUID, base_currency: str, benchmark: str
+    session: Session,
+    user_id: UUID,
+    base_currency: str,
+    benchmark: str,
+    *,
+    scenario: ScenarioId | None = None,
 ) -> JadeStressOut:
     snap = compute_portfolio(session, user_id, base_currency)
     spec = BENCHMARK_ETF[benchmark]
@@ -173,6 +179,8 @@ def compute_stress(
         scenarios=[],
     )
     for s in SCENARIOS:
+        if scenario is not None and s.id != scenario:
+            continue
         out.scenarios.append(scenario_result(session, s, snap.holdings, base_currency, spec, betas))
     return out
 
