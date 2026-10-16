@@ -6,7 +6,7 @@ import re
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import Boolean, delete, literal_column, select
+from sqlalchemy import Boolean, delete, func, literal_column, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -81,7 +81,7 @@ def store_headline(
     if origin == "pool":
         stmt = stmt.on_conflict_do_update(
             constraint="uq_news_url_hash",
-            set_={"origin": "pool"},
+            set_={"origin": "pool", "created_at": func.now()},
             where=News.origin == "instrument",
         )
     else:

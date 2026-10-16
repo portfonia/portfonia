@@ -1443,7 +1443,7 @@
             "Mon / Wed / Fri briefing — 1.99 credits per month. Three personalized briefing emails per week (Monday, Wednesday, Friday).",
             "Daily briefing (Advanced) — 2.49 credits per month. One personalized briefing email every weekday (Monday to Friday), including market holidays.",
             "Jade — 9.99 credits per month. Includes everything in the Advanced plan. You choose the Weekly, Mon / Wed / Fri, or Daily briefing schedule and can change it at any time on the Jade page. Jade includes five portfolio risk tools: holdings replay, tail risk (VaR / CVaR), historical stress scenarios, style exposure, and tracking against your reference.",
-            "Weekly and Mon / Wed / Fri differ only in how often briefings are sent. Daily is the Advanced plan. Daily and Jade both let your AI agent read your daily holding snapshots and holding-related intelligence. Report history is available to AI agents on every plan. Saved holding rows, including cash and watched rows, are limited to 30 on Weekly and Mon / Wed / Fri, 50 while Advanced is active, and 100 while Jade is active. Active Jade also supports reading and managing current holdings through your own agent; changes require a holdings-write token."
+            "Weekly and Mon / Wed / Fri differ only in how often briefings are sent. Daily is the Advanced plan. Advanced and Jade subscriptions both let your AI agent read your daily holding snapshots and intelligence headlines related to your holdings and macro themes; Jade additionally provides headline summaries and included article text for holdings and macro themes. Report history is available to AI agents on every plan. Saved holding rows, including cash and watched rows, are limited to 30 on Weekly and Mon / Wed / Fri, 50 while Advanced is active, and 100 while Jade is active. Active Jade also supports reading and managing current holdings through your own agent; changes require a holdings-write token."
           ]
         },
         {
@@ -1631,9 +1631,9 @@
       "snapshotsNote": "Give a start date and an end date, including both days, in Eastern Time. One request covers at most 30 days. After a successful read, at most one access notice is sent that day.",
       "intelHeading": "Read intelligence",
       "intelPath": "GET /agent/v1/intel",
-      "intelAccess": "Applies during an active Advanced or Jade period. Read-only tokens and holdings-write tokens are both accepted.",
+      "intelAccess": "Available with active Advanced or Jade, using either token permission. Advanced receives headlines only; Jade also receives headline summaries and included article text for holdings and macro themes.",
       "intelAction": "Read intelligence related to your holdings.",
-      "intelNote": "Give one Eastern Time date within the last 7 days, including today. Return that day's headlines and accepted article text for the holdings, and macro material for the themes of the latest briefing on or before that date. Source links are not included.",
+      "intelNote": "Choose an Eastern Time date within the last 7 days, including today, or an offset timestamp in since mode within the same range. Since mode returns at most 24 hours of newly ingested material, ending 5 minutes before now; store next_since and repeat while has_more. Both tiers include macro headlines for the latest briefing’s themes. Source links are not included.",
       "holdingsReadHeading": "Read current holdings",
       "holdingsReadPath": "GET /agent/v1/holdings",
       "holdingsReadAccess": "Applies during an active Jade period. Read-only tokens and holdings-write tokens are both accepted.",
@@ -2129,7 +2129,7 @@
         "lead": "Everything in Briefing, plus:",
         "features": [
           "A briefing every weekday, Monday to Friday",
-          "Your AI agent can also read daily snapshots and pull intelligence related to your holdings",
+          "Your AI agent can also read daily snapshots and learn about intelligence topics related to your holdings",
           "Up to 50 saved holding rows while Advanced is active, including cash and watched rows"
         ]
       },
@@ -2147,6 +2147,7 @@
           "<style>Style exposure</style>",
           "<tracking>Tracking against your reference: a portfolio you define, with tracking error</tracking>",
           "Your AI agent can read these risk results",
+          "Give your AI agent fuller intelligence: headline summaries and included article text for holdings and macro themes",
           "<guide>Programmatic holdings writes</guide>: create a write-permission token so your AI agent can read and write standardized holdings, and update the instrument, quantity, cost, account and related details for one holding or the complete book. Every request is audit-logged.",
           "Up to 100 saved holding rows while Jade is active, including cash and watched rows"
         ]

@@ -106,40 +106,66 @@ The notice includes a link that immediately revokes all the user's tokens,
 without sign-in or confirmation. Reports and intelligence do not trigger
 this notice.
 
-## Intelligence (Advanced)
+## Intelligence (Advanced headlines; Jade full detail)
 
-`GET /agent/v1/intel?date=YYYY-MM-DD`
+`GET /agent/v1/intel?date=YYYY-MM-DD` or
+`GET /agent/v1/intel?since=2026-10-15T09:00:00%2D04:00`
 
-An active Advanced subscription is required. `date` is required and must
-be within the last seven ET calendar days including today:
-`today ET - 6 days <= date <= today ET`. Missing, malformed, too old or
-future dates return 422; insufficient entitlement returns 403
-`subscription_required`.
+An active Advanced (Daily or Jade) subscription is required; otherwise the
+endpoint returns 403 `subscription_required`. Advanced receives
+`detail: "headlines"`: headline titles and publication times, all summaries
+`null`, and all article arrays empty. Jade receives `detail: "full"`, including
+headline summaries and included article text for holdings and macro themes.
+Neither mode triggers an access notice or collects new material.
+
+Supply exactly one of `date` or `since`. Date mode accepts the last seven ET
+calendar dates, including today (`today ET - 6 days <= date <= today ET`).
+Since mode requires a timestamp with a UTC offset, no earlier than midnight
+ET on the oldest accepted date and no later than now. Invalid parameters
+return 422. URL-encode a positive offset's `+` as `%2B`.
+
+Since mode selects newly ingested material in `[since, next_since)`. The
+window ends at the earlier of 24 elapsed hours after `since` and five minutes
+before now. Arithmetic uses UTC so the 24-hour cap also holds across DST;
+timestamps are returned with ET offsets. If that end would precede `since`,
+the window is empty and `next_since` equals `since`. `has_more` is true when
+the 24-hour cap ended the window before the five-minute margin. Store
+`next_since`, call again with it, repeat while `has_more`, and retain the
+last cursor for the next pull.
 
 Current holdings with a ticker are normalized to intelligence identifiers,
-de-duplicated and read in holding position order. Funds without a ticker
-are omitted. Headlines match the ET publication date, newest first; no
-previously-surfaced filter is applied. Headline title and summary URLs are
-removed at response projection only. Article bodies are accepted stored
-records linked to intel slot runs with `run_date == date`, ordered newest
-fetch first. Records lacking a string title or body are omitted.
+de-duplicated and read in holding position order. Funds without a ticker are
+omitted. Holding headlines match the ET publication date in date mode, or
+the time their direct instrument link was created in since mode; both are
+ordered newest publication first, without a previously-surfaced filter.
+Headline title and summary URLs are removed only in this response.
 
-Articles are globally de-duplicated by article id and URL key, including
-macro articles. An article shared by several holdings appears only under
-the first identifier in holding position order. Identifiers with neither
-headlines nor articles are omitted.
+Jade articles are included stored records, newest fetch first, with string
+titles and bodies. Date mode matches slot `run_date`; since mode matches slot
+`finished_at` within the window and excludes running slots. Articles are
+globally de-duplicated by id and URL key across holdings and macro themes.
+A shared article appears only under the first holding identifier in position
+order. Holdings with neither headlines nor articles are omitted.
 
-Macro themes come from the caller's latest `success` or `skipped` report
-on or before the requested date (latest creation time breaks same-date
-ties), de-duplicated in stored order. Macro articles match those themes and
-that date's slot runs. No qualifying report means `macro: null`. If the
-latest report has no themes, `macro` names that report and `themes: []`;
-the API does not search older reports. Themes without articles remain with
-`articles: []`.
+Macro themes come from the caller's latest `success` or `skipped` report on
+or before the requested date (or the window end's ET date in since mode),
+with latest creation time breaking ties. Themes keep their stored order.
+Both tiers receive stored pool headlines matched by the report macro
+detector, using title and provider snippet keywords. Rows labeled `commentary`
+or `off_topic` are excluded; `development` and unlabeled rows are eligible.
+Date mode uses publication date; since mode uses pool ingestion time,
+including the time an existing instrument row is promoted into the pool.
+Only themes in that source report are returned. Headlines may appear under
+several themes and are not de-duplicated against holding headlines. Themes
+without material keep empty arrays. No qualifying report means `macro: null`;
+a latest report without themes returns `themes: []`, without searching older
+reports. Jade macro articles follow the same slot selection and global
+article de-duplication as holding articles.
 
 ```text
 {
-  date: date,
+  detail: "headlines" | "full", date: date | null,
+  since: timestamp | null, next_since: timestamp | null, has_more: boolean | null,
   holdings: [{identifier: string,
     headlines: [{title: string, published_at: timestamp, summary: string | null}],
     articles: [{title: string, published_at: string | null, body: string}]
@@ -147,24 +173,34 @@ the API does not search older reports. Themes without articles remain with
   macro: null | {
     source_report_id: UUID, source_report_date: date,
     themes: [{theme: string,
+      headlines: [{title: string, published_at: timestamp, summary: string | null}],
       articles: [{title: string, published_at: string | null, body: string}]
     }]
   }
 }
 ```
 
-Example: `GET /agent/v1/intel?date=2026-10-04`:
+In date mode `since`, `next_since` and `has_more` are null; in since mode
+`date` is null and `since` echoes the input normalized to ET.
+
+Advanced example, `GET /agent/v1/intel?date=2026-10-15`:
 
 ```json
-{
-  "date": "2026-10-04",
-  "holdings": [{"identifier": "NVDA", "headlines": [{"title": "Company update", "published_at": "2026-10-04T12:00:00-04:00", "summary": null}], "articles": []}],
-  "macro": {"source_report_id": "00000000-0000-0000-0000-000000000001", "source_report_date": "2026-10-03", "themes": []}
-}
+{"detail":"headlines","date":"2026-10-15","since":null,"next_since":null,"has_more":null,
+ "holdings":[{"identifier":"NVDA","headlines":[{"title":"Company update","published_at":"2026-10-15T12:00:00-04:00","summary":null}],"articles":[]}],
+ "macro":{"source_report_id":"00000000-0000-0000-0000-000000000001","source_report_date":"2026-10-15","themes":[{"theme":"Monetary policy","headlines":[],"articles":[]}]}}
 ```
 
-Intelligence carries no source links, URL keys, provider or publisher
-fields. Use the supplied text; do not infer or invent source attribution.
+Jade example, same request:
+
+```json
+{"detail":"full","date":"2026-10-15","since":null,"next_since":null,"has_more":null,
+ "holdings":[{"identifier":"NVDA","headlines":[{"title":"Company update","published_at":"2026-10-15T12:00:00-04:00","summary":"Provider snippet"}],"articles":[{"title":"Company development","published_at":null,"body":"Included article text"}]}],
+ "macro":{"source_report_id":"00000000-0000-0000-0000-000000000001","source_report_date":"2026-10-15","themes":[{"theme":"Monetary policy","headlines":[],"articles":[{"title":"Policy development","published_at":null,"body":"Included macro article text"}]}]}}
+```
+
+Intelligence carries no source links, URL keys, provider or publisher fields.
+Use the supplied text; do not infer or invent source attribution.
 
 ## Current holdings (Jade)
 
@@ -539,7 +575,8 @@ audit. Returns `name`, the stored 12-character `prefix`, `permission`, ET ISO 86
 always true; `snapshots` and `intel` require active Advanced (Daily or Jade).
 `holdings_read` requires active Jade; `holdings_write` requires active Jade
 and the token's `holdings_write` permission.
-`jade` requires active Jade, regardless of token permission.
+`jade` requires active Jade, regardless of token permission, and indicates
+full intelligence detail; `intel` alone indicates headline access.
 Change history follows `holdings_read`. No quota or plaintext token is returned.
 
 ## Holding change history

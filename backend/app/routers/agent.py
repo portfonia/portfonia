@@ -1,8 +1,10 @@
 """Personal reports, snapshots, intelligence and strict current holdings API."""
 
+from __future__ import annotations
+
 import logging
 import re
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, cast
 from uuid import UUID
 
@@ -144,19 +146,22 @@ def reports(
     "/intel",
     response_model=AgentIntelOut,
     dependencies=[Depends(advanced_access)],
-    summary="Read your holding and macro intelligence for one ET date (Advanced)",
+    summary="Read intelligence by date or ingestion cursor (Advanced headlines; Jade full detail)",
 )
 def intel(
     request: Request,
-    date: Annotated[date, Query()],
+    date: Annotated[date | None, Query()] = None,
+    since: Annotated[datetime | None, Query()] = None,
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> AgentIntelOut:
-    """Requires a personal API token and an active Advanced or Jade subscription. Rate-limit and quiet-window responses include Retry-After."""
-    result = pull_intel(session, principal.user_id, date)
+    """Requires a personal token and active Advanced (headlines only) or Jade (summaries and included articles) subscription. Supply exactly one of date (last seven ET dates) or since (offset timestamp in the same range, at most 24 elapsed hours per response, ending five minutes before now). Store next_since and repeat while has_more. Both tiers include stored macro headlines. Rate-limit and quiet-window responses include Retry-After."""
+    result = pull_intel(session, principal.user_id, date, since=since, full=is_jade(principal.user))
     request.state.agent_item_count = sum(
         len(h.headlines) + len(h.articles) for h in result.holdings
-    ) + (sum(len(t.articles) for t in result.macro.themes) if result.macro else 0)
+    ) + (
+        sum(len(t.headlines) + len(t.articles) for t in result.macro.themes) if result.macro else 0
+    )
     return result
 
 
