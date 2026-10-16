@@ -5,13 +5,21 @@ import { useLocalizedHref } from "@/app/_components/locale-provider";
 
 import { useTranslations } from "next-intl";
 
-import type { Messages } from "@/locales";
+import type { ReactNode } from "react";
 
-const JADE_GUIDE_FEATURES: Record<number, string> = { 1: "/guides/jade-replay", 2: "/guides/jade-var", 3: "/guides/jade-stress", 4: "/guides/jade-style", 5: "/guides/jade-tracking" };
+import type { Messages } from "@/locales";
 
 export function PlanComparison() {
   const t = useTranslations("pricingPlans");
   const href = useLocalizedHref();
+  const tags = {
+    guide: (chunks: ReactNode) => <Link className="underline" href={href("/agent/guide")}>{chunks}</Link>,
+    replay: (chunks: ReactNode) => <Link className="underline" href={href("/guides/jade-replay")}>{chunks}</Link>,
+    var: (chunks: ReactNode) => <Link className="underline" href={href("/guides/jade-var")}>{chunks}</Link>,
+    stress: (chunks: ReactNode) => <Link className="underline" href={href("/guides/jade-stress")}>{chunks}</Link>,
+    style: (chunks: ReactNode) => <Link className="underline" href={href("/guides/jade-style")}>{chunks}</Link>,
+    tracking: (chunks: ReactNode) => <Link className="underline" href={href("/guides/jade-tracking")}>{chunks}</Link>,
+  };
   const heading: string = t.raw("heading");
   const plans: Messages["pricingPlans"]["plans"] = t.raw("plans");
   const footnote: string = t.raw("footnote");
@@ -32,7 +40,7 @@ export function PlanComparison() {
               {plan.prices.map(price => <p key={price} className="text-sm font-medium">{price}</p>)}
               {plan.lead !== "" && <p className="text-sm text-foreground/70">{plan.lead}</p>}
               <ul className="flex list-disc flex-col gap-2 pl-5 text-sm leading-relaxed text-foreground/70">
-                {plan.features.map((feature, index) => <li key={feature}>{i === 1 && index === 0 ? <Link className="underline" href={href("/agent/guide")}>{feature}</Link> : i === 2 && JADE_GUIDE_FEATURES[index] ? <Link className="underline" href={href(JADE_GUIDE_FEATURES[index])}>{feature}</Link> : feature}</li>)}
+                {plan.features.map((feature, index) => <li key={feature}>{t.rich(`plans.${i}.features.${index}`, tags)}</li>)}
               </ul>
             </div>
           </section>

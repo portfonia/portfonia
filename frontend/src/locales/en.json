@@ -2141,13 +2141,13 @@
         "lead": "Everything in Advanced, plus:",
         "features": [
           "Choose weekly, Mon / Wed / Fri or daily briefings, and change at any time",
-          "Holdings replay: today's holdings over up to five years",
-          "Tail risk (VaR / CVaR)",
-          "Historical stress scenarios: five past market shocks",
-          "Style exposure",
-          "Tracking against your reference: a portfolio you define, with tracking error",
+          "<replay>Holdings replay: today's holdings over up to five years</replay>",
+          "<var>Tail risk (VaR / CVaR)</var>",
+          "<stress>Historical stress scenarios: five past market shocks</stress>",
+          "<style>Style exposure</style>",
+          "<tracking>Tracking against your reference: a portfolio you define, with tracking error</tracking>",
           "Your AI agent can read these risk results",
-          "Programmatic holdings writes: create a write-permission token so your AI agent can read and write standardized holdings, and update the instrument, quantity, cost, account and related details for one holding or the complete book. Every request is audit-logged.",
+          "<guide>Programmatic holdings writes</guide>: create a write-permission token so your AI agent can read and write standardized holdings, and update the instrument, quantity, cost, account and related details for one holding or the complete book. Every request is audit-logged.",
           "Up to 100 saved holding rows while Jade is active, including cash and watched rows"
         ]
       }
