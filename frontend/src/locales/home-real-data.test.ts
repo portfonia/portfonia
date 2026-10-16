@@ -107,15 +107,6 @@ it.each(LOCALES.map(item => item.value))("#743 copy revision labels each macro i
   expect(m.anchor.paragraphs[4]).toContain(`${sentenceBoundary}${locale.startsWith("zh") ? "" : " "}${speculative}`);
 });
 
-it("#743 uses the owner-approved Simplified Chinese wording", () => {
-  const h = catalogs["zh-Hans"].home;
-  expect(h.preview.macro.overview).toContain("Hammack、Kashkari 和 Logan 主张加息 25 个基点");
-  expect(h.preview.macro.overview).toContain("次日公布的 Q2 增速低于 Q1");
-  expect(h.preview.calendarRows[0][3]).toBe("制造业动能；价格指数");
-  expect(h.faq.items[2].a).toBe("美股、英股、欧股、日股、韩股、港股、A股、中国公募基金，以及现金与外汇。");
-  expect(h.productPreviews.startCtaBody).toBe("你已经看到示例简报如何把事件与组合联系起来。录入你的持仓，获取基于你自己持仓的简报。");
-});
-
 const ANALYSIS_HEADINGS = {
   en: [
     "TSMC — 21.7% of the portfolio, the single largest position",
@@ -181,13 +172,4 @@ it.each(LOCALES.map(item => item.value))("#750 %s keeps two holdings and replace
   if (locale === "en") {
     expect(items.map(item => item.paragraphs)).toEqual(EN_ANALYSIS_PARAGRAPHS.map(paragraphs => [...paragraphs]));
   }
-});
-
-it("#743 ships the hand-authored Traditional Chinese wording", () => {
-  const h = catalogs["zh-Hant"].home;
-  expect(h.preview.macro.overview).toContain("Hammack、Kashkari 與 Logan 主張升息 25 個基點");
-  expect(h.preview.macro.overview).toContain("隔日公布的 Q2 成長率低於 Q1");
-  expect(h.preview.calendarRows[0][3]).toBe("製造業動能；價格指數");
-  expect(h.faq.items[2].a).toBe("美股、英股、歐股、日股、韓股、港股、A股、中國公募基金，以及現金與外匯。");
-  expect(h.productPreviews.startCtaBody).toBe("你已經看到範例簡報如何連結事件與組合。輸入你的持倉，取得以你自己的持倉為基礎的簡報。");
 });

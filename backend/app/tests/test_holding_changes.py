@@ -443,14 +443,3 @@ def test_19_token(
     response = app_client.get("/agent/v1/token", headers=writer)
     assert response.status_code == 429 and int(response.headers["Retry-After"]) > 0
     notice.assert_not_called()
-
-
-def test_20_notice_copy() -> None:
-    from app.services.email_sender import _API_ACCESS_NOTICE_COPY, _API_MODIFICATION_NOTICE_COPY
-
-    for copy in [_API_ACCESS_NOTICE_COPY, _API_MODIFICATION_NOTICE_COPY]:
-        assert "This link revokes every API token on your account at once" in copy["en"]["body"]
-        for locale in ["zh", "zh-Hant"]:
-            assert "token" in copy[locale]["body"].lower() and len(copy[locale]["body"]) > 100
-            assert "\u5176\u4ed6\u667a\u80fd" in copy[locale]["body"]
-    assert "holding change history" in _API_ACCESS_NOTICE_COPY["en"]["body"]

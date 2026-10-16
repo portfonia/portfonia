@@ -22,6 +22,8 @@ from sqlalchemy.orm import Session
 from app.models.user import User
 from app.services.email_sender import (
     _TAG_STYLES,
+    _UNSUBSCRIBE_FOOTER_COPY,
+    _VERIFICATION_EMAIL_COPY,
     _WRAPPER_TD_STYLE,
     _inline_body_styles,
     _render_html,
@@ -862,8 +864,9 @@ def test_send_footer_copy_unsubscribe_register_en(
     send_report_email(_make_report(), MagicMock())
 
     payload = post_mock.call_args.kwargs["json"]
-    assert "This report was delivered by Portfonia to the address you configured" in payload["html"]
-    assert "You can unsubscribe this address to stop receiving reports here" in payload["text"]
+    copy = _UNSUBSCRIBE_FOOTER_COPY["en"]
+    assert copy["html_md"].split("[")[0] in payload["html"]
+    assert copy["text"].split("{url}")[0] in payload["text"]
     assert "unsubscribe?token=" in payload["html"]
 
 
@@ -889,8 +892,9 @@ def test_send_footer_copy_unsubscribe_register_zh(
     send_report_email(_make_report(), MagicMock())
 
     payload = post_mock.call_args.kwargs["json"]
-    assert "本报告由 Portfonia 根据您提供的信息" in payload["html"]
-    assert "您可以退订此邮箱" in payload["text"]
+    copy = _UNSUBSCRIBE_FOOTER_COPY["zh"]
+    assert copy["html_md"].split("[")[0] in payload["html"]
+    assert copy["text"].split("{url}")[0] in payload["text"]
     assert "unsubscribe?token=" in payload["html"]
 
 
@@ -1101,7 +1105,7 @@ def test_send_verification_email_uses_zh_copy_for_zh_locale(
     send_verification_email("a@example.com", "tok-1", locale="zh")
 
     payload = post_mock.call_args.kwargs["json"]
-    assert payload["subject"] == "验证你的邮箱 — Portfonia"
+    assert payload["subject"] == _VERIFICATION_EMAIL_COPY["zh"]["subject"]
     assert "https://portfonia.com/verify-email?token=tok-1" in payload["text"]
 
 

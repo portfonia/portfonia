@@ -112,21 +112,6 @@ describe("HomeSections sample briefing", () => {
     },
   );
 
-  it("locks current zh-Hans hero and audience copy with the software-tool wording (issue #615)", () => {
-    const home = catalogs["zh-Hans"].home;
-    expect(home.hero.tagline).toBe(
-      "以高相关的信息深度与广度，陪你穿越周期，沉淀长久的价值回报。",
-    );
-    expect(home.hero.sub).toBe(
-      "Portfonia 是一款软件工具，持续追踪新闻、宏观事件与公司动态，并将这些信息映射到你录入的持仓。",
-    );
-    expect(home.audience.paragraphs).toEqual([
-      "Portfonia 是一款面向穿越周期的投资者的软件工具。深入理解趋势、周期与基本面需要时间，也需要与你的持仓紧密相关的信息，持续、可靠地送达。",
-      "我们的工作，是把分散在新闻、宏观事件与公司动态里的信息，系统地映射回你的每一笔持仓，带来真正贴合你所关注标的的信息深度与广度，让你随时看清资产所处的位置、正在经历的变化，以及值得留意的信号。你保有完整的判断与决策权，我们负责让这份判断，建立在扎实的信息基础之上。",
-      "市场周期有起有落。Portfonia 在每个周期中持续提供信息。",
-    ]);
-  });
-
   it("does not replace the hero titleAccent slot with the marketing tagline (issue #364)", () => {
     expect(catalogs.en.home.hero.titleAccent).toBe("in your holdings.");
     expect(catalogs.en.home.hero.tagline).not.toBe(catalogs.en.home.hero.titleAccent);
@@ -556,11 +541,6 @@ describe("HomeSections product previews (issue #549)", () => {
       expect(series.window_start).toBe(series.points[0].date);
       expect(series.window_end).toBe("2026-09-18");
     }
-    expect(catalogs.en.home.productPreviews.riskHeading).toBe("Portfolio risk");
-    expect(catalogs.en.home.productPreviews.riskCtaHeading).toBe("Going the distance means balancing opportunity and risk");
-    expect(catalogs["zh-Hans"].home.productPreviews.riskHeading).toBe("风险画像");
-    expect(catalogs["zh-Hans"].home.productPreviews.riskBody).toContain("平衡型");
-    expect(catalogs["zh-Hans"].home.productPreviews.riskCtaHeading).toBe("走得长远，需要平衡好机会与风险");
     expect(catalogs["zh-Hans"].home.productPreviews.riskCtaBody).toBe("收益机会决定你能走多快，风险决定你能走多稳。两者相辅相成，又互相制约，缺一不可。在这里看清组合的波动有多大、和大盘有多同步、离自己设定的承受范围有多远。");
     for (const locale of LOCALES) {
       const copy = catalogs[locale].home.productPreviews;

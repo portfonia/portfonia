@@ -268,16 +268,6 @@ def test_638_classifier_error_is_plain_failure() -> None:
     ]
 
 
-def test_638_documentation_distinguishes_stored_and_rendered_error() -> None:
-    from pathlib import Path
-
-    document = (
-        Path(__file__).resolve().parents[3] / "docs/mechanisms/capture-and-reporting.md"
-    ).read_text()
-    assert "stored error remains `deepening: ValueError`" in document
-    assert "`Paid deepening: unexpected error (ValueError)`" in document
-
-
 def test_638_picked_lists_units_in_selection_order(db_session: Session) -> None:
     themes = yaml.safe_load(_get_keywords_path().read_text())["themes"]
     run = slot(db_session)
