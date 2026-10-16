@@ -112,7 +112,7 @@ HTTP middleware applies only to the `/agent/v1` prefix. It records one row
 with the actual response status, including 401/403/404/405/422/429/503.
 Unhandled exceptions record 500 and propagate. Matched routes use the route
 template; otherwise the raw path is truncated to 200 characters. Only sent
-`start`/`end`/`date` parameters are recorded. Metadata also includes time, nullable
+`start`/`end`/`date`/`since` parameters are recorded. Metadata also includes time, nullable
 user/token ids, 12-character bearer prefix, item count (snapshot days, reports, or intelligence items), peer IP and
 User-Agent (maximum 512 characters). NUL characters in endpoints, date
 parameters and User-Agent are replaced with U+FFFD before persistence. Audit
