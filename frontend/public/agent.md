@@ -115,7 +115,7 @@ An active Advanced (Daily or Jade) subscription is required; otherwise the
 endpoint returns 403 `subscription_required`. Advanced receives
 `detail: "headlines"`: headline titles and publication times, all summaries
 `null`, and all article arrays empty. Jade receives `detail: "full"`, including
-headline summaries and accepted article text for holdings and macro themes.
+headline summaries and included article text for holdings and macro themes.
 Neither mode triggers an access notice or collects new material.
 
 Supply exactly one of `date` or `since`. Date mode accepts the last seven ET
@@ -140,7 +140,7 @@ the time their direct instrument link was created in since mode; both are
 ordered newest publication first, without a previously-surfaced filter.
 Headline title and summary URLs are removed only in this response.
 
-Jade articles are accepted stored records, newest fetch first, with string
+Jade articles are included stored records, newest fetch first, with string
 titles and bodies. Date mode matches slot `run_date`; since mode matches slot
 `finished_at` within the window and excludes running slots. Articles are
 globally de-duplicated by id and URL key across holdings and macro themes.
@@ -150,7 +150,7 @@ order. Holdings with neither headlines nor articles are omitted.
 Macro themes come from the caller's latest `success` or `skipped` report on
 or before the requested date (or the window end's ET date in since mode),
 with latest creation time breaking ties. Themes keep their stored order.
-Both tiers receive free stored pool headlines matched by the report macro
+Both tiers receive stored pool headlines matched by the report macro
 detector, using title and provider snippet keywords. Rows labeled `commentary`
 or `off_topic` are excluded; `development` and unlabeled rows are eligible.
 Date mode uses publication date; since mode uses pool ingestion time,
@@ -195,8 +195,8 @@ Jade example, same request:
 
 ```json
 {"detail":"full","date":"2026-10-15","since":null,"next_since":null,"has_more":null,
- "holdings":[{"identifier":"NVDA","headlines":[{"title":"Company update","published_at":"2026-10-15T12:00:00-04:00","summary":"Provider snippet"}],"articles":[{"title":"Company development","published_at":null,"body":"Accepted article text"}]}],
- "macro":{"source_report_id":"00000000-0000-0000-0000-000000000001","source_report_date":"2026-10-15","themes":[{"theme":"Monetary policy","headlines":[],"articles":[{"title":"Policy development","published_at":null,"body":"Accepted macro article text"}]}]}}
+ "holdings":[{"identifier":"NVDA","headlines":[{"title":"Company update","published_at":"2026-10-15T12:00:00-04:00","summary":"Provider snippet"}],"articles":[{"title":"Company development","published_at":null,"body":"Included article text"}]}],
+ "macro":{"source_report_id":"00000000-0000-0000-0000-000000000001","source_report_date":"2026-10-15","themes":[{"theme":"Monetary policy","headlines":[],"articles":[{"title":"Policy development","published_at":null,"body":"Included macro article text"}]}]}}
 ```
 
 Intelligence carries no source links, URL keys, provider or publisher fields.

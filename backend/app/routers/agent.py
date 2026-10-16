@@ -155,7 +155,7 @@ def intel(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> AgentIntelOut:
-    """Requires a personal token and active Advanced (headlines only) or Jade (summaries and accepted articles) subscription. Supply exactly one of date (last seven ET dates) or since (offset timestamp in the same range, at most 24 elapsed hours per response, ending five minutes before now). Store next_since and repeat while has_more. Both tiers include stored free macro headlines. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a personal token and active Advanced (headlines only) or Jade (summaries and included articles) subscription. Supply exactly one of date (last seven ET dates) or since (offset timestamp in the same range, at most 24 elapsed hours per response, ending five minutes before now). Store next_since and repeat while has_more. Both tiers include stored macro headlines. Rate-limit and quiet-window responses include Retry-After."""
     result = pull_intel(session, principal.user_id, date, since=since, full=is_jade(principal.user))
     request.state.agent_item_count = sum(
         len(h.headlines) + len(h.articles) for h in result.holdings
