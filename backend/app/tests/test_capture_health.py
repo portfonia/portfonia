@@ -180,6 +180,24 @@ def test_one_aggregated_alert_in_production(db_session: Session, production_env:
         assert "skipped_deps=0 pending=0" in body
 
 
+def test_alert_body_matches_issue_426_literal_wording(
+    db_session: Session, production_env: None
+) -> None:
+    """blacktomb42 review on PR #428: the first pass paraphrased issue
+    #426's normative template ("FX exchange rates" / generic "no success
+    dated" for every pipeline) instead of using its literal per-pipeline
+    wording. Lock the exact phrasing in so it can't drift back."""
+    _seed(db_session, _FRI)
+    report = evaluate_capture_health(db_session, as_of=_TUE)
+    with patch("app.services.capture_health.send_ops_alert", return_value=True) as mock_alert:
+        maybe_alert_capture_health(report)
+        body = mock_alert.call_args.kwargs["body"]
+        assert "- FX rates: no exchange rate dated 2026-09-08 yet." in body
+        assert "- Market closing prices: no closing price dated 2026-09-08 yet." in body
+        assert "- Benchmark index prices: no price dated 2026-09-08 yet." in body
+        assert "- Portfolio value snapshots: 0 user-day(s) waiting on a missing dependency" in body
+
+
 def test_alert_body_names_the_fx_evening_followup(
     db_session: Session, production_env: None
 ) -> None:
