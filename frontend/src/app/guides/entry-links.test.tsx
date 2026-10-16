@@ -89,19 +89,19 @@ it.each(introCases)("737 A9 intro links with $locale Jade subscription $active",
   );
 });
 
-it.each(["en", "es", "zh-Hans", "zh-Hant"] as Locale[])("737 A9 %s Pricing links Advanced feature zero and Jade features one through five", locale => {
+it.each(["en", "es", "zh-Hans", "zh-Hant"] as Locale[])("737 A9 %s Pricing links Jade features one through five and the Agent guide", locale => {
   const { container } = render(<LocaleProvider routeLocale={locale}>
     <PlanComparison />
   </LocaleProvider>);
   const plans = container.querySelectorAll('[data-plan]');
   plans.forEach((plan, i) => {
-    expect([...plan.querySelectorAll('li')].map(li => li.textContent)).toEqual(catalogs[locale].pricingPlans.plans[i].features);
-    expect(plan.querySelectorAll('li a')).toHaveLength(i === 2 ? 5 : i === 1 ? 1 : 0);
+    expect([...plan.querySelectorAll('li')].map(li => li.textContent)).toEqual(catalogs[locale].pricingPlans.plans[i].features.map(s => s.replace(/<\/?[a-z]+>/g, "")));
+    expect(plan.querySelectorAll('li a')).toHaveLength(i === 2 ? 6 : 0);
   });
   const jade = within(plans[2] as HTMLElement);
-  expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[1] })).toHaveAttribute('href', localizedPath('/guides/jade-replay', locale));
-  expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[2] })).toHaveAttribute('href', localizedPath('/guides/jade-var', locale));
-  expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[3] })).toHaveAttribute('href', localizedPath('/guides/jade-stress', locale));
-  expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[4] })).toHaveAttribute('href', localizedPath('/guides/jade-style', locale));
-  expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[5] })).toHaveAttribute('href', localizedPath('/guides/jade-tracking', locale));
+  expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[1].replace(/<\/?[a-z]+>/g, "") })).toHaveAttribute('href', localizedPath('/guides/jade-replay', locale));
+  expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[2].replace(/<\/?[a-z]+>/g, "") })).toHaveAttribute('href', localizedPath('/guides/jade-var', locale));
+  expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[3].replace(/<\/?[a-z]+>/g, "") })).toHaveAttribute('href', localizedPath('/guides/jade-stress', locale));
+  expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[4].replace(/<\/?[a-z]+>/g, "") })).toHaveAttribute('href', localizedPath('/guides/jade-style', locale));
+  expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[5].replace(/<\/?[a-z]+>/g, "") })).toHaveAttribute('href', localizedPath('/guides/jade-tracking', locale));
 });

@@ -2141,13 +2141,13 @@
         "lead": "Todo lo incluido en Advanced, más:",
         "features": [
           "Elija resúmenes semanales, Lun / Mié / Vie o diarios y cambie cuando quiera",
-          "Simulación histórica: posiciones actuales durante hasta cinco años",
-          "Riesgo de cola (VaR / CVaR)",
-          "Escenarios de estrés histórico: cinco crisis pasadas",
-          "Exposición por estilo",
-          "Seguimiento frente a su referencia: una cartera definida por usted y su error de seguimiento",
+          "<replay>Simulación histórica: posiciones actuales durante hasta cinco años</replay>",
+          "<var>Riesgo de cola (VaR / CVaR)</var>",
+          "<stress>Escenarios de estrés histórico: cinco crisis pasadas</stress>",
+          "<style>Exposición por estilo</style>",
+          "<tracking>Seguimiento frente a su referencia: una cartera definida por usted y su error de seguimiento</tracking>",
           "Su agente de IA puede leer estos resultados de riesgo",
-          "Escritura programática de posiciones: cree un token con permiso de escritura para que su agente de IA pueda leer y escribir posiciones estandarizadas, y actualizar el instrumento, la cantidad, el costo, la cuenta y los detalles relacionados de una posición o de toda la cartera. Cada solicitud queda registrada en el registro de auditoría.",
+          "<guide>Escritura programática de posiciones</guide>: cree un token con permiso de escritura para que su agente de IA pueda leer y escribir posiciones estandarizadas, y actualizar el instrumento, la cantidad, el costo, la cuenta y los detalles relacionados de una posición o de toda la cartera. Cada solicitud queda registrada en el registro de auditoría.",
           "Hasta 100 posiciones guardadas mientras Jade está activo, incluidas efectivo y posiciones en observación"
         ]
       }
