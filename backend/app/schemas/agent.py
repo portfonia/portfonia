@@ -71,6 +71,7 @@ class AgentHoldingIntelOut(BaseModel):
 
 class AgentMacroThemeOut(BaseModel):
     theme: str
+    headlines: list[AgentHeadlineOut]
     articles: list[AgentArticleOut]
 
 
@@ -81,6 +82,10 @@ class AgentMacroOut(BaseModel):
 
 
 class AgentIntelOut(BaseModel):
-    date: dt.date
+    detail: Literal["headlines", "full"]
+    date: dt.date | None
+    since: dt.datetime | None
+    next_since: dt.datetime | None
+    has_more: bool | None
     holdings: list[AgentHoldingIntelOut]
     macro: AgentMacroOut | None

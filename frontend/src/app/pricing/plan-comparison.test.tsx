@@ -36,7 +36,7 @@ it("A2 English cards preserve order, exact prices, leads and feature counts", ()
   cards.forEach((card, i) => {
     const plan = catalogs.en.pricingPlans.plans[i];
     expect(within(card).getAllByRole("listitem").map(li => li.textContent)).toEqual(plan.features.map(s => s.replace(/<\/?[a-z]+>/g, "")));
-    expect(within(card).getAllByRole("listitem")).toHaveLength([6, 3, 9][i]);
+    expect(within(card).getAllByRole("listitem")).toHaveLength([6, 3, 10][i]);
     expect(Array.from(card.querySelectorAll("p")).map(p => p.textContent)).toEqual([...plan.prices, ...(plan.lead ? [plan.lead] : [])]);
   });
 });

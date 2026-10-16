@@ -152,50 +152,59 @@ Audit `item_count` is the returned report count. Twelve available reports
 produce five items, `total_in_range: 12`, `truncated: true`. Request older
 reports by setting `end` before the oldest returned report date.
 
-### Intelligence: Advanced
+### Intelligence: Advanced headlines and Jade full detail (#781)
 
-`GET /agent/v1/intel?date=YYYY-MM-DD` uses `is_advanced` (403
-`subscription_required`). The required date must satisfy
-`today_et() - 6 days <= date <= today_et()`; otherwise return 422.
+`GET /agent/v1/intel` keeps `is_advanced` entitlement (403
+`subscription_required`). The route passes `is_jade(principal.user)` to
+`pull_intel`; non-Jade gets `detail: "headlines"`, null summaries and empty
+article arrays, without executing article queries. Jade gets `detail: "full"`
+and retains the existing headline/summary and article projection.
 
-Load only the caller's current holdings with a ticker, in `position` order;
-normalize via `intelligence_identifier(InstrumentKey("ticker", ticker))`
-and de-duplicate identifiers. Funds without a ticker are excluded. Headlines
-join `NewsInstrument` by identifier and match the ET publication date,
-newest first, without a `news_surfaced` filter. Project `title`,
-`published_at`, nullable `summary`; apply `intel_body.without_urls` to title
-and summary in this response only. Stored headlines remain unchanged.
+Exactly one of `date` and offset-aware `since` is required (422 otherwise).
+Date mode retains `today_et() - 6 days <= date <= today_et()`. Since mode
+normalizes to ET, rejects values before midnight ET on the oldest date or
+after now, and selects `[since, until)`. Compute in UTC:
+`until = max(since, min(since + 24 hours, now - 5 minutes))`.
+Return ET `since` and `next_since = until`; `has_more` is true when
+`until < now - 5 minutes`. This uses elapsed hours across DST: October 31,
+2026 at 12:00 EDT advances to November 1 at 11:00 EST. Clients store
+`next_since`, call again with it and repeat while `has_more`.
 
-Accepted articles join `IntelArticleLink` and `IntelSlotRun.run_date == date`,
-newest `fetched_at` first. Project only string `record.title`, string
-`record.body`, and string-or-null `record.published_at`; skip invalid title
-or body types. Global article-id and URL-key sets cover the whole response,
-including macro. A shared holding article belongs only to the first
-identifier in holding position order. This matches Pass 2's global
-de-duplication, deliberately not its anomaly/weight attribution order.
-Identifiers with neither headlines nor articles are omitted.
+The caller's current ticker holdings are normalized using
+`intelligence_identifier(InstrumentKey("ticker", ticker))`, de-duplicated
+in position order; tickerless funds are excluded. Direct (`relation IS NULL`)
+headlines join `NewsInstrument`, use publication date in date mode and
+`NewsInstrument.created_at` in since mode, and sort by publication descending.
+Project `title`, `published_at`, nullable `summary`, stripping title/summary
+URLs only in the response. Jade articles keep accepted/link filters and
+newest `fetched_at` ordering, valid string title/body checks, nullable string
+publication time and whole-response id/URL-key de-duplication. Date mode
+uses slot `run_date`; since mode uses `finished_at` and excludes running
+slots. Holdings with neither headlines nor articles are omitted.
 
-Select the caller's latest `success`/`skipped` report with
-`report_date <= date`, latest creation time breaking same-date ties. Read
-unique `report_inputs.macro_signals.hits[*].theme` values in stored order.
-Accepted articles for each theme use the same date's slot runs and global
-de-duplication. No qualifying report returns `macro: null`. A latest report
-without themes (including quiet-day skipped reports) returns that report's
-id/date and `themes: []`; never search older reports for themes. Themes with
-no returned article retain `articles: []`.
+Macro source selection remains the latest caller-owned success/skipped
+report on or before `date`, or the window end's ET date, with creation time
+breaking ties. Its unique themes retain stored order; no report returns
+`macro: null`, and a latest report without themes returns `themes: []`.
+Both tiers gain free pool headlines: select `News.origin == "pool"` by
+publication date or, in since mode, `News.created_at`. Pool promotion in
+`store_headline` updates both `origin` and `created_at = now()` so newly
+promoted rows are included. Pass rows through `headline_from_row`,
+`macro_news_items` (exclude commentary/off_topic), then `detect_macro_signals`
+with `max_articles_per_theme=max(len(items), 1)`. Retain only source-report
+themes, with newest-first headlines; strip URLs and suppress Advanced
+summaries. Headlines can belong to multiple themes and are not de-duplicated
+against holding headlines. Jade macro articles keep whole-response
+de-duplication; empty themes retain both empty arrays.
 
-Response `AgentIntelOut` is `{date, holdings: [{identifier, headlines,
-articles}], macro}`; macro is null or `{source_report_id,
-source_report_date, themes: [{theme, articles}]}`. Article fields are
-`title`, nullable `published_at`, and `body`. No URL, URL key, provider,
-publisher or source field is projected. Audit `item_count` counts all
-headlines plus holding and macro articles; audit params include `date`
-with the existing NUL replacement.
-
-Example: current holdings NVDA, 0700.HK and a tickerless fund, latest report
-2026-10-05 with theme `us_rates`, request 2026-10-06: include the two tickers'
-that-date material, omit the fund, and return `source_report_date:
-"2026-10-05"` with `us_rates` articles from 2026-10-06 slot runs.
+`AgentIntelOut` adds `detail`, nullable `since`, `next_since`, `has_more`,
+and nullable `date`; macro themes add `headlines`. Date mode has null cursor
+fields, and since mode has null `date`. No source fields are exposed.
+Audit counts all holding and macro headlines/articles and records raw `since`
+with the existing NUL sanitization. Token capabilities, limits, quiet windows
+and notices are unchanged; intel reads send no notice. The public schema,
+`agent.md`, intel card and Pricing comparison/legal text document the tiers
+and modes in the same PR. Advanced users receive no downgrade notification.
 
 The AI Agent page reuses D2's intro, limits, quiet-window, notice and token
 rule keys, adds only Getting started and Endpoints copy under `agent.docs`,

@@ -1443,7 +1443,7 @@
             "Resumen Lun / Mié / Vie: 1.99 créditos al mes. Tres correos personalizados por semana (lunes, miércoles y viernes).",
             "Resumen diario (Advanced): 2.49 créditos al mes. Un correo personalizado cada día de lunes a viernes, incluidos festivos bursátiles.",
             "Jade: 9.99 créditos al mes. Incluye todo el plan Advanced. Elija resúmenes semanales, Lun / Mié / Vie o diarios y cambie el calendario cuando quiera en Jade. Incluye cinco herramientas de riesgo: simulación histórica de posiciones, riesgo de cola (VaR / CVaR), escenarios de estrés histórico, exposición por estilo y seguimiento frente a su referencia.",
-            "Semanal y Lun / Mié / Vie solo difieren en frecuencia. Diario es el plan Advanced. Diario y Jade permiten que su agente de IA lea instantáneas diarias e información relacionada con posiciones. El historial de informes está disponible para agentes en todos los planes. Las posiciones guardadas, incluido el efectivo y las posiciones en observación, se limitan a 30 en Semanal y Lun / Mié / Vie, 50 mientras Advanced está activo y 100 mientras Jade está activo. Jade activo también permite leer y gestionar posiciones actuales mediante su propio agente; los cambios requieren un token de escritura."
+            "Semanal y Lun / Mié / Vie solo difieren en frecuencia. Diario es el plan Advanced. Diario y Jade permiten que su agente de IA lea instantáneas diarias de posiciones y titulares relacionados con sus posiciones y las temáticas macroeconómicas; Jade también proporciona resúmenes de titulares y texto de artículos aceptados sobre sus posiciones y las temáticas macroeconómicas. El historial de informes está disponible para agentes en todos los planes. Las posiciones guardadas, incluido el efectivo y las posiciones en observación, se limitan a 30 en Semanal y Lun / Mié / Vie, 50 mientras Advanced está activo y 100 mientras Jade está activo. Jade activo también permite leer y gestionar posiciones actuales mediante su propio agente; los cambios requieren un token de escritura."
           ]
         },
         {
@@ -1631,9 +1631,9 @@
       "snapshotsNote": "Indique una fecha de inicio y una de fin, incluidos ambos días, en hora del Este. Una solicitud abarca como máximo 30 días. Tras una lectura exitosa, se envía como máximo un aviso de acceso ese día.",
       "intelHeading": "Leer información",
       "intelPath": "GET /agent/v1/intel",
-      "intelAccess": "Se aplica durante un período activo de Advanced o Jade. Se aceptan tanto tokens de solo lectura como tokens de escritura de posiciones.",
+      "intelAccess": "Disponible con Advanced o Jade activo y con cualquiera de los dos permisos de token. Advanced recibe solo titulares; Jade también recibe resúmenes de titulares y texto de artículos aceptados sobre sus posiciones y las temáticas macroeconómicas.",
       "intelAction": "Leer información relacionada con sus posiciones.",
-      "intelNote": "Indique una fecha en hora del Este de los últimos 7 días, incluido hoy. Devuelve los titulares y el texto de artículos aceptados de ese día para las posiciones, y material macro para las temáticas del último resumen de esa fecha o anterior. No se incluyen enlaces a las fuentes.",
+      "intelNote": "Indique una fecha en hora del Este de los últimos 7 días, incluido hoy, o una marca de tiempo con desfase UTC en modo since dentro del mismo intervalo. El modo since devuelve como máximo 24 horas de material recién incorporado, hasta 5 minutos antes del momento actual; guarde next_since y repita mientras has_more sea verdadero. Ambos planes incluyen titulares macroeconómicos gratuitos de las temáticas del último resumen. No se incluyen enlaces a las fuentes.",
       "holdingsReadHeading": "Leer las posiciones actuales",
       "holdingsReadPath": "GET /agent/v1/holdings",
       "holdingsReadAccess": "Disponible mientras Jade esté activo. Se aceptan tokens de solo lectura y de escritura de posiciones.",
@@ -2129,7 +2129,7 @@
         "lead": "Todo lo incluido en Briefing, más:",
         "features": [
           "Un resumen cada día de lunes a viernes",
-          "Su agente de IA también puede leer instantáneas diarias y obtener información relacionada con sus posiciones",
+          "Su agente de IA también puede leer instantáneas diarias y titulares de información relacionada con sus posiciones",
           "Hasta 50 posiciones guardadas mientras Advanced está activo, incluidas efectivo y posiciones en observación"
         ]
       },
@@ -2147,6 +2147,7 @@
           "<style>Exposición por estilo</style>",
           "<tracking>Seguimiento frente a su referencia: una cartera definida por usted y su error de seguimiento</tracking>",
           "Su agente de IA puede leer estos resultados de riesgo",
+          "Dé a su agente de IA información más detallada: resúmenes de titulares y texto de artículos aceptados sobre sus posiciones y las temáticas macroeconómicas",
           "<guide>Escritura programática de posiciones</guide>: cree un token con permiso de escritura para que su agente de IA pueda leer y escribir posiciones estandarizadas, y actualizar el instrumento, la cantidad, el costo, la cuenta y los detalles relacionados de una posición o de toda la cartera. Cada solicitud queda registrada en el registro de auditoría.",
           "Hasta 100 posiciones guardadas mientras Jade está activo, incluidas efectivo y posiciones en observación"
         ]

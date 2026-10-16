@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
-from typing import cast
+from datetime import date, datetime, timedelta, tzinfo
+from typing import Self, cast
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.rate_limit import InMemoryBackend, get_backend
@@ -339,6 +340,7 @@ def test_652_acceptance_05_intel_material_global_dedupe_and_url_projection(
     db_session: Session,
     token: dict[str, object],
 ) -> None:
+    jade(db_session)
     seed_intel(db_session)
     chosen = report(
         db_session, DAY - timedelta(days=1), themes=["us_rates", "inflation", "us_rates"]
@@ -365,6 +367,7 @@ def test_652_acceptance_05_intel_material_global_dedupe_and_url_projection(
         "themes": [
             {
                 "theme": "us_rates",
+                "headlines": [],
                 "articles": [
                     {
                         "title": "Macro article",
@@ -373,7 +376,7 @@ def test_652_acceptance_05_intel_material_global_dedupe_and_url_projection(
                     }
                 ],
             },
-            {"theme": "inflation", "articles": []},
+            {"theme": "inflation", "headlines": [], "articles": []},
         ],
     }
     assert_no_sources(body)
@@ -432,7 +435,7 @@ def test_652_acceptance_07_audit_items_dates_and_hourly_limits(
     for row in rows:
         assert row["endpoint"] == endpoint
         assert row["status_code"] == 200
-        assert row["item_count"] == (1 if endpoint == REPORTS else 3)
+        assert row["item_count"] == (1 if endpoint == REPORTS else 2)
         assert row["params"] == params
     refused = app_client.get(endpoint, params=params, headers=bearer(token))
     assert refused.status_code == 429
@@ -448,3 +451,209 @@ def test_652_intel_audit_date_nul_is_sanitized(
     response = app_client.get(INTEL, params={"date": "\x00"}, headers=bearer(token))
     assert response.status_code == 422
     assert audit_rows(db_session)[-1]["params"] == {"date": "\ufffd"}
+
+
+# #781 keeps one focused test for each contract acceptance item.
+def jade(session: Session) -> None:
+    user = session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.subscription_type = "jade"
+    session.commit()
+
+
+def freeze_intel(monkeypatch: pytest.MonkeyPatch, moment: datetime) -> None:
+    from app.services import agent_pull
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz: tzinfo | None = None) -> Self:
+            return cls.fromtimestamp(moment.timestamp(), tz)
+
+    monkeypatch.setattr(agent_pull, "datetime", Clock)
+    monkeypatch.setattr("app.core.timezones.today_et", lambda: moment.date())
+
+
+def test_781_acceptance_01_advanced_headlines(
+    app_client: TestClient, db_session: Session, token: dict[str, object]
+) -> None:
+    seed_intel(db_session)
+    report(db_session, themes=["us_rates"])
+    db_session.commit()
+    body = app_client.get(INTEL, params={"date": DAY.isoformat()}, headers=bearer(token)).json()
+    assert body["holdings"][0]["headlines"][1]["summary"] is None
+    assert body["detail"] == "headlines"
+    assert body["holdings"][0]["articles"] == []
+    assert body["macro"]["themes"][0]["articles"] == []
+
+
+def test_781_acceptance_02_jade_preserves_material(
+    app_client: TestClient, db_session: Session, token: dict[str, object]
+) -> None:
+    seed_intel(db_session)
+    report(db_session, themes=["us_rates"])
+    jade(db_session)
+    body = app_client.get(INTEL, params={"date": DAY.isoformat()}, headers=bearer(token)).json()
+    assert body["detail"] == "full"
+    assert body["holdings"][0]["headlines"] == [
+        {
+            "title": "Latest headline",
+            "published_at": db_session.query(News)
+            .filter_by(url_hash="headline-1")
+            .one()
+            .published_at.isoformat(),
+            "summary": None,
+        },
+        {
+            "title": "NVDA headline",
+            "published_at": db_session.query(News)
+            .filter_by(url_hash="headline-0")
+            .one()
+            .published_at.isoformat(),
+            "summary": "Details",
+        },
+    ]
+    assert body["holdings"][0]["articles"] == [
+        {"title": "Shared article", "published_at": None, "body": "Body of Shared article"}
+    ]
+    assert body["macro"]["themes"][0]["articles"] == [
+        {"title": "Macro article", "published_at": None, "body": "Body of Macro article"}
+    ]
+
+
+def test_781_acceptance_03_macro_filter_and_pool_promotion(
+    app_client: TestClient,
+    db_session: Session,
+    token: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.intel_records import headline_from_row, store_headline
+
+    # Use the real transaction clock for the server-side promotion timestamp.
+    stamp = db_session.scalar(select(func.now()))
+    assert isinstance(stamp, datetime)
+    stamp = stamp.astimezone(ET)
+    freeze_intel(monkeypatch, stamp + timedelta(minutes=10))
+    report(db_session, stamp.date(), themes=["Monetary"])
+    monkeypatch.setattr(
+        "app.services.macro_detector._load_keywords",
+        lambda: {"Monetary": ["Fed"], "Other": ["tariff"]},
+    )
+    for i, label in enumerate(["development", None, "commentary", "off_topic", None, None]):
+        record: dict[str, object] = {"title": "tariff" if i == 4 else f"Fed update {i}"}
+        if label:
+            record.update({"type": label, "event": "Fed", "importance": 3})
+        row = News(
+            url_hash=f"pool-{i}",
+            origin="pool",
+            published_at=stamp - timedelta(days=1) if i == 5 else stamp - timedelta(seconds=i),
+            created_at=stamp,
+            record=record,
+        )
+        db_session.add(row)
+    db_session.commit()
+    body = app_client.get(
+        INTEL, params={"date": stamp.date().isoformat()}, headers=bearer(token)
+    ).json()
+    assert [h["title"] for h in body["macro"]["themes"][0]["headlines"]] == [
+        "Fed update 0",
+        "Fed update 1",
+    ]
+    assert all(h["summary"] is None for h in body["macro"]["themes"][0]["headlines"])
+    promoted = News(
+        url_hash="promoted",
+        origin="instrument",
+        published_at=stamp,
+        created_at=stamp - timedelta(hours=2),
+        record={"title": "Fed promotion"},
+    )
+    db_session.add(promoted)
+    db_session.flush()
+    store_headline(db_session, headline_from_row(promoted), "pool", "article", None)
+    db_session.commit()
+    body = app_client.get(
+        INTEL, params={"since": (stamp - timedelta(hours=1)).isoformat()}, headers=bearer(token)
+    ).json()
+    assert "Fed promotion" in [h["title"] for h in body["macro"]["themes"][0]["headlines"]]
+
+
+def test_781_acceptance_04_since_window_and_elapsed_dst(
+    app_client: TestClient,
+    db_session: Session,
+    token: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    freeze_intel(monkeypatch, NOW)
+    seed_intel(db_session)
+    links = db_session.scalars(select(NewsInstrument).order_by(NewsInstrument.id)).all()
+    for link in links:
+        link.created_at = NOW - timedelta(days=2)
+    links[0].created_at = NOW - timedelta(hours=25)
+    selected = db_session.get(News, links[0].news_id)
+    assert selected is not None
+    expected = str(selected.record["title"]).split(" https://")[0]
+    db_session.commit()
+    since = NOW - timedelta(hours=26)
+    response = app_client.get(INTEL, params={"since": since.isoformat()}, headers=bearer(token))
+    assert response.status_code == 200
+    body = response.json()
+    assert [h["title"] for h in body["holdings"][0]["headlines"]] == [expected]
+    assert body["next_since"] == (since + timedelta(hours=24)).isoformat()
+    assert body["has_more"] is True
+    body = app_client.get(
+        INTEL, params={"since": (NOW - timedelta(hours=1)).isoformat()}, headers=bearer(token)
+    ).json()
+    assert body["next_since"] == (NOW - timedelta(minutes=5)).isoformat()
+    assert body["has_more"] is False
+    freeze_intel(monkeypatch, datetime(2026, 11, 2, 12, tzinfo=ET))
+    body = app_client.get(
+        INTEL, params={"since": "2026-10-31T12:00:00-04:00"}, headers=bearer(token)
+    ).json()
+    assert body["next_since"] == "2026-11-01T11:00:00-05:00"
+
+
+def test_781_acceptance_05_missed_completed_batch(
+    app_client: TestClient,
+    db_session: Session,
+    token: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    freeze_intel(monkeypatch, NOW)
+    seed_intel(db_session)
+    runs = db_session.scalars(select(IntelSlotRun).order_by(IntelSlotRun.run_date)).all()
+    runs[0].finished_at = NOW - timedelta(hours=1)
+    runs[1].status = "running"
+    runs[1].finished_at = None
+    jade(db_session)
+    response = app_client.get(
+        INTEL, params={"since": (NOW - timedelta(hours=2)).isoformat()}, headers=bearer(token)
+    )
+    assert response.status_code == 200
+    assert response.json()["holdings"][0]["articles"] == [
+        {"title": "Previous day", "published_at": None, "body": "Body of Previous day"}
+    ]
+
+
+def test_781_acceptance_06_mode_validation(
+    app_client: TestClient, token: dict[str, object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    freeze_intel(monkeypatch, NOW)
+    for params in [
+        {"date": DAY.isoformat(), "since": NOW.isoformat()},
+        {},
+        {"since": NOW.replace(tzinfo=None).isoformat()},
+        {"since": (NOW - timedelta(days=7)).isoformat()},
+        {"since": (NOW + timedelta(seconds=1)).isoformat()},
+    ]:
+        assert app_client.get(INTEL, params=params, headers=bearer(token)).status_code == 422
+
+
+def test_781_acceptance_07_audit_since(
+    app_client: TestClient,
+    db_session: Session,
+    token: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    freeze_intel(monkeypatch, NOW)
+    params = {"since": (NOW - timedelta(hours=1)).isoformat()}
+    app_client.get(INTEL, params=params, headers=bearer(token))
+    assert audit_rows(db_session)[-1]["params"] == params
