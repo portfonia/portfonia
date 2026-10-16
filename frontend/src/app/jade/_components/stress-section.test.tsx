@@ -146,17 +146,6 @@ it("B17 table and legend use selected benchmark symbol", async () => {
   fireEvent.click(screen.getByRole("button", { name: "2020 COVID shock" }));
   expect(screen.getByTestId("stress-table")).toHaveTextContent("(ONEQ)");
 });
-it("B18 scenario names and revised total-return exception are authored in all catalogs", () => {
-  const expected = [[en, "2000–2002 dot-com crash", "2008 financial crisis"], [hans, "2000–2002 \u4e92\u8054\u7f51\u6ce1\u6cab", "2008 \u91d1\u878d\u5371\u673a"], [hant, "2000–2002 \u7db2\u8def\u6ce1\u6cab", "2008 \u91d1\u878d\u6d77\u562f"]] as const;
-  for (const [catalog, dotcom, gfc] of expected) {
-    const scenarios = catalog.jade.stress.scenarios as unknown as Record<string, { name: string }>;
-    expect(scenarios.dotcom_2000?.name).toBe(dotcom);
-    expect(scenarios.gfc_2008?.name).toBe(gfc);
-  }
-  expect(en.jade.stress.methodText).toContain("except the price indexes named for a scenario, which exclude dividends");
-  expect(hans.jade.stress.methodText).toContain("\u60c5\u666f\u4e2d\u5217\u660e\u7684\u4ef7\u683c\u6307\u6570\u9664\u5916");
-  expect(hant.jade.stress.methodText).toContain("\u60c5\u5883\u6240\u5217\u4e4b\u50f9\u683c\u6307\u6578\u4e0d\u542b\u80a1\u606f");
-});
 it("B15 375px five-button selector and amber notice wrap within the card", async () => {
   getJadeStress.mockResolvedValue({ ...five, scenarios: [...five.scenarios.slice(1), historical] });
   await view();

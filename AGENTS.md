@@ -94,6 +94,7 @@ The #753/#754/#755 batch shipped and designed mechanisms the owner never selecte
 4. **Write acceptance tests only for new or changed behavior.** Use one focused test per behavior. Require real-Postgres or concurrency tests only where this change introduces the race or transaction risk. Never require tests of pre-existing behavior. Keep worked examples to the few that pin ambiguous rules.
 5. **Gates are the CLAUDE.md gates for the touched files.** Do not add extra gates, review reruns or evidence formats.
 6. **Change public copy only where a statement becomes false.** Never announce unselected or future features.
+7. **Do not list exact-copy acceptance tests (2026-10-15, #779).** When an issue carries owner-approved wording, list it under Contract constraints as wording to verify at collection. The dispatcher compares it once with the shipped catalog or copy dict.
 
 **When implementing (the reading LLM):**
 
@@ -101,6 +102,7 @@ The #753/#754/#755 batch shipped and designed mechanisms the owner never selecte
 2. **Stop and report rather than build** when a Design item cannot be traced to an owner decision, or when a materially simpler implementation satisfies the same Requirement. List all such items at once.
 3. **One focused test per acceptance item.** Do not expand into test matrices or counterexample suites the Contract does not list. TDD red/green applies to new behavior only.
 4. **Prefer the smallest diff.** Leave untouched code untouched.
+5. **No exact-copy tests (2026-10-15, #779).** Do not write a test or assertion whose only failure trigger is a change in prose wording: catalog strings, email or notice copy, alert and digest bodies, documentation text. To check behavior that involves copy, reference the catalog key or copy-dict value. Exceptions: forbidden-vocabulary and compliance scans, public sample figures and their provenance (#741), Paddle's required reseller notice, and structural invariants such as key parity, placeholders and section counts.
 
 ## Documentation surfaces
 

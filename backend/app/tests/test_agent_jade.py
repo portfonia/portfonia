@@ -124,12 +124,6 @@ def test_08_schema(app_client: TestClient) -> None:
     assert "jade" in document["components"]["schemas"]["AgentCapabilities"]["required"]
 
 
-def test_09_read_copy() -> None:
-    assert "Jade risk results" in _API_ACCESS_NOTICE_COPY["en"]["body"]
-    assert "Jade" in _API_ACCESS_NOTICE_COPY["zh"]["body"]
-    assert "Jade" in _API_ACCESS_NOTICE_COPY["zh-Hant"]["body"]
-
-
 def test_11_capability(app_client: TestClient, db_session: Session, reader: dict[str, str]) -> None:
     user = db_session.get(User, TEST_USER_ID)
     assert user is not None

@@ -95,11 +95,6 @@ it("737 A11 llms absolute URLs", () => {
   expect(text).toContain('https://portfonia.com/guides/jade-var');
 });
 
-it("737 fix round Chinese example labels match owner wording", () => {
-  expect(catalogs["zh-Hans"].guides.common.exampleLabel).toBe("\u793a\u4f8b\u7ec4\u5408\uff0c\u975e\u63a8\u8350");
-  expect(catalogs["zh-Hant"].guides.common.exampleLabel).toBe("\u793a\u4f8b\u7d44\u5408\uff0c\u975e\u63a8\u85a6");
-});
-
 it.each(["zh-Hans", "zh-Hant"] as const)("737 fix round %s placeholders have CJK spacing", locale => {
   for (const [key, value] of strings(catalogs[locale].guides)) {
     expect(value, key).not.toMatch(/[\u3400-\u9fff]\{|\}[\u3400-\u9fff]/);

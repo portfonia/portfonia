@@ -83,8 +83,8 @@ it.each(Object.keys(catalogs) as Locale[])("acceptance_09 documents all endpoint
   const endpointsCard = screen.getByRole("heading", { name: agent.docs.endpointsTitle }).closest('[data-slot="card"]')!;
   const endpoints = within(endpointsCard as HTMLElement);
   if (locale === "en") {
-    expect(endpoints.getByText("Detailed fields and calling conventions for each endpoint are in llms.txt and agent.md. The following is a summary of each endpoint.")).toBeInTheDocument();
-    expect(endpoints.getByText("These endpoints do not connect to a broker and do not submit trades. Every request leaves an audit record. The audit does not store the holdings body or the full token.")).toBeInTheDocument();
+    expect(endpoints.getByText(agent.docs.endpointsLead)).toBeInTheDocument();
+    expect(endpoints.getByText(agent.docs.endpointsClosing)).toBeInTheDocument();
     expect(endpointsCard.textContent).not.toContain("?");
     expect(endpointsCard.textContent).not.toContain("https://api.portfonia.com/agent/openapi.json");
   }

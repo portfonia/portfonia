@@ -72,12 +72,11 @@ it("375px dark table bars notice and chart stay within flexible cells",async()=>
   for(const bar of table.querySelectorAll("[data-style-bar]"))expect(bar.parentElement).toHaveClass("w-full","min-w-0");
   expect(screen.getByTestId("style-low-fit")).toHaveClass("break-words","dark:bg-amber-950/30","dark:text-amber-200");expect(screen.getByTestId("style-chart")).toHaveClass("h-60","w-full","min-w-0");
 });
-it.each(["en","zh-Hans","zh-Hant"] as const)("B16 %s D9 labels and parity",locale=>{
+it.each(["en","zh-Hans","zh-Hant"] as const)("B16 %s label key parity",locale=>{
   const c=catalogs[locale].jade as unknown as Record<string,{labels:Record<string,string>}>;
   expect(Object.keys(c.style.labels)).toEqual(symbols.map(s=>s.replaceAll(".","_")));
   const keys=(value:object,prefix=""):string[]=>Object.entries(value).flatMap(([key,v])=>v!==null&&typeof v==="object"?keys(v,`${prefix}${key}.`):[`${prefix}${key}`]).sort();
   expect(keys(c.style)).toEqual(keys((catalogs.en.jade as unknown as typeof c).style));
-  const expected=locale==="en"?"US large-cap growth":locale==="zh-Hans"?"\u7f8e\u56fd\u5927\u76d8\u6210\u957f":"\u7f8e\u570b\u5927\u578b\u6210\u9577\u80a1";expect(c.style.labels.IWF).toBe(expected);
 });
 
 it.each([
