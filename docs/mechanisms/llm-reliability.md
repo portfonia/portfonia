@@ -154,8 +154,8 @@ locking on the first failure.
   indefinitely. `_BYOK_PROVIDER_ORDER` (`app/services/report_llm.py` — the
   Pass 1 + translation DeepSeek pin, issue #78/#79) is deliberately NOT in
   this config — it's a compliance decision, not an operational tuning knob.
-- `report_inputs` (JSONB) is written via `ReportContext.to_jsonb()` (still
-  `dict[str, Any]` — the ORM column itself is untyped JSONB) but read back
+- `report_inputs` (encrypted at rest) is written via `ReportContext.to_jsonb()` (still
+  `dict[str, Any]` — the ORM column uses `EncryptedJSON`) but read back
   through `ReportInputsDict` (issue #39, a `TypedDict, total=False` mirroring
   `ReportContext`'s fields): `regenerate_report`/`_tavily_used_today` `cast`
   into it so mypy catches a mismatched key/type at the call site instead of a

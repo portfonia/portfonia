@@ -194,7 +194,7 @@ class ParsedRow(BaseModel):
     @field_validator("issues", mode="before")
     @classmethod
     def _drop_unknown_and_legacy_issue_strings(cls, v: object) -> object:
-        # UploadJob.preview JSONB may still carry free-text notes or unknown
+        # UploadJob.preview column may still carry free-text notes or unknown
         # LLM codes from before PR #310. Drop them rather than wrapping as
         # parser_note {message} (zh users would still see English).
         if not v:

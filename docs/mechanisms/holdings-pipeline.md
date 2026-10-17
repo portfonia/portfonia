@@ -74,7 +74,7 @@ never-happened commit — but the UX read as "upload failed").
   check would accept a payload well over the real byte budget; locked by
   a CJK-content regression test, not just the ASCII off-by-one pair.
 - **Upload-job retention (issue #264, 2026-08-30)**: successful `preview`
-  JSONB rows (and all other terminal job rows) are kept 30 days, then
+  rows (and all other terminal job rows) are kept 30 days, then
   deleted by the daily `cleanup_upload_jobs` beat task (04:30 ET, staggered
   from the 03:00 backup and the 04:00 shared-intel-cache sweep). Pending
   rows are excluded — `sweep_stale_upload_jobs` owns them.

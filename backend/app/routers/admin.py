@@ -850,7 +850,7 @@ def rerun_report_for_user(
     goes out. resend=false leaves `email_sent_at` untouched and never sends.
 
     The `Report` row is never physically deleted: doing so would destroy
-    the `report_inputs` JSONB cache that makes a no-refetch rerun possible
+    the encrypted `report_inputs` cache that makes a no-refetch rerun possible
     in the first place.
     """
     user = session.get(User, user_id)

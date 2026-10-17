@@ -1,6 +1,6 @@
 """One-off script (issue #129 checkpoint B6, §8.5/§10.3): real-report
 overlay comparison of the Pass 2 body with vs. without the INVESTOR
-PREFERENCES block. Reads a real historical `report_inputs` JSONB (pulled
+PREFERENCES block. Reads a real historical `report_inputs` column (pulled
 read-only from production, see Ring1 Dev.md session record), runs Pass 2
 twice with the real PRIMARY_LLM_MODEL, writes zero rows anywhere, sends no
 email.

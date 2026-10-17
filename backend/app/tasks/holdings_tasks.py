@@ -283,7 +283,7 @@ def sweep_stale_upload_jobs() -> dict[str, int]:
 
 
 # Issue #264: retention policy for upload_jobs rows. A successful upload's
-# preview JSONB is the only sensitive payload that outlives the parse
+# encrypted preview is the only sensitive payload that outlives the parse
 # (raw_text is cleared by the task itself), and it has no value once the
 # user has confirmed the holdings — but rows were previously kept forever.
 # 30 days is generous relative to that window (confirm happens minutes
@@ -361,7 +361,7 @@ def cleanup_upload_jobs(self: Any) -> dict[str, int]:
                 body=(
                     f"cleanup_upload_jobs failed after {self.max_retries} retries.\n\n"
                     f"error: {type(exc).__name__}: {exc}\n\n"
-                    f"Impact: upload_jobs rows (including holdings preview JSONB) older than "
+                    f"Impact: upload_jobs rows (including encrypted holdings preview) older than "
                     f"{_UPLOAD_JOB_RETENTION_DAYS} days are not being cleaned up — the table "
                     f"keeps growing until this is fixed. Not a correctness issue, but check "
                     f"disk usage if this persists. Check worker.log for the full traceback."

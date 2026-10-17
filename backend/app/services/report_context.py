@@ -75,7 +75,7 @@ class ReportInputsDict(TypedDict, total=False):
     # closed-enum questionnaire answers actually used for THIS report, not
     # just the two keys (locale/intel_focus) that reached the prompt. free_text
     # is deliberately excluded (see investment_context.py's
-    # InvestorPreferences docstring) — report_inputs is unencrypted JSONB.
+    # InvestorPreferences docstring); report_inputs is encrypted at rest (#791).
     investor_questionnaire_snapshot: dict[str, Any] | None
     investor_questionnaire_version: str | None
     # issue #440: the MACRO COVERAGE CONTINUITY candidates actually offered
@@ -89,7 +89,7 @@ class ReportInputsDict(TypedDict, total=False):
 
 @dataclass
 class ReportContext:
-    """Intermediate documents captured for the report_inputs JSONB column."""
+    """Intermediate documents captured for the encrypted report_inputs column."""
 
     portfolio_summary: dict[str, Any] = field(default_factory=dict)
     news_items: list[dict[str, Any]] = field(default_factory=list)
@@ -161,10 +161,10 @@ class ReportContext:
     prompt_label_hits: list[str] = field(default_factory=list)
 
     def to_jsonb(self) -> dict[str, Any]:
-        """Return the write-side dict for the `report_inputs` JSONB column.
+        """Return the write-side dict for the encrypted `report_inputs` column.
 
         Kept as `dict[str, Any]`, not `ReportInputsDict` (#39) — the column
-        itself is untyped JSONB (`Mapped[dict[str, Any] | None]` on the ORM
+        itself uses EncryptedJSON (`Mapped[dict[str, Any] | None]` on the ORM
         model), so a TypedDict return here would only fight that boundary at
         every assignment site for no type-safety gain. `ReportInputsDict` is
         the read-side contract instead: callers `cast` into it once they pull
