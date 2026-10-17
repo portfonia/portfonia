@@ -1202,7 +1202,7 @@ def test_asset_class_fund_codes_share_sibling_bucket(fund_code: str, expected: s
 
 
 # ---------------------------------------------------------------------------
-# _classify_asset_class — hot-reloadable YAML mapping (issue #296)
+# _classify_asset_class — YAML mapping loaded once per process (issues #296, #786)
 # ---------------------------------------------------------------------------
 
 
