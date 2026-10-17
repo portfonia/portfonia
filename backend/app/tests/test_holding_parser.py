@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -1205,31 +1206,30 @@ def test_asset_class_fund_codes_share_sibling_bucket(fund_code: str, expected: s
 # ---------------------------------------------------------------------------
 
 
-def test_ticker_asset_class_mapping_reloads_without_restart(
+def test_ticker_asset_class_mapping_loaded_once_per_process(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The mapping must be editable without a code deploy — an admin adding a
-    new fund_code to the YAML takes effect on the next parse with no process
-    restart (issue #296 structural decision, the #35 live-reload property).
-    The loader re-reads the file on every call, so overwriting the same path
-    (no cache to clear) is what the test exercises."""
+    holding_parser_module._parse_ticker_asset_class.cache_clear()
     mapping = tmp_path / "ticker_asset_class.yml"
-    mapping.write_text(
-        "ticker_asset_class:\n  QQQ: EQUITY_US_TECH\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(holding_parser_module, "_get_ticker_asset_class_path", lambda: mapping)
-
-    # Version 1: 999999 is unmapped → generic fund catch-all.
-    assert _classify_asset_class({"ticker": "999999", "asset_type": "etf"}) == "EQUITY_BROAD"
-
-    # Admin adds the fund_code in place; the same process picks it up with
-    # no cache clear and no restart.
     mapping.write_text(
         "ticker_asset_class:\n  QQQ: EQUITY_US_TECH\n  999999: EQUITY_DM\n",
         encoding="utf-8",
     )
-    assert _classify_asset_class({"ticker": "999999", "asset_type": "etf"}) == "EQUITY_DM"
+    monkeypatch.setattr(holding_parser_module, "_get_ticker_asset_class_path", lambda: mapping)
+    yaml_module = vars(holding_parser_module)["yaml"]
+    safe_load = yaml_module.safe_load
+    load_count = 0
+
+    def counting_safe_load(stream: Any) -> Any:
+        nonlocal load_count
+        load_count += 1
+        return safe_load(stream)
+
+    monkeypatch.setattr(yaml_module, "safe_load", counting_safe_load)
+    assert _classify_asset_class({"ticker": "QQQ", "asset_type": "etf"}) == "EQUITY_US_TECH"
+    assert _classify_asset_class({"fund_code": "999999", "asset_type": "fund"}) == "EQUITY_DM"
+    assert _classify_asset_class({"ticker": "UNMAPPED", "asset_type": "etf"}) == "EQUITY_BROAD"
+    assert load_count == 1
 
 
 def test_ticker_asset_class_rejects_unknown_taxonomy_value(

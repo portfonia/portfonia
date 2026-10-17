@@ -177,8 +177,8 @@ not listing location. **The class list and every number are defined in code
 - Class list: `VALID_ASSET_CLASSES` in `app/services/asset_class_config.py`.
 - Per-class numbers + per-class rationale comments: `config/asset_class_thresholds.yml`.
 - Which holdings map to which class: `config/ticker_asset_class.yml`, loaded
-  fresh per classification by `holding_parser._load_ticker_asset_class()`
-  (issue #296 — hot-reloadable, no process restart for a new fund_code;
+  once per process by `holding_parser._load_ticker_asset_class()`
+  (issue #786; changes take effect after deploy restarts the processes;
   unknown asset_class values fail loudly at load, mirroring the thresholds
   file's closed-taxonomy check).
 
