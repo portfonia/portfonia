@@ -238,19 +238,24 @@ def format_fx_rates_as_of(fx_rates_as_of: dict[str, str]) -> str:
     return ", ".join(f"{ccy} as of {d}" for ccy, d in sorted(fx_rates_as_of.items()))
 
 
-def _latest_captured_closes(session: Session) -> dict[str, tuple[Decimal, date]]:
+def _latest_captured_closes(
+    session: Session, only: set[str] | None = None
+) -> dict[str, tuple[Decimal, date]]:
     """Latest captured daily close per ticker, as {ticker: (close, trade_date)}.
 
     Valuation reads from the capture layer so §1 and the anomaly baseline agree on
     the same price series. Fund NAVs are stored under the fund_code key by
     capture_fund_navs(); the lookup in compute_portfolio uses h.ticker or h.fund_code.
     """
+    filters = [PriceSnapshot.session_node == "close", PriceSnapshot.close.is_not(None)]
+    if only is not None:
+        filters.append(PriceSnapshot.ticker.in_(only))
     latest_dates = (
         select(
             PriceSnapshot.ticker.label("ticker"),
             func.max(PriceSnapshot.trade_date).label("d"),
         )
-        .where(PriceSnapshot.session_node == "close", PriceSnapshot.close.is_not(None))
+        .where(*filters)
         .group_by(PriceSnapshot.ticker)
         .subquery()
     )
@@ -369,6 +374,72 @@ def _compute_concentration(
     return c
 
 
+def _holding_value(
+    h: Holding,
+    base_currency: str,
+    fx: dict[str, Decimal],
+    captured_closes: dict[str, tuple[Decimal, date]],
+    price_ref: date,
+    snapshot: PortfolioSnapshot,
+) -> tuple[Decimal | None, Decimal | None, datetime | None, date | None]:
+    """Value one row using the portfolio's price, FX and missing-data rules."""
+    # --- market value in the holding's own currency ---
+    market_value: Decimal | None
+    price_as_of: datetime | None = None
+    # Candidate trade_date from a captured-close match; only counted
+    # into used_trade_dates once it actually prices this row (issue #320
+    # decision 5 / §12.3.5: "closes actually used", not merely matched —
+    # a snapshot hit for a holding missing shares never reaches a
+    # displayed market_value and must not date the as-of banner).
+    captured_trade_date: date | None = None
+    not_processed = h.pricing_mode == "auto" and not is_capture_supported(h)
+    if not_processed:
+        # Issue #311: never use a stray captured price and never treat
+        # this as a stale/missing capture (#295). The §1 row uses a
+        # distinct marker; excluded from every aggregate.
+        market_value = None
+    elif h.pricing_mode == "auto":
+        # Prefer the capture-layer close so valuation and the anomaly baseline
+        # share one price series; fall back to the /refresh market_price (e.g.
+        # funds, which are not captured by ticker).
+        price = h.market_price
+        price_as_of = h.price_as_of
+        # Fund NAVs are stored in price_snapshots under the fund_code key.
+        raw_key = h.ticker or h.fund_code or ""
+        captured = captured_closes.get(normalize_legacy_ticker(raw_key))
+        if captured is not None:
+            price, trade_date = captured
+            price_as_of = datetime.combine(trade_date, datetime.min.time(), tzinfo=ET)
+            captured_trade_date = trade_date
+            if (price_ref - trade_date).days > _PRICE_STALE_DAYS:
+                snapshot.stale_priced_tickers.append(h.ticker or h.fund_code or h.name)
+        if price is None or h.shares is None:
+            snapshot.stale_tickers.append(h.ticker or h.fund_code or h.name)
+            market_value = None
+        else:
+            market_value = (price * h.shares).quantize(_CENT, rounding=ROUND_HALF_UP)
+    else:
+        if h.current_value is None:
+            snapshot.stale_tickers.append(h.name)
+            market_value = None
+        else:
+            market_value = h.current_value
+
+    # --- convert to base currency ---
+    market_value_base: Decimal | None
+    if market_value is None:
+        market_value_base = None
+    else:
+        converted = _to_base(market_value, h.currency, base_currency, fx)
+        if converted is None:
+            snapshot.stale_tickers.append(h.ticker or h.fund_code or h.name)
+            market_value_base = None
+        else:
+            market_value_base = converted.quantize(_CENT, rounding=ROUND_HALF_UP)
+
+    return market_value, market_value_base, price_as_of, captured_trade_date
+
+
 def compute_portfolio(
     session: Session,
     user_id: uuid.UUID,
@@ -402,59 +473,9 @@ def compute_portfolio(
     used_trade_dates: list[date] = []
 
     for h in holdings:
-        # --- market value in the holding's own currency ---
-        market_value: Decimal | None
-        price_as_of: datetime | None = None
-        # Candidate trade_date from a captured-close match; only counted
-        # into used_trade_dates once it actually prices this row (issue #320
-        # decision 5 / §12.3.5: "closes actually used", not merely matched —
-        # a snapshot hit for a holding missing shares never reaches a
-        # displayed market_value and must not date the as-of banner).
-        captured_trade_date: date | None = None
-        not_processed = h.pricing_mode == "auto" and not is_capture_supported(h)
-        if not_processed:
-            # Issue #311: never use a stray captured price and never treat
-            # this as a stale/missing capture (#295). The §1 row uses a
-            # distinct marker; excluded from every aggregate.
-            market_value = None
-        elif h.pricing_mode == "auto":
-            # Prefer the capture-layer close so valuation and the anomaly baseline
-            # share one price series; fall back to the /refresh market_price (e.g.
-            # funds, which are not captured by ticker).
-            price = h.market_price
-            price_as_of = h.price_as_of
-            # Fund NAVs are stored in price_snapshots under the fund_code key.
-            raw_key = h.ticker or h.fund_code or ""
-            captured = captured_closes.get(normalize_legacy_ticker(raw_key))
-            if captured is not None:
-                price, trade_date = captured
-                price_as_of = datetime.combine(trade_date, datetime.min.time(), tzinfo=ET)
-                captured_trade_date = trade_date
-                if (price_ref - trade_date).days > _PRICE_STALE_DAYS:
-                    snapshot.stale_priced_tickers.append(h.ticker or h.fund_code or h.name)
-            if price is None or h.shares is None:
-                snapshot.stale_tickers.append(h.ticker or h.fund_code or h.name)
-                market_value = None
-            else:
-                market_value = (price * h.shares).quantize(_CENT, rounding=ROUND_HALF_UP)
-        else:
-            if h.current_value is None:
-                snapshot.stale_tickers.append(h.name)
-                market_value = None
-            else:
-                market_value = h.current_value
-
-        # --- convert to base currency ---
-        market_value_base: Decimal | None
-        if market_value is None:
-            market_value_base = None
-        else:
-            converted = _to_base(market_value, h.currency, base_currency, fx)
-            if converted is None:
-                snapshot.stale_tickers.append(h.ticker or h.fund_code or h.name)
-                market_value_base = None
-            else:
-                market_value_base = converted.quantize(_CENT, rounding=ROUND_HALF_UP)
+        market_value, market_value_base, price_as_of, captured_trade_date = _holding_value(
+            h, base_currency, fx, captured_closes, price_ref, snapshot
+        )
 
         if captured_trade_date is not None and market_value_base is not None:
             used_trade_dates.append(captured_trade_date)

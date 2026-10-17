@@ -73,7 +73,7 @@ def record(
     source: Literal["web", "file", "agent", "rollback"],
     rollback_to: datetime | None = None,
     token_id: UUID | None = None,
-) -> None:
+) -> UUID | None:
     session.flush()
     after = snapshot(session.scalars(select(Holding).where(Holding.user_id == user_id)).all())
     entries: list[dict[str, object]] = []
@@ -97,19 +97,20 @@ def record(
                 }
             )
     if not entries:
-        return
+        return None
     token = session.get(ApiToken, token_id) if source == "agent" and token_id is not None else None
-    session.add(
-        HoldingChangeGroup(
-            user_id=user_id,
-            source=source,
-            rollback_to=rollback_to,
-            created_at=func.clock_timestamp(),
-            token_name=token.name if token else None,
-            token_prefix=token.token_prefix if token else None,
-            changes=json.dumps(entries),
-        )
+    group = HoldingChangeGroup(
+        user_id=user_id,
+        source=source,
+        rollback_to=rollback_to,
+        created_at=func.clock_timestamp(),
+        token_name=token.name if token else None,
+        token_prefix=token.token_prefix if token else None,
+        changes=json.dumps(entries),
     )
+    session.add(group)
+    session.flush()
+    return group.id
 
 
 def list_changes(session: Session, user_id: UUID, start: date, end: date) -> HoldingChangesOut:

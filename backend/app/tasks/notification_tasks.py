@@ -12,6 +12,8 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from celery import Task  # type: ignore[import-untyped]
+
 from app.services.email_sender import send_api_access_notice, send_portfolio_overview_email
 from app.tasks import celery_app
 
@@ -92,3 +94,28 @@ def send_api_modification_notice_task(self: Any, user_id: str) -> None:
             if self.request.retries < self.max_retries:
                 raise self.retry(countdown=300)
             logger.error("API modification notice delivery failed after retry user_id=%s", uid)
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.tasks.notification_tasks.send_holdings_change_alert_task", bind=True, max_retries=1
+)
+def send_holdings_change_alert_task(
+    self: Task, user_id: str, group_id: str, claimed: bool = False
+) -> None:
+    """Evaluate one consistent reconstruction snapshot and retry delivery once."""
+    from app.core.database import SessionLocal
+    from app.services.holding_change_alerts import evaluate_change_alert
+
+    try:
+        with SessionLocal() as session:
+            session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+            delivered = evaluate_change_alert(
+                session, UUID(user_id), UUID(group_id), claimed=claimed
+            )
+    except Exception:
+        logger.error("Holdings change alert evaluation failed user_id=%s", user_id)
+        return
+    if not delivered:
+        if self.request.retries < self.max_retries:
+            raise self.retry(kwargs={"claimed": True}, countdown=300)
+        logger.error("Holdings change alert delivery failed after retry user_id=%s", user_id)
