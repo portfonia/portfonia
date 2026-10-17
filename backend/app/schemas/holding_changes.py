@@ -28,7 +28,8 @@ class ChangeToken(BaseModel):
 class HoldingChangeOut(BaseModel):
     id: UUID
     changed_at: datetime
-    source: Literal["web", "file", "agent"]
+    source: Literal["web", "file", "agent", "rollback"]
+    rollback_to: datetime | None
     token: ChangeToken | None
     rows: list[ChangedRow]
 
@@ -38,6 +39,30 @@ class HoldingChangesOut(BaseModel):
     end: date
     truncated: bool
     items: list[HoldingChangeOut]
+
+
+class WebHoldingChangeOut(HoldingChangeOut):
+    rollback_available: bool
+
+
+class WebHoldingChangesOut(BaseModel):
+    start: date
+    end: date
+    truncated: bool
+    items: list[WebHoldingChangeOut]
+
+
+class HoldingRollbackPreview(BaseModel):
+    target_changed_at: datetime
+    groups: int
+    restored: int
+    removed: int
+    modified: int
+    version: str
+
+
+class HoldingRollbackIn(BaseModel):
+    version: str
 
 
 class AgentCapabilities(BaseModel):

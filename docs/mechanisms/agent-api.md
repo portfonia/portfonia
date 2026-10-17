@@ -466,13 +466,13 @@ current holdings, snapshots and Jade risk results. Audit item count is the retur
 
 Response: `{start, end, truncated, items}`. Up to 100 groups are returned, ordered
 by time descending then ID descending; narrow the range if `truncated` is true.
-Each group has `id`, ET ISO 8601 `changed_at`, `source` (`web`, `file`, `agent`),
-nullable `token` (`{name, prefix}` for Agent writes), and `rows`. Each row has
+Each group has `id`, ET ISO 8601 `changed_at`, `source` (`web`, `file`, `agent`, `rollback`),
+nullable `token` (`{name, prefix}` for Agent writes), `rollback_to` (nullable ET ISO 8601 target change time), and `rows`. Each row has
 `holding_id`, `holding_name`, `kind` (`created`, `updated`, `deleted`) and `fields`.
 Each field has `field`, `before`, `after`: strings, integer position, or null.
 Amounts are fixed-point decimal strings without fractional trailing zeros.
 
-History records user-input changes from web, file upload and Agent writes,
+History records user-input changes from web, file upload, Agent writes and rollbacks,
 including row positions. Captured prices and other system fields are excluded.
 File replacement records old IDs as deleted and new IDs as created. Empty or
 unchanged writes, failed writes and idempotent replays create no history group.
@@ -484,6 +484,33 @@ The existing retention task also removes groups older than 30 days in 1000-row
 batches and reports `holding_changes_deleted`; no Beat entry changes. User
 removal cascades through the group FK. No backfill or production operation is
 part of implementation. See the holdings pipeline for transaction hooks.
+
+Issue #783 adds rollback on `/holdings/changes` for every signed-in user,
+including changes from Agent writes after a downgrade. The web list adds
+`rollback_available`; the Agent response does not. Reverse replay undoes the
+selected group and every newer retained group, without the 100-group display
+cap. An after-value mismatch blocks that group and older groups, preserving
+unrecorded Ops changes. A rollback is recorded as one encrypted `rollback`
+group with `rollback_to` equal to the selected group's timestamp and can itself
+be rolled back.
+
+`GET /holdings/changes/{group_id}/rollback` previews the target time, group
+count, restored/removed/modified row counts and current `version`.
+`POST` to the same path accepts `{version}` and returns 204. It holds the shared
+book lock and returns 404 for a missing target or 409 for `version_conflict`,
+`rollback_blocked` or `holding_cap`. A no-op writes nothing. The unchanged cap
+rule uses `introduces_rows = restored > 0`. Changed rows retain original IDs
+and restore all 16 recorded fields exactly. Only those rows recompute
+`asset_class` and `capture_supported` from a defaults copy and resolve accounts
+without archiving; identity changes clear captured prices. Unchanged rows
+remain untouched. Success bumps the version and enqueues sparse capture for
+restored or identity-changed rows, without email. No Agent rollback route exists.
+
+Migration `d78300000001` follows `d76900000001`, widens the source CHECK and adds
+nullable `rollback_to`. Downgrade deletes rollback groups before dropping the
+column and restoring the CHECK. New groups use an insert-time timestamp under
+the book lock; existing timestamps and the column default are unchanged.
+No production migration or data operation is authorized by this implementation.
 
 ## Jade risk results (#770)
 

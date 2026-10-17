@@ -1214,7 +1214,9 @@ export async function saveJadeBenchmark(components: TrackingComponent[]): Promis
 export interface HoldingChangeGroup {
   id: string;
   changed_at: string;
-  source: "web" | "file" | "agent";
+  source: "web" | "file" | "agent" | "rollback";
+  rollback_to: string | null;
+  rollback_available: boolean;
   token: { name: string; prefix: string } | null;
   rows: {
     holding_id: string;
@@ -1233,4 +1235,27 @@ export async function listHoldingChanges(start: string, end: string): Promise<Ho
   const res = await fetch(`/api/holdings/changes?${new URLSearchParams({ start, end })}`, { cache: "no-store" });
   if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<HoldingChanges>;
+}
+
+
+export interface HoldingRollbackPreview {
+  target_changed_at: string;
+  groups: number;
+  restored: number;
+  removed: number;
+  modified: number;
+  version: string;
+}
+
+export async function previewHoldingRollback(groupId: string): Promise<HoldingRollbackPreview> {
+  const res = await fetch(`/api/holdings/changes/${groupId}/rollback`, { cache: "no-store" });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<HoldingRollbackPreview>;
+}
+
+export async function rollbackHoldings(groupId: string, version: string): Promise<void> {
+  const res = await fetch(`/api/holdings/changes/${groupId}/rollback`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version }),
+  });
+  if (!res.ok) await throwOnHttpError(res);
 }
