@@ -2532,7 +2532,7 @@
     "position": "Orden",
     "rollbackButton": "Restaurar al estado anterior a este cambio",
     "rollbackBlocked": "Un cambio posterior de mantenimiento del sistema impide restaurar a este punto",
-    "rollbackSummary": "Se desharán {groups} cambios y se restaurarán las posiciones al estado anterior a {time}: {restored} filas restauradas, {removed} filas eliminadas y {modified} filas modificadas",
+    "rollbackSummary": "{groups, plural, one {Se deshará # cambio} other {Se desharán # cambios}} y se restaurarán las posiciones al estado anterior a {time}: {restored, plural, one {# fila restaurada} other {# filas restauradas}}, {removed, plural, one {# fila eliminada} other {# filas eliminadas}} y {modified, plural, one {# fila modificada} other {# filas modificadas}}",
     "rollbackConfirm": "Restaurar posiciones",
     "rollbackCancel": "Cancelar",
     "versionConflict": "Las posiciones cambiaron desde esta vista previa",

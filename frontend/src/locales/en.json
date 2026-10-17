@@ -2532,7 +2532,7 @@
     "position": "Position",
     "rollbackButton": "Restore to before this change",
     "rollbackBlocked": "A later system maintenance change prevents restoring to this point",
-    "rollbackSummary": "{groups} changes will be undone, restoring holdings to before {time}: {restored} rows restored, {removed} rows removed, {modified} rows modified",
+    "rollbackSummary": "{groups, plural, one {# change will be undone} other {# changes will be undone}}, restoring holdings to before {time}: {restored, plural, one {# row restored} other {# rows restored}}, {removed, plural, one {# row removed} other {# rows removed}}, {modified, plural, one {# row modified} other {# rows modified}}",
     "rollbackConfirm": "Restore holdings",
     "rollbackCancel": "Cancel",
     "versionConflict": "Holdings changed since this preview",
