@@ -325,6 +325,7 @@ def mutate(
         raise
     if group_id is not None:
         enqueue_change_alert(uid, group_id)
+    holdings_write.enqueue_unmapped_asset_class_alert(saved, "agent")
     if capture:
         try:
             holdings_write.enqueue_agent_capture(session, uid, capture)

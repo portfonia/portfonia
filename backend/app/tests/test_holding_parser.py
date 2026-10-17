@@ -1712,3 +1712,17 @@ def test_parse_export_dialect_skips_llm() -> None:
     mock_attempt.assert_not_called()
     assert len(preview.valid_rows) == 1
     assert preview.valid_rows[0].account == "IRA"
+
+
+def test_unmapped_fund_identifier(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    holding_parser_module._parse_ticker_asset_class.cache_clear()
+    mapping = tmp_path / "ticker_asset_class.yml"
+    mapping.write_text("ticker_asset_class:\n  MAPD1: EQUITY_DM\n", encoding="utf-8")
+    monkeypatch.setattr(holding_parser_module, "_get_ticker_asset_class_path", lambda: mapping)
+    ident = holding_parser_module.unmapped_fund_identifier
+    assert ident({"asset_type": "etf", "ticker": "zzetf"}) == "ZZETF"
+    assert ident({"asset_type": "fund", "ticker": None, "fund_code": "888888"}) == "888888"
+    assert ident({"asset_type": "etf", "ticker": "mapd1"}) is None
+    assert ident({"asset_type": "etf", "ticker": None, "fund_code": None}) is None
+    assert ident({"asset_type": "other", "ticker": "ZZETF"}) is None
+    holding_parser_module._parse_ticker_asset_class.cache_clear()

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal, cast
@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from app.core import alert_dedup
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.models.user import User
@@ -27,6 +28,7 @@ from app.services.holding_parser import (
     _classify_asset_class,
     apply_confirmed_exchange_suffix,
     normalize_ticker_and_currency,
+    unmapped_fund_identifier,
 )
 from app.services.instrument_symbols import normalize_legacy_ticker
 from app.services.markets import is_capture_supported, resolve_holding_market
@@ -57,6 +59,55 @@ _USER_FIELDS = (
     "position",
     "account_id",
 )
+
+
+def enqueue_unmapped_asset_class_alert(
+    holdings: Iterable[Holding], source: Literal["file", "web", "rollback", "agent"]
+) -> None:
+    """Alert ops once per identifier (7 days) when a fund/ETF used the catch-all class."""
+    try:
+        found: dict[str, Holding] = {}
+        for h in holdings:
+            identifier = unmapped_fund_identifier(
+                {"asset_type": h.asset_type, "ticker": h.ticker, "fund_code": h.fund_code}
+            )
+            if identifier is not None and identifier not in found:
+                found[identifier] = h
+        fresh = {
+            i: h for i, h in found.items() if not alert_dedup.already_alerted(_unmapped_key(i))
+        }
+        if not fresh:
+            return
+        from app.tasks.admin_tasks import send_admin_alert_task
+
+        for identifier in fresh:
+            alert_dedup.mark_alerted(_unmapped_key(identifier), 7 * 24 * 3600)
+        lines = [
+            f"{identifier} market={h.market} asset_type={h.asset_type} stored as EQUITY_BROAD"
+            for identifier, h in fresh.items()
+        ]
+        body = "\n".join(
+            [
+                *lines,
+                "",
+                f"Write source: {source}",
+                "",
+                "Add the identifier to backend/config/ticker_asset_class.yml by PR, deploy, "
+                "then run `python -m app.scripts.reclassify_asset_class` (dry run) and, with "
+                "the owner's approval, `--apply`.",
+            ]
+        )
+        send_admin_alert_task.delay(
+            f"Unmapped fund/ETF asset_class ({len(fresh)} instrument(s))",
+            body,
+            severity="WARNING",
+        )
+    except Exception:
+        logger.error("Unmapped asset_class alert failed source=%s", source)
+
+
+def _unmapped_key(identifier: str) -> str:
+    return f"unmapped_asset_class:{identifier}"
 
 
 def holding_cap(user: User) -> int:
@@ -351,7 +402,7 @@ def confirm_holdings(
         changed = before > 0 or after > 0
         if changed:
             session.execute(delete(Holding).where(Holding.user_id == user_id))
-            insert_from_rows(
+            replaced = insert_from_rows(
                 session,
                 user_id,
                 rows,
@@ -364,6 +415,7 @@ def confirm_holdings(
         if group_id is not None:
             enqueue_change_alert(user_id, group_id)
         if changed:
+            enqueue_unmapped_asset_class_alert(replaced, "file")
             _enqueue_replaced_book(session, user_id)
     elif rows:
         inserted = insert_from_rows(
@@ -378,6 +430,7 @@ def confirm_holdings(
         session.commit()
         if group_id is not None:
             enqueue_change_alert(user_id, group_id)
+        enqueue_unmapped_asset_class_alert(inserted, "file")
         _enqueue_sparse_for(session, user_id, inserted, log_prefix="confirm_holdings")
     else:
         session.commit()
@@ -400,6 +453,7 @@ def create_holding(session: Session, user_id: UUID, row: ParsedRow) -> Holding:
     _bump(user)
     holding_changes.record(session, user_id, change_before, source="web")
     session.commit()
+    enqueue_unmapped_asset_class_alert(inserted, "web")
     _enqueue_sparse_for(session, user_id, inserted, log_prefix="create_holding")
     holding = inserted[0]
     session.refresh(holding)
@@ -479,6 +533,7 @@ def update_holding(
     _bump(user)
     holding_changes.record(session, user_id, change_before, source="web")
     session.commit()
+    enqueue_unmapped_asset_class_alert([holding], "web")
     if ticker_changed or fund_changed:
         _enqueue_sparse_for(session, user_id, [holding], log_prefix="update_holding")
     session.refresh(holding)
@@ -604,6 +659,7 @@ def rollback_holdings(session: Session, user_id: UUID, group_id: UUID, version: 
         archive_unreferenced=False,
     )
     capture: list[Holding] = []
+    written_rows: list[Holding] = []
     now = datetime.now(tz=UTC)
     for (hid, values), account_id in zip(written.items(), account_ids, strict=True):
         data = {
@@ -634,6 +690,7 @@ def rollback_holdings(session: Session, user_id: UUID, group_id: UUID, version: 
                 row.price_as_of = None
                 row.price_fetched_at = None
         row.account_id = account_id
+        written_rows.append(row)
         if row.pricing_mode == "manual" and manual_changed:
             row.last_manual_update = now
         if identity_changed:
@@ -643,4 +700,5 @@ def rollback_holdings(session: Session, user_id: UUID, group_id: UUID, version: 
         session, user_id, before, source="rollback", rollback_to=group.created_at
     )
     session.commit()
+    enqueue_unmapped_asset_class_alert(written_rows, "rollback")
     _enqueue_sparse_for(session, user_id, capture, log_prefix="rollback_holdings")

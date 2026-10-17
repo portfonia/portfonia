@@ -6,7 +6,7 @@ import json
 import logging
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from string import Template
@@ -771,6 +771,20 @@ def _classify_asset_class(row: dict[str, Any]) -> str:
     if fund_code and fund_code in mapping:
         return mapping[fund_code]
     return _ASSET_TYPE_CLASS.get(row.get("asset_type") or "", "STOCK")
+
+
+def unmapped_fund_identifier(row: Mapping[str, Any]) -> str | None:
+    """Identifier of an etf/fund row that would fall through to the asset_type catch-all."""
+    if row.get("asset_type") not in ("etf", "fund"):
+        return None
+    ticker = (row.get("ticker") or "").upper()
+    fund_code = row.get("fund_code") or ""
+    if not ticker and not fund_code:
+        return None
+    mapping = _load_ticker_asset_class()
+    if ticker in mapping or fund_code in mapping:
+        return None
+    return ticker or fund_code
 
 
 # Map common free-text market labels the model may emit onto the canonical
