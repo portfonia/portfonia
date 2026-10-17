@@ -94,7 +94,7 @@ class PortfolioValueSnapshot(Base):
     # Local-currency value for cash/wmf/manual rows; null when N/A.
     current_value: Mapped[Decimal | None] = mapped_column(EncryptedDecimal)
 
-    market_value: Mapped[Decimal | None] = mapped_column(Numeric)
+    market_value: Mapped[Decimal | None] = mapped_column(EncryptedDecimal)
     # Currency `market_value_base`/`cost_basis_base` are actually denominated
     # in — i.e. `report_currency_for(user_id)` AT CAPTURE TIME (issue #367
     # fix): a user's `users.base_currency` preference can change between two
@@ -106,8 +106,8 @@ class PortfolioValueSnapshot(Base):
     # `stage_user_snapshot` call) rather than assuming one currency applies
     # across the whole requested date range.
     base_currency: Mapped[str] = mapped_column(Text, nullable=False)
-    market_value_base: Mapped[Decimal | None] = mapped_column(Numeric)
-    cost_basis_base: Mapped[Decimal | None] = mapped_column(Numeric)
+    market_value_base: Mapped[Decimal | None] = mapped_column(EncryptedDecimal)
+    cost_basis_base: Mapped[Decimal | None] = mapped_column(EncryptedDecimal)
 
     fx_rate_used: Mapped[Decimal | None] = mapped_column(Numeric)
     price_as_of: Mapped[date | None] = mapped_column(Date)

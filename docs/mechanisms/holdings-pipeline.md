@@ -141,13 +141,11 @@ the threat is DB-dump/backup theft, which disk encryption alone doesn't stop.
   an application guarantee, not a restored DB CHECK; raw SQL can bypass it.
   Audit tooling, historical-data processing, market-price work and broad
   logging/error redesign remain outside this fix.
-- **Not yet covered**: `Report.report_inputs` and rendered report bodies
-  still carry holdings-derived plaintext (ticker, shares, values quoted in
-  prose/tables) — issue #31 is scoped to the `holdings` table only. Worth a
-  follow-up issue before treating "holdings encrypted" as covering the whole
-  data surface; the public FAQ copy (PR #98) already says plainly that data
-  is not yet encrypted at rest — needs updating once this PR merges and
-  deploys, and again if/when reports are covered too.
+- #791 extends encryption to `Report.report_md`, `Report.report_html`,
+  `Report.report_inputs`, `PortfolioValueSnapshot.market_value`,
+  `PortfolioValueSnapshot.market_value_base`, `PortfolioValueSnapshot.cost_basis_base`,
+  `UploadJob.raw_text`, `UploadJob.preview`, `MacroCoverage.paragraph_text` and
+  `MacroCoverage.affected_identifiers`, adding `EncryptedJSON` and migration `d79100000001`.
 - **Prod key generated and deployed 2026-08-09**, alongside the "生产部署"
   run that shipped this feature — a dedicated key, never copied from
   `.env.local`'s dev value (per "single system-wide key" above, "system"

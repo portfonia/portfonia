@@ -27,6 +27,7 @@ reads, not a bulk re-encrypt).
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal, InvalidOperation
 from typing import Any, ClassVar
 
@@ -169,6 +170,24 @@ class EncryptedString(TypeDecorator[str]):
         if value is None:
             return None
         return decrypt_value(value)
+
+
+class EncryptedJSON(TypeDecorator[Any]):
+    """JSON value encrypted at rest; NULL passthrough as EncryptedString."""
+
+    impl = Text
+    cache_ok = True
+    comparator_factory = _NoEqualityComparator
+
+    def process_bind_param(self, value: Any, dialect: object) -> str | None:
+        if value is None:
+            return None
+        return encrypt_value(json.dumps(value, ensure_ascii=False))
+
+    def process_result_value(self, value: str | None, dialect: object) -> Any:
+        if value is None:
+            return None
+        return json.loads(decrypt_value(value))
 
 
 class EncryptedDecimal(TypeDecorator[Decimal]):

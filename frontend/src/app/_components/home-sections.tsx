@@ -71,6 +71,7 @@ export function HomeSections() {
           <p className="mt-6 max-w-2xl text-lg leading-relaxed text-foreground/70">
             {t.hero.sub}
           </p>
+          <p className="mt-4 max-w-2xl text-sm text-foreground/60">{t.hero.security}</p>
           <div className="mt-9 flex flex-wrap items-center gap-4">
             <Link
               href="/holdings"

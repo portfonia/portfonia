@@ -756,6 +756,7 @@
       "titleAccent": "in your holdings.",
       "tagline": "Holdings-relevant depth and breadth — with you through the cycle, as lasting judgment compounds.",
       "sub": "Portfonia is a software tool that keeps tracking news, macro events and company developments, mapping them to the holdings you enter.",
+      "security": "Your holdings, and every report built from them, are encrypted in our database. Each AI call carries only what that report needs.",
       "ctaPrimary": "Get started",
       "ctaSecondary": "See how it works"
     },
@@ -1139,7 +1140,7 @@
         },
         {
           "q": "Is my holdings data safe?",
-          "a": "Yes — your holdings are strongly encrypted at rest (field-level encryption in our database). On top of that, AI calls run with training-data collection denied by default, and each call only sees the data a given report actually needs — never the whole portfolio wholesale."
+          "a": "Yes. Your holdings are encrypted field by field in our database, and so is the data derived from them: reports, daily portfolio snapshots, parsed uploads and change history. AI calls deny training-data collection by default, with one disclosed exception described in our Privacy Policy, and each call carries only what that report needs, never your whole portfolio."
         },
         {
           "q": "Which markets and holdings does it support?",
@@ -1339,7 +1340,7 @@
     },
     "privacy": {
       "title": "Privacy Policy",
-      "lastUpdated": "Last updated: 2026-10-13",
+      "lastUpdated": "Last updated: 2026-10-17",
       "intro": "Your privacy matters to us. This policy explains what we collect, why, and how it's protected.",
       "sections": [
         {
@@ -1367,7 +1368,7 @@
         {
           "heading": "4. Data Storage and Security",
           "body": [
-            "Holdings data is encrypted at rest. Access to production systems is restricted, and administrative actions are logged.",
+            "Your holdings are encrypted at rest with field-level encryption, and so is the data derived from them: report text and the inputs each report is built from, daily portfolio snapshots, parsed uploads, holding change history and report coverage notes. The encryption key is not stored in the database or in its backups. Access to production systems is restricted, administrative actions are logged, and our administrative tools do not display your holdings or reports.",
             "No system is perfectly secure, and we cannot guarantee absolute security, but protecting your data is treated as a first-class engineering requirement, not an afterthought."
           ]
         },
@@ -1375,7 +1376,7 @@
           "heading": "5. Third-Party Processing",
           "body": [
             "Generating a report involves sending portions of your data to third-party large-language-model providers to compose the report text. By default, every such call is configured to opt out of the provider using your data for model training.",
-            "A narrow, owner-approved exception applies to two specific, non-analytical processing steps: public-market search-query generation, and translating a finished report into your display language. These two steps are routed directly to a single named provider's own first-party API instead of through the training opt-out described above, because that is the only way to reach that specific low-cost model. That provider's standard API terms permit using submitted data to improve its models, so this exception accepts that risk for those two steps only — it is not backed by a no-training data agreement. To limit the exception's reach, the routing is hard-pinned with no automatic fallback to a different provider if it becomes unavailable. The translation step does process report text derived from your holdings, since it translates the finished report itself; the search-query step does not, since it only uses public market/macro themes.",
+            "A narrow, owner-approved exception applies to one non-analytical processing step: translating a finished report into your display language. This step is routed directly to a single named provider's own first-party API instead of through the training opt-out described above, because that is the only way to reach that specific low-cost model. That provider's standard API terms permit using submitted data to improve its models, so this exception accepts that risk for this step only; it is not backed by a no-training data agreement. The routing is pinned to that provider. If that provider fails, the step is retried once through a different model with the training opt-out applied. The translation step processes report text derived from your holdings, since it translates the finished report itself.",
             "Payments are processed by {merchantOfRecord}, which acts as Merchant of Record and handles your payment information under its own privacy notice."
           ]
         },
