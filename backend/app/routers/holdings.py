@@ -13,7 +13,11 @@ from app.core.deps import Principal, current_principal
 from app.models.holding import Holding
 from app.models.upload_job import UploadJob
 from app.models.user import User
-from app.schemas.holding_changes import HoldingChangesOut
+from app.schemas.holding_changes import (
+    HoldingRollbackIn,
+    HoldingRollbackPreview,
+    WebHoldingChangesOut,
+)
 from app.schemas.holdings import (
     HoldingOut,
     HoldingPatch,
@@ -192,14 +196,34 @@ def create_holding(
     return holdings_write.create_holding(session, principal.user_id, row)
 
 
-@router.get("/changes", response_model=HoldingChangesOut)
+@router.get("/changes", response_model=WebHoldingChangesOut)
 def holding_change_history(
     start: date,
     end: date,
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
-) -> HoldingChangesOut:
-    return holding_changes.list_changes(session, principal.user_id, start, end)
+) -> WebHoldingChangesOut:
+    return holding_changes.list_web_changes(session, principal.user_id, start, end)
+
+
+@router.get("/changes/{group_id}/rollback", response_model=HoldingRollbackPreview)
+def preview_holding_rollback(
+    group_id: UUID,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> HoldingRollbackPreview:
+    return holding_changes.preview_rollback(session, principal.user_id, group_id)
+
+
+@router.post("/changes/{group_id}/rollback", status_code=status.HTTP_204_NO_CONTENT)
+def rollback_holdings(
+    group_id: UUID,
+    body: HoldingRollbackIn,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> Response:
+    holdings_write.rollback_holdings(session, principal.user_id, group_id, body.version)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.patch("/reorder", response_model=list[HoldingOut])

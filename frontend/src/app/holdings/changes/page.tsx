@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { listHoldingChanges, type HoldingChanges } from "@/lib/api";
+import { ApiError, listHoldingChanges, previewHoldingRollback, rollbackHoldings, type HoldingChanges, type HoldingRollbackPreview } from "@/lib/api";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 
 const FIELD_LABELS: Record<string, string> = {
   name: "fieldName", ticker: "fieldTicker", fund_code: "fieldFundCode", currency: "fieldCurrency",
@@ -29,6 +30,9 @@ export default function ChangesPage() {
   const [data, setData] = useState<HoldingChanges | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [rollbackError, setRollbackError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ groupId: string; value: HoldingRollbackPreview } | null>(null);
+  const [posting, setPosting] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -43,6 +47,34 @@ export default function ChangesPage() {
     setLoading(true);
     setError(false);
     setQuery({ ...dates });
+  }
+
+  async function openRollback(groupId: string) {
+    setRollbackError(null);
+    try {
+      const value = await previewHoldingRollback(groupId);
+      setPreview({ groupId, value });
+    } catch (error) {
+      setRollbackError(t(error instanceof ApiError && error.status === 409 && error.message === "rollback_blocked" ? "rollbackBlocked" : "rollbackError"));
+    }
+  }
+
+  async function confirmRollback() {
+    if (!preview) return;
+    setPosting(true);
+    setRollbackError(null);
+    try {
+      await rollbackHoldings(preview.groupId, preview.value.version);
+      setPreview(null);
+      setQuery({ ...query });
+    } catch (error) {
+      const code = error instanceof ApiError && error.status === 409 ? error.message : "";
+      setRollbackError(t(code === "version_conflict" ? "versionConflict" : code === "holding_cap" ? "holdingCap" : code === "rollback_blocked" ? "rollbackBlocked" : "rollbackError"));
+      setPreview(null);
+      if (code === "version_conflict") setQuery({ ...query });
+    } finally {
+      setPosting(false);
+    }
   }
 
   const formatTime = (value: string) => new Intl.DateTimeFormat(locale, { timeZone: "America/New_York", dateStyle: "medium", timeStyle: "long" }).format(new Date(value));
@@ -60,6 +92,7 @@ export default function ChangesPage() {
         ))}
         <button type="submit" disabled={loading} className="rounded border px-4 py-2 text-sm disabled:opacity-50">{t("submit")}</button>
       </form>
+      {rollbackError && <p role="alert">{rollbackError}</p>}
       {loading ? <p role="status">{t("loading")}</p> : error ? <p role="alert">{t("error")}</p> : data && (
         <div className="space-y-5">
           {data.truncated && <p role="status">{t("truncated")}</p>}
@@ -67,7 +100,9 @@ export default function ChangesPage() {
           {data.items.map(group => (
             <section key={group.id} className="min-w-0 rounded border p-4 [overflow-wrap:anywhere]">
               <p className="text-sm"><time dateTime={group.changed_at}>{formatTime(group.changed_at)}</time></p>
-              <p className="font-medium">{group.source === "agent" && group.token ? t("agent", group.token) : t(group.source === "file" ? "file" : "web")}</p>
+              <p className="font-medium">{group.source === "rollback" && group.rollback_to ? t("rollback", { time: formatTime(group.rollback_to) }) : group.source === "agent" && group.token ? t("agent", group.token) : t(group.source === "file" ? "file" : "web")}</p>
+              <button type="button" disabled={!group.rollback_available} onClick={() => void openRollback(group.id)} className="mt-2 rounded border px-3 py-2 text-sm disabled:opacity-50">{t("rollbackButton")}</button>
+              {!group.rollback_available && <p className="mt-1 text-sm text-muted-foreground">{t("rollbackBlocked")}</p>}
               {group.rows.map(row => (
                 <div key={row.holding_id} className="mt-4 min-w-0">
                   <h2 className="font-semibold">{row.holding_name}</h2>
@@ -85,6 +120,18 @@ export default function ChangesPage() {
           ))}
         </div>
       )}
+      <AlertDialog open={preview !== null} onOpenChange={open => { if (!open && !posting) setPreview(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("rollbackButton")}</AlertDialogTitle>
+            <AlertDialogDescription>{preview && t("rollbackSummary", { groups: preview.value.groups, time: formatTime(preview.value.target_changed_at), restored: preview.value.restored, removed: preview.value.removed, modified: preview.value.modified })}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={posting}>{t("rollbackCancel")}</AlertDialogCancel>
+            <AlertDialogAction disabled={posting} onClick={() => void confirmRollback()}>{t("rollbackConfirm")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   );
 }

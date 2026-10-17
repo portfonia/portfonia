@@ -589,13 +589,13 @@ current holdings, snapshots and Jade risk results. Audit item count is the retur
 
 Response: `{start, end, truncated, items}`. Up to 100 groups are returned, ordered
 by time descending then ID descending; narrow the range if `truncated` is true.
-Each group has `id`, ET ISO 8601 `changed_at`, `source` (`web`, `file`, `agent`),
-nullable `token` (`{name, prefix}` for Agent writes), and `rows`. Each row has
+Each group has `id`, ET ISO 8601 `changed_at`, `source` (`web`, `file`, `agent`, `rollback`),
+nullable `token` (`{name, prefix}` for Agent writes), `rollback_to` (nullable ET ISO 8601 target change time), and `rows`. Each row has
 `holding_id`, `holding_name`, `kind` (`created`, `updated`, `deleted`) and `fields`.
 Each field has `field`, `before`, `after`: strings, integer position, or null.
 Amounts are fixed-point decimal strings without fractional trailing zeros.
 
-History records user-input changes from web, file upload and Agent writes,
+History records user-input changes from web, file upload, Agent writes and rollbacks,
 including row positions. Captured prices and other system fields are excluded.
 File replacement records old IDs as deleted and new IDs as created. Empty or
 unchanged writes, failed writes and idempotent replays create no history group.

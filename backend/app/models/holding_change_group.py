@@ -14,7 +14,7 @@ from app.models.base import Base
 class HoldingChangeGroup(Base):
     __tablename__ = "holding_change_groups"
     __table_args__ = (
-        CheckConstraint("source IN ('web', 'file', 'agent')", name="source"),
+        CheckConstraint("source IN ('web', 'file', 'agent', 'rollback')", name="source"),
         Index("ix_holding_change_groups_user_id_created_at", "user_id", "created_at"),
     )
 
@@ -25,6 +25,7 @@ class HoldingChangeGroup(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
+    rollback_to: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     source: Mapped[str] = mapped_column(Text, nullable=False)
     token_name: Mapped[str | None] = mapped_column(Text)
     token_prefix: Mapped[str | None] = mapped_column(Text)

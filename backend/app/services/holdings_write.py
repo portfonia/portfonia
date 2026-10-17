@@ -563,3 +563,76 @@ def apply_agent_book(
 
 def enqueue_agent_capture(session: Session, user_id: UUID, holdings: list[Holding]) -> None:
     _enqueue_sparse_for(session, user_id, holdings, log_prefix="agent_holdings")
+
+
+def rollback_holdings(session: Session, user_id: UUID, group_id: UUID, version: str) -> None:
+    user, rows = lock_user_book(session, user_id)
+    groups = holding_changes.retained_groups(session, user_id)
+    if not any(group.id == group_id for group in groups):
+        raise HTTPException(404, "Holding change not found.")
+    if version != format_holdings_version(user.holdings_version):
+        raise HTTPException(409, "version_conflict")
+    before = holding_changes.snapshot(rows)
+    group, target, _ = holding_changes.rollback_target(before, groups, group_id)
+    if target == before:
+        return
+    restored = target.keys() - before.keys()
+    _ensure_cap(user, len(before), len(target), introduces_rows=bool(restored))
+    by_id = {row.id: row for row in rows}
+    for hid in before.keys() - target.keys():
+        session.delete(by_id[hid])
+    written = {hid: data for hid, data in target.items() if before.get(hid) != data}
+    account_ids = resolve_accounts_for_holdings(
+        session,
+        user_id,
+        [
+            (
+                cast(str | None, data["broker"]),
+                cast(str | None, data["account"]),
+                cast(str | None, data["portfolio"]),
+            )
+            for data in written.values()
+        ],
+        archive_unreferenced=False,
+    )
+    capture: list[Holding] = []
+    now = datetime.now(tz=UTC)
+    for (hid, values), account_id in zip(written.items(), account_ids, strict=True):
+        data = {
+            field: _money(value) if field in _MONEY_FIELDS else value
+            for field, value in values.items()
+        }
+        defaults = apply_write_defaults(data.copy())
+        data.update(
+            asset_class=defaults["asset_class"], capture_supported=defaults["capture_supported"]
+        )
+        row = by_id.get(hid)
+        identity_changed = (
+            row is None or row.ticker != data["ticker"] or row.fund_code != data["fund_code"]
+        )
+        manual_changed = (
+            row is None
+            or row.current_value != data["current_value"]
+            or row.pricing_mode != data["pricing_mode"]
+        )
+        if row is None:
+            row = Holding(id=hid, user_id=user_id, **data)
+            session.add(row)
+        else:
+            for field, value in data.items():
+                setattr(row, field, value)
+            if identity_changed:
+                row.market_price = None
+                row.price_as_of = None
+                row.price_fetched_at = None
+        row.account_id = account_id
+        if row.pricing_mode == "manual" and manual_changed:
+            row.last_manual_update = now
+        if identity_changed:
+            capture.append(row)
+    _bump(user)
+    holding_changes.record(
+        session, user_id, before, source="rollback", rollback_to=group.created_at
+    )
+    session.commit()
+    _enqueue_sparse_for(session, user_id, capture, log_prefix="rollback_holdings")

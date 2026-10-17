@@ -1390,7 +1390,7 @@
           "heading": "7. AI Agent access",
           "body": [
             "If you create an API token, we store a one-way hash of it together with its name, its permission (read-only or holdings-write), and its creation, expiry and last-use times. Each request made with a token is logged with the time, the token used, the endpoint and dates requested, the result, and the IP address and User-Agent of the caller. We keep these logs for 90 days to protect your account and to detect misuse. Every successful Agent write request, including unchanged writes, may trigger a separate daily modification notice. Only POST creation uses an idempotency key, and a retry within 24 hours returns the original result; these results are encrypted, and request bodies and idempotency keys are not stored in the request audit. Data returned through the API is delivered to the agent you chose; how that agent stores or uses it is under your control.",
-            "Holding change history from web, file upload and Agent writes is stored encrypted for 30 days. You can view it on the web; your Agent can read it while Jade is active. Successful reads of current holdings, holding change history, snapshots and Jade risk results share at most one access notice per Eastern Time day."
+            "Holding change history from web, file upload, Agent writes and rollbacks is stored encrypted for 30 days. You can view it on the web; your Agent can read it while Jade is active. Successful reads of current holdings, holding change history, snapshots and Jade risk results share at most one access notice per Eastern Time day."
           ]
         },
         {
@@ -2529,6 +2529,15 @@
     "field": "Field",
     "before": "Before",
     "after": "After",
-    "position": "Position"
+    "position": "Position",
+    "rollbackButton": "Restore to before this change",
+    "rollbackBlocked": "A later system maintenance change prevents restoring to this point",
+    "rollbackSummary": "{groups} changes will be undone, restoring holdings to before {time}: {restored} rows restored, {removed} rows removed, {modified} rows modified",
+    "rollbackConfirm": "Restore holdings",
+    "rollbackCancel": "Cancel",
+    "versionConflict": "Holdings changed since this preview",
+    "holdingCap": "Restoring these holdings would exceed your plan’s holding limit",
+    "rollbackError": "Could not restore holdings",
+    "rollback": "Rollback to before {time}"
   }
 }
