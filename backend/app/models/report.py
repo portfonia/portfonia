@@ -5,9 +5,10 @@ from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import CheckConstraint, Date, ForeignKey, Text, UniqueConstraint, func, text
-from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
+from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.encryption import EncryptedJSON, EncryptedString
 from app.models.base import Base
 from app.models.user import User
 
@@ -60,12 +61,10 @@ class Report(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False)
     prompt_version: Mapped[str | None] = mapped_column(Text)
     disclaimer_version: Mapped[str | None] = mapped_column(Text)
-    report_md: Mapped[str | None] = mapped_column(Text)
-    report_html: Mapped[str | None] = mapped_column(Text)
-    # SENSITIVE: full portfolio snapshot (names, tickers, market values, ratios).
-    # Stored as plaintext JSONB and never exposed via ReportOut. Keep it out of
-    # any API schema/log; encrypt at rest before Ring 1 (see CLAUDE.md Data Handling).
-    report_inputs: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    report_md: Mapped[str | None] = mapped_column(EncryptedString)
+    report_html: Mapped[str | None] = mapped_column(EncryptedString)
+    # Encrypted at rest (#791) and never exposed via ReportOut.
+    report_inputs: Mapped[dict[str, Any] | None] = mapped_column(EncryptedJSON)
     email_sent_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     # issue #45: Resend's own delivery id, so a sent report can be
     # cross-referenced against Resend's delivery/bounce/complaint webhooks.

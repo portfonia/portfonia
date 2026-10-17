@@ -18,7 +18,7 @@ class UserInvestmentContext(Base):
     One row per user, no history table: re-answering the questionnaire
     overwrites this row (Concept §4.2 — "重答问卷覆盖原记录"). Reproducibility
     for a past report comes from the snapshot `generate_report` writes into
-    that report's own `report_inputs` JSONB, not from versioning this table.
+    that report's own encrypted `report_inputs` column, not from versioning this table.
 
     `user_id` is this table's PK (not a separate `id`) — one context per
     user, and this table postdates `users` (unlike `holdings`/`reports`,

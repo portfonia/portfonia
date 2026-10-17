@@ -8,7 +8,7 @@ Report design:
   Compliance scan  reject forbidden advisory language in the body (→ needs_review)
   Assemble  header + data-window + §1 (code-built) + cleaned §2/§3/§4 + footer
   Render   translate the assembled report to the output language (#8)
-  Write   reports table (report_md + report_inputs JSONB)
+  Write   reports table (report_md + report_inputs, encrypted at rest)
 
 Layer-3/4 compliance:
   - System prompt contains the full forbidden-vocabulary list and Layer 3 rule.
@@ -1754,7 +1754,7 @@ def regenerate_report(
         fresh_technical = _serialize_technical(
             compute_technical_positions(session, portfolio.get("holdings", []), report.report_date)
         )
-        # New dict identity so SQLAlchemy flags the JSONB column dirty (an
+        # New dict identity so SQLAlchemy flags the column dirty (an
         # in-place mutation of the existing dict would not be detected).
         report.report_inputs = {
             **inputs,

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import uuid
+from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
@@ -22,6 +26,10 @@ from app.core.encryption import (
     encrypt_value,
 )
 from app.models.holding import Holding
+from app.models.macro_coverage import MacroCoverage
+from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
+from app.models.report import Report
+from app.models.upload_job import UploadJob
 from app.tests.conftest import TEST_USER_ID, seed_user
 
 
@@ -335,3 +343,91 @@ def test_holding_null_fields_stay_null_in_db(db_session: Session) -> None:
         text("SELECT ticker FROM holdings WHERE id = :id"), {"id": holding.id}
     ).scalar_one()
     assert raw_ticker is None
+
+
+DERIVED_COLUMNS = [
+    (Report, "report_md", "report text"),
+    (Report, "report_html", "<p>report</p>"),
+    (Report, "report_inputs", {"holdings": ["AAA"]}),
+    (PortfolioValueSnapshot, "market_value", Decimal("12.34")),
+    (PortfolioValueSnapshot, "market_value_base", Decimal("23.45")),
+    (PortfolioValueSnapshot, "cost_basis_base", Decimal("10.00")),
+    (UploadJob, "raw_text", "uploaded holdings"),
+    (UploadJob, "preview", {"rows": [{"ticker": "AAA"}]}),
+    (MacroCoverage, "paragraph_text", "coverage text"),
+    (MacroCoverage, "affected_identifiers", ["AAA", "BBB"]),
+]
+
+
+def _derived_row(model: Any, session: Session) -> Any:
+    if model is Report:
+        return Report(
+            user_id=TEST_USER_ID,
+            report_date=date(2026, 10, 17),
+            report_type="daily",
+            session_node=str(uuid.uuid4()),
+            status="success",
+        )
+    if model is UploadJob:
+        return UploadJob(user_id=TEST_USER_ID, filename="holdings.txt", status="success")
+    if model is PortfolioValueSnapshot:
+        return PortfolioValueSnapshot(
+            user_id=TEST_USER_ID,
+            snapshot_date=date(2026, 10, 17),
+            currency="USD",
+            base_currency="USD",
+        )
+    report = _derived_row(Report, session)
+    session.add(report)
+    session.flush()
+    return MacroCoverage(
+        user_id=TEST_USER_ID,
+        report_id=report.id,
+        development_key=str(uuid.uuid4()),
+        as_of=datetime.now(UTC),
+        coverage_mode="NEW",
+        depth_tier="anchor",
+    )
+
+
+def test_encrypted_json_postgres_round_trip(db_session: Session) -> None:
+    for model, column, value in [
+        (UploadJob, "preview", {"rows": ["AAA"], "label": "café"}),
+        (MacroCoverage, "affected_identifiers", ["AAA", "BBB"]),
+        (UploadJob, "preview", None),
+    ]:
+        row = _derived_row(model, db_session)
+        setattr(row, column, value)
+        db_session.add(row)
+        db_session.flush()
+        row_id = row.id
+        raw = db_session.execute(
+            text(f"SELECT {column} FROM {model.__tablename__} WHERE id = :id"),
+            {"id": row_id},
+        ).scalar_one()
+        if value is None:
+            assert raw is None
+        else:
+            assert raw != json.dumps(value, ensure_ascii=False)
+            assert json.loads(decrypt_value(raw)) == value
+        db_session.expire(row)
+        assert getattr(row, column) == value
+
+
+@pytest.mark.parametrize("model,column,value", DERIVED_COLUMNS)
+def test_derived_columns_encrypted_at_rest(
+    db_session: Session, model: Any, column: str, value: Any
+) -> None:
+    row = _derived_row(model, db_session)
+    setattr(row, column, value)
+    db_session.add(row)
+    db_session.flush()
+    raw = db_session.execute(
+        text(f"SELECT {column} FROM {model.__tablename__} WHERE id = :id"),
+        {"id": row.id},
+    ).scalar_one()
+    plaintext = (
+        json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value)
+    )
+    assert raw != plaintext
+    assert decrypt_value(raw) == plaintext

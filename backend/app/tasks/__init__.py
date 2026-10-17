@@ -263,7 +263,7 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "schedule": 30.0,
     },
     # Upload-job retention sweep (issue #264): daily cleanup of upload_jobs
-    # rows (holdings preview JSONB + terminal shell rows) older than 30
+    # rows (encrypted holdings preview + terminal shell rows) older than 30
     # days. 04:30 ET — every day, staggered from the 03:00 ET backup and
     # the 04:00 ET intelligence-retention sweep.
     "cleanup-upload-jobs-daily": {

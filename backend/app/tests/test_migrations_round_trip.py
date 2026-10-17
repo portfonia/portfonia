@@ -61,7 +61,6 @@ def test_news_surfaced_backfill_reconstructs_from_report_history(alembic_cfg: Co
     backfill resolves only the real one — by url, hashed the same way
     news_fetcher.url_hash does — to a news_surfaced row."""
     from app.models.news_surfaced import NewsSurfaced
-    from app.models.report import Report
 
     command.upgrade(alembic_cfg, "ed3e81d6cccb")  # one revision before f1a2b3c4d5e6
 
@@ -72,6 +71,7 @@ def test_news_surfaced_backfill_reconstructs_from_report_history(alembic_cfg: Co
         from sqlalchemy import MetaData, Table
 
         legacy_news = Table("news", MetaData(), autoload_with=engine)
+        legacy_reports = Table("reports", MetaData(), autoload_with=engine)
         seed_session.execute(
             insert(legacy_news).values(
                 url_hash="abc123",
@@ -94,18 +94,7 @@ def test_news_surfaced_backfill_reconstructs_from_report_history(alembic_cfg: Co
             )
             .returning(legacy_news.c.id)
         ).scalar_one()
-        # Core insert with an explicit column list, not `seed_session.add
-        # (Report(...))` — the live `Report` ORM class always reflects every
-        # column the CURRENT codebase has (e.g. issue #104's recipient_email/
-        # recipient_purpose, added long after this revision), while the DB
-        # here is deliberately pinned at ed3e81d6cccb's older schema.
-        # SQLAlchemy's ORM insert batches same-type rows together
-        # (insertmanyvalues) and includes every mapped column — even ones
-        # left unset on the instance — for batch-shape consistency, so an
-        # ORM-object insert of two Report rows fails the moment Report gains
-        # any column this old schema doesn't have. An explicit `.values()`
-        # Core insert only ever references the columns actually named here,
-        # decoupling this seed from Report's present-day column set.
+        # The reports table is reflected at the pinned revision for this legacy seed.
         news_items = {
             "news_items": [
                 {
@@ -118,7 +107,7 @@ def test_news_surfaced_backfill_reconstructs_from_report_history(alembic_cfg: Co
             ]
         }
         seed_session.execute(
-            insert(Report),
+            insert(legacy_reports),
             [
                 {
                     "user_id": user_id,

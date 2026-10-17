@@ -756,6 +756,7 @@
       "titleAccent": "entre sus posiciones.",
       "tagline": "Información pertinente, profunda y amplia, a su lado durante el ciclo mientras su criterio se fortalece.",
       "sub": "Portfonia es una herramienta de software que sigue noticias, eventos macroeconómicos y novedades de empresas, y los vincula con las posiciones que usted registra.",
+      "security": "Sus posiciones y todos los informes elaborados a partir de ellas están cifrados en nuestra base de datos. Cada llamada de IA envía solo lo que necesita ese informe.",
       "ctaPrimary": "Comenzar",
       "ctaSecondary": "Ver cómo funciona"
     },
@@ -1139,7 +1140,7 @@
         },
         {
           "q": "¿Están seguros los datos de mis posiciones?",
-          "a": "Sí. Sus posiciones se cifran de forma robusta en reposo, a nivel de campo en nuestra base de datos. Las llamadas de IA rechazan por defecto la recopilación de datos para entrenamiento y cada llamada ve solo lo necesario para el informe, nunca toda la cartera indiscriminadamente."
+          "a": "Sí. Sus posiciones se cifran campo por campo en nuestra base de datos, al igual que los datos derivados de ellas: informes, instantáneas diarias de la cartera, archivos cargados ya procesados e historial de cambios. Las llamadas de IA rechazan por defecto la recopilación de datos para entrenamiento, con una excepción declarada en nuestra Política de Privacidad, y cada llamada envía solo lo que necesita ese informe, nunca toda su cartera."
         },
         {
           "q": "¿Qué mercados y posiciones admite?",
@@ -1339,7 +1340,7 @@
     },
     "privacy": {
       "title": "Política de privacidad",
-      "lastUpdated": "Última actualización: 2026-10-13",
+      "lastUpdated": "Última actualización: 2026-10-17",
       "intro": "Su privacidad nos importa. Esta política explica qué recopilamos, por qué y cómo lo protegemos.",
       "sections": [
         {
@@ -1367,7 +1368,7 @@
         {
           "heading": "4. Almacenamiento y seguridad",
           "body": [
-            "Los datos de posiciones están cifrados en reposo. El acceso a los sistemas de producción está restringido y las acciones administrativas se registran.",
+            "Sus posiciones se cifran en reposo a nivel de campo, al igual que los datos derivados de ellas: el texto de los informes y los datos de entrada de cada informe, las instantáneas diarias de la cartera, los archivos cargados ya procesados, el historial de cambios de posiciones y las notas de cobertura de los informes. La clave de cifrado no se almacena en la base de datos ni en sus copias de seguridad. El acceso a los sistemas de producción está restringido, las acciones administrativas se registran y nuestras herramientas administrativas no muestran sus posiciones ni sus informes.",
             "Ningún sistema es perfectamente seguro y no podemos garantizar seguridad absoluta, pero proteger sus datos es un requisito prioritario de ingeniería."
           ]
         },
@@ -1375,7 +1376,7 @@
           "heading": "5. Procesamiento por terceros",
           "body": [
             "Generar un informe implica enviar partes de sus datos a proveedores de grandes modelos de lenguaje para redactarlo. Por defecto, cada llamada se configura para excluir el uso de sus datos en el entrenamiento del proveedor.",
-            "Una excepción limitada, aprobada por el propietario, se aplica a dos pasos concretos no analíticos: generar consultas de búsqueda de mercados públicos y traducir un informe terminado al idioma de visualización. Se dirigen a la API propia de un único proveedor identificado, sin la exclusión de entrenamiento anterior, porque es la única vía para ese modelo de bajo costo. Sus condiciones estándar permiten usar datos enviados para mejorar modelos; se acepta ese riesgo solo para esos dos pasos y no existe un acuerdo de no entrenamiento que lo respalde. La ruta está fijada sin alternativa automática a otro proveedor si no está disponible. La traducción sí procesa texto derivado de sus posiciones porque traduce el informe terminado; la generación de consultas no, pues usa solo temáticas públicas de mercado y macroeconomía.",
+            "Una excepción limitada, aprobada por el propietario, se aplica a un único paso de procesamiento no analítico: traducir un informe terminado al idioma de visualización que usted utiliza. Este paso se envía directamente a la API propia de un único proveedor específico, en lugar de aplicar la exclusión del entrenamiento descrita arriba, porque es la única forma de acceder a ese modelo específico de bajo costo. Las condiciones estándar de la API de ese proveedor permiten usar los datos enviados para mejorar sus modelos, por lo que esta excepción acepta ese riesgo únicamente para este paso; no está respaldada por un acuerdo que prohíba usar los datos para entrenamiento. El enrutamiento está fijado a ese proveedor. Si ese proveedor falla, el paso se reintenta una vez con otro modelo, aplicando la exclusión del entrenamiento. El paso de traducción procesa texto del informe derivado de sus posiciones, ya que traduce el informe terminado.",
             "{merchantOfRecord} procesa los pagos como comerciante registrado (Merchant of Record) y gestiona su información de pago bajo su propio aviso de privacidad."
           ]
         },

@@ -684,3 +684,9 @@ it("747 stacks heading tags under the three homepage headings below sm", () => {
     expect(tag.classList.contains("whitespace-nowrap"), id).toBe(false);
   }
 });
+
+
+it.each(LOCALES)("#791 renders the %s hero security statement", locale => {
+  render(<LocaleProvider routeLocale={locale}><HomeSections /></LocaleProvider>);
+  expect(screen.getByText(catalogs[locale].home.hero.security)).toBeInTheDocument();
+});

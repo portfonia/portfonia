@@ -746,13 +746,8 @@ keeps checking that user for good, matching `tracking_start`'s own
 ## Other accepted Phase 1 tradeoffs (document only, per blacktomb42's
 review follow-up issuecomment-5556912227)
 
-- **`market_value`/`market_value_base` are plain `Numeric`, not
-  encrypted**, while `shares`/`current_value` on the same table are
-  `EncryptedDecimal` — intentional for Phase 1 (these two columns are
-  needed for the TWR read path's arithmetic and are less individually
-  identifying than a raw share count or a manually-typed dollar value), but
-  logged here as encryption-scope debt to revisit if that judgment call
-  changes.
+- #791 encrypted `market_value`, `market_value_base` and `cost_basis_base`
+  (`EncryptedDecimal`), closing this Phase 1 tradeoff.
 - **Header mixes a dollar market-value change with a TWR percentage** when
   `twr=true` (`PerformanceHeader.value_change_base` is always the raw $
   change, `value_change_pct` is the TWR-chained % when `twr=true`) — this

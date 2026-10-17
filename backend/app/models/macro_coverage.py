@@ -44,6 +44,7 @@ from sqlalchemy import ARRAY, CheckConstraint, ForeignKey, Text, UniqueConstrain
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.encryption import EncryptedJSON, EncryptedString
 from app.models.base import Base
 
 # Proposed in Design §4, accepted as-is (owner decision 2026-09-12): first
@@ -113,12 +114,12 @@ class MacroCoverage(Base):
         JSONB, nullable=False, server_default=text("'[]'")
     )
     affected_identifiers: Mapped[list[str]] = mapped_column(
-        ARRAY(Text), nullable=False, server_default=text("'{}'")
+        EncryptedJSON, nullable=False, default=list
     )
     # Audit aid only, per Design §4 — never the sole dedup identity (that is
     # `development_key`) and never re-injected into a later prompt verbatim
     # at full length (see macro_coverage.py's continuity-block excerpt cap).
-    paragraph_text: Mapped[str | None] = mapped_column(Text)
+    paragraph_text: Mapped[str | None] = mapped_column(EncryptedString)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )

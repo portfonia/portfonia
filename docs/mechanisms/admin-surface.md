@@ -130,7 +130,7 @@ comment (issue #645).
   - **`resend=true` (default)**: the handler nulls `email_sent_at` and
     `provider_message_id` on the target `Report` row and flushes **before**
     calling `regenerate_report` — never a physical `DELETE` (that would
-    destroy the `report_inputs` JSONB cache that makes a no-refetch rerun
+    destroy the encrypted `report_inputs` cache that makes a no-refetch rerun
     possible in the first place). Clearing first, not after, matters
     because `send_report_email`'s G3 dedup guard silently no-ops on any
     report where `email_sent_at` is already set — without this ordering a
