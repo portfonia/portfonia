@@ -2,14 +2,12 @@
 #
 # Single source of truth for `holding_parser._classify_asset_class`. Every
 # entry is a real instrument the product owner has seen in a holdings file;
-# new real-world tickers/fund_codes can be added here WITHOUT a code deploy —
-# the loader re-reads this file on every parse (no cache), same live-reload
-# discipline as asset_class_thresholds.yml (#35) and i18n_glossary.yml (#90).
+# the file is loaded once per process; changes ship through commit, image
+# rebuild and deploy (issue #786).
 # Issue #296: the previous in-code dict (holding_parser._TICKER_ASSET_CLASS)
 # had missed 5 production fund_codes, silently falling back to the generic
 # fund catch-all — the third occurrence of that closed-table bug class
-# (#204 FX pairs, #204 PSH ticker collision). Hot-reload makes a coverage
-# gap patchable without shipping a Python change.
+# (#204 FX pairs, #204 PSH ticker collision).
 #
 # Lookup order in code: normalized bare ticker → bare fund_code. Both bare
 # codes and exchange-suffixed forms (.SS for A-share) are listed where the

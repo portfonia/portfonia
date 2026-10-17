@@ -1,5 +1,6 @@
 """Parse free-form holdings text (CSV / Markdown / plain text) via LLM."""
 
+import functools
 import io
 import json
 import logging
@@ -712,12 +713,6 @@ def _strip_code_fence(content: str) -> str:
 _DEFAULT_TICKER_ASSET_CLASS_FILE = _BACKEND_DIR / "config" / "ticker_asset_class.yml"
 
 
-# The ticker/fund_code → asset_class mapping moved out of this module into
-# config/ticker_asset_class.yml (issue #296): an admin can add a real
-# production fund_code without a code deploy. Re-read on every classification
-# (no cache — mirroring asset_class_config.load_asset_class_config and
-# i18n_glossary.load_i18n_glossary), so a newly added entry is live on the
-# next parse with no process restart (the #35 live-reload property).
 def _get_ticker_asset_class_path() -> Path:
     override = get_settings().TICKER_ASSET_CLASS_CONFIG_PATH
     return Path(override) if override else _DEFAULT_TICKER_ASSET_CLASS_FILE
@@ -726,13 +721,16 @@ def _get_ticker_asset_class_path() -> Path:
 def _load_ticker_asset_class() -> dict[str, str]:
     """Return the ticker/fund_code → asset_class mapping from YAML.
 
-    No cache: re-opens the file on every call so an in-place admin edit takes
-    effect on the next parse (issue #296 — the #35 live-reload property;
-    sibling loaders behave the same). Fails loudly on drift, matching
-    asset_class_thresholds.yml's closed-taxonomy discipline: an unknown
-    asset_class VALUE is a config typo, not a silent catch-all.
+    The mapping is parsed and validated once per process per resolved path.
+    A YAML change takes effect when a deploy restarts the processes.
+    Validation errors are not cached and raise on every call. An unknown
+    asset_class value is a config typo, not a silent catch-all.
     """
-    target = _get_ticker_asset_class_path()
+    return _parse_ticker_asset_class(_get_ticker_asset_class_path())
+
+
+@functools.cache
+def _parse_ticker_asset_class(target: Path) -> dict[str, str]:
     with target.open(encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
     raw = data.get("ticker_asset_class")
