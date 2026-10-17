@@ -1965,3 +1965,4 @@ def test_alert_failure_does_not_break_create(
     resp = app_client.post("/holdings", json=_etf("ZZETF1"))
     assert resp.status_code == 201
     assert db_session.query(Holding).filter(Holding.user_id == TEST_USER_ID).count() == 1
+    unmapped_alert.assert_called_once()
