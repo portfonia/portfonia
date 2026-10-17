@@ -32,7 +32,7 @@ class InvestorPreferences:
     written into `report_inputs.investor_questionnaire_snapshot` — same
     closed-enum dict either way. `free_text` is used for live prompt
     injection but is NEVER folded into that snapshot dict: `report_inputs`
-    is unencrypted JSONB, and `free_text` is the one field on
+    is encrypted at rest (#791), and `free_text` is the one field on
     `user_investment_context` encrypted at rest
     (app/models/user_investment_context.py).
 
@@ -40,9 +40,9 @@ class InvestorPreferences:
     report_inputs" — it inevitably does, inside the stored `pass2_prompt`
     text once injected, the same way holdings names and
     values already do. What the exclusion actually buys: free_text does not
-    ALSO exist as its own plainly-labeled, individually queryable key
-    (`investor_questionnaire_snapshot.free_text`) that a broad `report_
-    inputs` scan/export could pull in bulk across every report — instead
+    ALSO exist as a separately labeled key
+    (`investor_questionnaire_snapshot.free_text`) that a bulk read or export
+    of decrypted `report_inputs` could pick out across reports — instead
     it sits, like every other prompt input, embedded in one long
     semi-structured blob per report. Callers must thread `free_text` as its
     own parameter, never fold it into a dict that becomes that snapshot.
