@@ -17,6 +17,7 @@ from app.models.user import User
 from app.schemas.agent_holdings import Create, Patch, ReplaceAll, Validation, fixed
 from app.schemas.holdings import VALID_CURRENCIES, validate_cash_wmf
 from app.services import agent_idempotency, holdings_write
+from app.services.holding_change_alerts import enqueue_change_alert
 from app.services.holding_ordering import sorted_holdings
 from app.services.subscription import is_jade
 
@@ -299,7 +300,7 @@ def mutate(
         )
     try:
         prepared = plan(user, rows, body, hid, submitted)
-        saved, capture, changed = holdings_write.apply_agent_book(
+        saved, capture, changed, group_id = holdings_write.apply_agent_book(
             session,
             user,
             prepared.targets,
@@ -322,6 +323,8 @@ def mutate(
     except Exception:
         session.rollback()
         raise
+    if group_id is not None:
+        enqueue_change_alert(uid, group_id)
     if capture:
         try:
             holdings_write.enqueue_agent_capture(session, uid, capture)

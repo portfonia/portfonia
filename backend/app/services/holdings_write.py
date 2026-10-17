@@ -21,6 +21,7 @@ from app.models.user import User
 from app.schemas.holdings import HoldingPatch, ParsedRow
 from app.services import holding_changes
 from app.services.accounts import resolve_accounts_for_holdings
+from app.services.holding_change_alerts import enqueue_change_alert
 from app.services.holding_ordering import sorted_holdings
 from app.services.holding_parser import (
     _classify_asset_class,
@@ -345,6 +346,7 @@ def confirm_holdings(
     after = len(rows) if mode == "replace" else before + len(rows)
     introduces = len(rows) > 0
     _ensure_cap(user, before, after, introduces_rows=introduces)
+    group_id = None
     if mode == "replace":
         changed = before > 0 or after > 0
         if changed:
@@ -357,8 +359,10 @@ def confirm_holdings(
                 archive_unreferenced=True,
             )
             _bump(user)
-            holding_changes.record(session, user_id, change_before, source="file")
+            group_id = holding_changes.record(session, user_id, change_before, source="file")
         session.commit()
+        if group_id is not None:
+            enqueue_change_alert(user_id, group_id)
         if changed:
             _enqueue_replaced_book(session, user_id)
     elif rows:
@@ -370,8 +374,10 @@ def confirm_holdings(
             archive_unreferenced=False,
         )
         _bump(user)
-        holding_changes.record(session, user_id, change_before, source="file")
+        group_id = holding_changes.record(session, user_id, change_before, source="file")
         session.commit()
+        if group_id is not None:
+            enqueue_change_alert(user_id, group_id)
         _enqueue_sparse_for(session, user_id, inserted, log_prefix="confirm_holdings")
     else:
         session.commit()
@@ -499,7 +505,7 @@ def apply_agent_book(
     *,
     whole: bool,
     token_id: UUID,
-) -> tuple[list[Holding], list[Holding], bool]:
+) -> tuple[list[Holding], list[Holding], bool, UUID | None]:
     """Apply already checked Agent targets inside the caller's locked transaction.
 
     The caller must first run agent_holdings.plan() under the same user lock;
@@ -557,8 +563,10 @@ def apply_agent_book(
         session.delete(holding)
     _bump(user)
     session.flush()
-    holding_changes.record(session, user.id, change_before, source="agent", token_id=token_id)
-    return result, capture, True
+    group_id = holding_changes.record(
+        session, user.id, change_before, source="agent", token_id=token_id
+    )
+    return result, capture, True, group_id
 
 
 def enqueue_agent_capture(session: Session, user_id: UUID, holdings: list[Holding]) -> None:

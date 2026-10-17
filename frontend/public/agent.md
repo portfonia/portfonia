@@ -322,6 +322,7 @@ at rest; POST retries within 24 hours return the original result.
 Successful reads of current holdings, holding change history, snapshots and Jade risk results
 share at most one access email per ET day. Every successful Agent write request,
 including unchanged writes, may trigger a separate daily modification email.
+An Agent write or file upload that sharply reduces holdings rows or changes total value may trigger a separate alert email, at most one per Eastern Time date of the write.
 Validation and idempotent replay send no data notice. A notification failure
 after commit preserves the success and replay result. Notice links revoke every
 API token on the account at once, including other agents' tokens. Create new

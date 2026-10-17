@@ -1120,7 +1120,12 @@ _API_ACCESS_NOTICE_COPY: dict[str, dict[str, str]] = {
 
 
 def _send_api_data_notice(
-    email: str, revoke_url: str, locale: str, copies: dict[str, dict[str, str]]
+    email: str,
+    revoke_url: str,
+    locale: str,
+    copies: dict[str, dict[str, str]],
+    *,
+    body: str | None = None,
 ) -> bool:
     """Send the metadata-only notice; never include holding values or API tokens."""
     try:
@@ -1135,7 +1140,9 @@ def _send_api_data_notice(
                     "to": [email],
                     "reply_to": settings.EMAIL_REPLY_TO,
                     "subject": copy["subject"],
-                    "text": copy["body"].format(revoke_url=revoke_url),
+                    "text": body
+                    if body is not None
+                    else copy["body"].format(revoke_url=revoke_url),
                 },
             )
             response.raise_for_status()
@@ -1173,3 +1180,82 @@ def send_api_access_notice(email: str, revoke_url: str, *, locale: str = "en") -
 
 def send_api_modification_notice(email: str, revoke_url: str, *, locale: str = "en") -> bool:
     return _send_api_data_notice(email, revoke_url, locale, _API_MODIFICATION_NOTICE_COPY)
+
+
+_HOLDINGS_CHANGE_ALERT_COPY: dict[str, dict[str, str]] = {
+    "en": {
+        "subject": "Portfonia - your holdings changed sharply",
+        "deletion": "The number of holdings rows fell sharply.",
+        "drop": "The total value of your holdings fell sharply.",
+        "rise": "The total value of your holdings rose sharply.",
+        "time": "Change time: {changed_at_et}.",
+        "file": "Source: file upload.",
+        "agent": "Source: Agent token {name} ({prefix}).",
+        "rows": "Holdings rows: {rows_before} -> {rows_after}.",
+        "value": "Total value change: {value_change_pct:+d}%.",
+        "history": "Open your change history to review this change and restore holdings to before it:\nhttps://portfonia.com/holdings/changes",
+        "revoke": "If you did not authorize this Agent write, revoke all your API tokens to stop future access:",
+    },
+    "zh": {
+        "subject": "Portfonia - 您的持仓发生大幅变动",
+        "deletion": "持仓行数大幅减少。",
+        "drop": "持仓总价值大幅下降。",
+        "rise": "持仓总价值大幅上升。",
+        "time": "变更时间：{changed_at_et}。",  # noqa: RUF001
+        "file": "来源：文件上传。",  # noqa: RUF001
+        "agent": "来源：Agent token {name}（{prefix}）。",  # noqa: RUF001
+        "rows": "持仓行数：{rows_before} -> {rows_after}。",  # noqa: RUF001
+        "value": "总价值变化：{value_change_pct:+d}%。",  # noqa: RUF001
+        "history": "打开持仓变更记录查看此次变更，并可在那里将持仓恢复到此次变更之前：\nhttps://portfonia.com/holdings/changes",  # noqa: RUF001
+        "revoke": "如果您未授权此次智能体写入，请吊销全部 API token，阻止今后的访问：",  # noqa: RUF001
+    },
+    "zh-Hant": {
+        "subject": "Portfonia - 您的持倉發生大幅變動",
+        "deletion": "持倉列數大幅減少。",
+        "drop": "持倉總價值大幅下降。",
+        "rise": "持倉總價值大幅上升。",
+        "time": "變更時間：{changed_at_et}。",  # noqa: RUF001
+        "file": "來源：檔案上傳。",  # noqa: RUF001
+        "agent": "來源：Agent token {name}（{prefix}）。",  # noqa: RUF001
+        "rows": "持倉列數：{rows_before} -> {rows_after}。",  # noqa: RUF001
+        "value": "總價值變化：{value_change_pct:+d}%。",  # noqa: RUF001
+        "history": "開啟持倉變更記錄查看此次變更，並可在該處將持倉恢復至此次變更之前：\nhttps://portfonia.com/holdings/changes",  # noqa: RUF001
+        "revoke": "如果您未授權此次智能體寫入，請撤銷全部 API token，阻止今後的存取：",  # noqa: RUF001
+    },
+}
+
+
+def send_holdings_change_alert(
+    email: str,
+    *,
+    locale: str,
+    signals: list[str],
+    changed_at_et: str,
+    source: str,
+    token: tuple[str, str] | None,
+    rows_before: int,
+    rows_after: int,
+    value_change_pct: int | None,
+    revoke_url: str | None,
+) -> bool:
+    """Send counts and percentages with history and Agent-only revocation links."""
+    copy = _HOLDINGS_CHANGE_ALERT_COPY.get(locale, _HOLDINGS_CHANGE_ALERT_COPY["en"])
+    lines = [copy[signal] for signal in signals]
+    lines.append(copy["time"].format(changed_at_et=changed_at_et))
+    if source == "agent":
+        assert token is not None
+        lines.append(copy["agent"].format(name=token[0], prefix=token[1]))
+    else:
+        lines.append(copy["file"])
+    lines.append(copy["rows"].format(rows_before=rows_before, rows_after=rows_after))
+    if value_change_pct is not None:
+        lines.append(copy["value"].format(value_change_pct=value_change_pct))
+    lines.append(copy["history"])
+    if source == "agent":
+        modification = _API_MODIFICATION_NOTICE_COPY.get(
+            locale, _API_MODIFICATION_NOTICE_COPY["en"]
+        )
+        lines.extend([copy["revoke"], revoke_url or "", modification["body"].split("\n\n")[-1]])
+    return _send_api_data_notice(
+        email, revoke_url or "", locale, {"en": copy, locale: copy}, body="\n\n".join(lines)
+    )

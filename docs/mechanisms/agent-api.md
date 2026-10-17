@@ -534,3 +534,40 @@ history Jade-only, updates token capabilities, and renames the public token card
 "Verify token permissions". Snapshot and intelligence access remains Advanced.
 The four-locale public Agent guide now explains the complete agent-driven holdings
 pipeline; #774 completes the shared-access-notice lists on the Agent page.
+
+## Large holdings-change alerts (#785)
+
+Agent writes and file uploads (append or replace) enqueue asynchronous alert
+assessment after their holdings transaction commits. Web single-row edits and
+rollbacks do not alert; existing daily access and modification notices are
+unchanged. Enqueue and evaluation failures are logged without changing write
+results. Task payloads contain only user and change-group IDs (plus the claimed
+flag on a delivery retry).
+
+Assessment reads the target group, current holdings and this user's groups at
+or after the target in one REPEATABLE READ transaction. History replay yields
+the before and after books; blocked reconstruction skips the alert. Transient
+holdings derive capture support using only `resolve_holding_market`, without
+changing recorded fields or deriving asset classes. Both books use the same
+latest captured closes for their instruments, FX rates and user base currency,
+with the per-row valuation rules shared with `compute_portfolio`. Unpriced or
+no-FX rows contribute nothing; auto rows have no market-price fallback here.
+
+Any of these signals triggers: a net row decrease of at least 30%, a total
+value decrease of at least 30%, or a total value increase of at least 100%.
+Value signals are skipped when the before value is not positive. There is no
+minimum book size. The first evaluation to claim
+`holdings:alert:{user_id}:{write_et_date}` sends, using the target group's ET
+date and a 129600-second Redis SET NX marker. Tasks may finish out of write
+order. A failed send retries once after 300 seconds without reclaiming the
+marker, including across midnight.
+
+Verified recipients receive hand-written English, Simplified Chinese or
+Traditional Chinese copy; Spanish falls back to English. The email lists the
+signals, write time and source (file upload or Agent token name and prefix),
+row counts and signed rounded value-change percentage when available. It
+contains no amounts, currencies or instrument names. It links to holding change
+history and explains restoring holdings to before the change. Agent alerts
+also include a fresh revoke-all link and the existing revocation paragraph;
+file alerts do not. Privacy section 7, the Agent notice, guide limits and public
+`agent.md` describe the separate alert. No migration or Beat entry is added.
