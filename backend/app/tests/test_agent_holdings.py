@@ -1,8 +1,11 @@
 """Strict current-holdings API contracts (#754), using real PostgreSQL."""
 
+from collections.abc import Iterator
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import TypedDict, cast
+from unittest.mock import MagicMock
 from uuid import UUID
 
 import pytest
@@ -12,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.timezones import today_et
 from app.models.holding import Holding
+from app.services import holding_parser as holding_parser_module
 from app.tests.conftest import TEST_USER_ID, seed_user
 
 
@@ -1081,3 +1085,26 @@ def test_775_daily_token_capabilities(
         "holdings_write": False,
         "jade": False,
     }
+
+
+@pytest.fixture
+def unmapped_alert(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[MagicMock]:
+    holding_parser_module._parse_ticker_asset_class.cache_clear()
+    mapping = tmp_path / "ticker_asset_class.yml"
+    mapping.write_text("ticker_asset_class:\n  MAPD1: EQUITY_DM\n", encoding="utf-8")
+    monkeypatch.setattr(holding_parser_module, "_get_ticker_asset_class_path", lambda: mapping)
+    delay = MagicMock()
+    monkeypatch.setattr("app.tasks.admin_tasks.send_admin_alert_task.delay", delay)
+    yield delay
+    holding_parser_module._parse_ticker_asset_class.cache_clear()
+
+
+def test_agent_create_of_unmapped_etf_alerts_with_source(
+    app_client: TestClient, writer: dict[str, str], unmapped_alert: MagicMock
+) -> None:
+    row = {**ROW, "pricing_mode": "auto", "asset_type": "etf", "ticker": "ZZETF1", "shares": "1"}
+    response = app_client.post(URL, headers=writer, json={"version": "0", "holding": row})
+    assert response.status_code == 201
+    unmapped_alert.assert_called_once()
+    body = unmapped_alert.call_args.args[1]
+    assert "ZZETF1" in body and "agent" in body

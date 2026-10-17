@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -16,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.models.holding import Holding
 from app.models.price_snapshot import PriceSnapshot
 from app.models.upload_job import UploadJob
+from app.services import holding_parser as holding_parser_module
 from app.services import holdings_write
 from app.services.holdings_export import MANUAL_LISTED_PLACEHOLDER
 from app.tests.conftest import TEST_USER_ID, seed_user
@@ -1914,3 +1916,52 @@ def test_confirm_replace_persistence_failure_rolls_back_and_does_not_enqueue(
     remaining = db_session.get(Holding, uuid.UUID(created["id"]))
     assert remaining is not None
     assert remaining.name == "Apple"
+
+
+@pytest.fixture
+def unmapped_alert(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[MagicMock]:
+    holding_parser_module._parse_ticker_asset_class.cache_clear()
+    mapping = tmp_path / "ticker_asset_class.yml"
+    mapping.write_text("ticker_asset_class:\n  MAPD1: EQUITY_DM\n", encoding="utf-8")
+    monkeypatch.setattr(holding_parser_module, "_get_ticker_asset_class_path", lambda: mapping)
+    delay = MagicMock()
+    monkeypatch.setattr("app.tasks.admin_tasks.send_admin_alert_task.delay", delay)
+    yield delay
+    holding_parser_module._parse_ticker_asset_class.cache_clear()
+
+
+def _etf(ticker: str, **kw: object) -> dict[str, object]:
+    return {**_PARSED_APPLE, "name": ticker, "ticker": ticker, "asset_type": "etf", **kw}
+
+
+def test_confirm_append_alerts_once_for_unmapped_fund_rows(
+    app_client: TestClient, unmapped_alert: MagicMock
+) -> None:
+    rows = [_etf("MAPD1"), _etf("ZZETF1"), _etf("ZZETF2"), _PARSED_APPLE]
+    assert app_client.post("/holdings/confirm?mode=append", json=rows).status_code == 200
+    unmapped_alert.assert_called_once()
+    body = unmapped_alert.call_args.args[1]
+    assert "ZZETF1" in body and "ZZETF2" in body
+    assert "MAPD1" not in body and "AAPL" not in body
+    assert "file" in body
+
+
+def test_already_alerted_identifier_is_not_alerted_again(
+    app_client: TestClient, unmapped_alert: MagicMock
+) -> None:
+    created = app_client.post("/holdings", json=_etf("ZZETF1")).json()
+    unmapped_alert.assert_called_once()
+    unmapped_alert.reset_mock()
+    assert (
+        app_client.patch(f"/holdings/{created['id']}", json={"name": "renamed"}).status_code == 200
+    )
+    unmapped_alert.assert_not_called()
+
+
+def test_alert_failure_does_not_break_create(
+    app_client: TestClient, db_session: Session, unmapped_alert: MagicMock
+) -> None:
+    unmapped_alert.side_effect = RuntimeError("broker down")
+    resp = app_client.post("/holdings", json=_etf("ZZETF1"))
+    assert resp.status_code == 201
+    assert db_session.query(Holding).filter(Holding.user_id == TEST_USER_ID).count() == 1

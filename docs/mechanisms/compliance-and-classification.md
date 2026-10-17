@@ -196,6 +196,29 @@ publishes same evening after A-share close). Confirm-time
 `detect_window_anomalies` identifier fallback chain: `h.ticker or h.fund_code`.
 
 
+#### Unmapped fund/ETF alert (issue #788)
+
+After a persisted holdings write (file confirm, web create/update, rollback, Agent
+write), `holdings_write.enqueue_unmapped_asset_class_alert` checks each written row
+with `holding_parser.unmapped_fund_identifier`: an `etf`/`fund` row whose ticker and
+fund_code are both absent from `ticker_asset_class.yml` was stored as `EQUITY_BROAD`
+through the `asset_type` catch-all. One WARNING ops email lists the new identifiers
+with market, asset type and write source (no user id, name, shares or amounts). Each
+identifier is deduplicated for 7 days through `alert_dedup`; the mark is written
+before the send, so a failed delivery is not re-alerted until the mark expires.
+Failures are logged and never affect the write.
+
+Fix route: add the identifier to `backend/config/ticker_asset_class.yml` by PR, deploy,
+run `python -m app.scripts.reclassify_asset_class` (dry run) and, with the owner's
+approval, `--apply`.
+
+Allocation history may show a fund/ETF moving from `EQUITY_BROAD` to another class on
+the day its mapping was deployed, with no change in the user's holdings. Snapshots
+captured before the mapping keep the fallback class; the owner decided not to backfill
+them (#788). A correction would have to match snapshot rows by decrypted
+ticker/fund_code, not `holding_id`, because replace-mode confirm re-creates holdings
+rows.
+
 ### §1 / distribution / §4.1 now read `asset_class`, not sector (2026-06-19)
 
 `portfolio_calculator.py` adds `PortfolioSnapshot.by_asset_class` (every
