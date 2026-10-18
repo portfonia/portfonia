@@ -137,9 +137,8 @@ class Settings(BaseSettings):
     # multi-tenant SaaS handling user holdings, so any call carrying holdings data
     # (parsing, personalized reports, follow-ups) must route ONLY to providers
     # that do not retain or train on the payload. "deny" makes OpenRouter exclude
-    # data-collecting providers — this is how we use cheap DeepSeek V4 Flash/Pro
-    # while still meeting the "not used for training" requirement (we never hit the
-    # DeepSeek first-party API, whose terms allow training). See §8.8. Set to empty
+    # data-collecting providers, so every call meets the "not used for training"
+    # requirement. See §8.8. Set to empty
     # only to disable this guard (not recommended for holdings-bearing calls).
     # Applied to every LLM call, including translation (#793).
     OPENROUTER_DATA_COLLECTION: str = "deny"

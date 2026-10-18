@@ -68,10 +68,7 @@ class ErrorPolicy:
 
     ``fallbackable``: could routing the same call to a *different*
     model/provider plausibly succeed? Informational on the error itself.
-    Issue #477's BYOK helper decides the second-tier call from
-    ``is_retryable``, not this flag (the BYOK pin itself still must not
-    open ``allow_fallbacks``). Holdings parsing still runs one model
-    twice (#84) and does not consume this flag.
+    Holdings parsing still runs one model twice (#84) and does not consume this flag.
     """
 
     retryable: bool
