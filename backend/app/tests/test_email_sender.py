@@ -19,6 +19,7 @@ import pytest
 from bs4 import BeautifulSoup, Tag
 from sqlalchemy.orm import Session
 
+from app.models.report import Report
 from app.models.user import User
 from app.services.email_sender import (
     _TAG_STYLES,
@@ -320,6 +321,54 @@ def test_send_success(
     session.execute.assert_called_once()
     session.commit.assert_called_once()
     assert report.email_sent_at is not None
+
+
+@patch("app.services.email_sender.send_ops_alert")
+@patch(
+    "app.services.email_sender.recipient_email_with_purpose",
+    return_value=("test@example.com", "account_email"),
+)
+@patch("app.services.email_sender.get_settings")
+@patch("app.services.email_sender.httpx.Client")
+def test_send_persists_encrypted_report_html(
+    mock_client_cls: MagicMock,
+    mock_settings: MagicMock,
+    mock_recipient: MagicMock,
+    mock_ops_alert: MagicMock,
+    db_session: Session,
+) -> None:
+    mock_settings.return_value = _mock_settings()
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"id": "re_test"}
+    mock_resp.raise_for_status.return_value = None
+    mock_client_cls.return_value.__enter__.return_value.post.return_value = mock_resp
+
+    user = _real_user_row(uuid.uuid4())
+    db_session.add(user)
+    db_session.flush()
+    report = Report(
+        user_id=user.id,
+        status="success",
+        report_date=date(2026, 10, 17),
+        report_type="incremental",
+        session_node="manual",
+        report_md="# Briefing\n\nBody",
+        email_sent_at=None,
+    )
+    db_session.add(report)
+    db_session.flush()
+    report_id = report.id
+    db_session.commit()
+
+    result = send_report_email(report, db_session)
+    db_session.expire_all()
+    reloaded = db_session.query(Report).filter(Report.id == report_id).one()
+
+    assert result is True
+    assert reloaded.email_sent_at is not None
+    assert reloaded.provider_message_id == "re_test"
+    assert isinstance(reloaded.report_html, str) and reloaded.report_html
+    mock_ops_alert.assert_not_called()
 
 
 @patch(
