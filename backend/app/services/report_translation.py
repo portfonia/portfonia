@@ -1,7 +1,7 @@
 """Render an assembled report to the output language (#8).
 
 Split out of report_generator.py (#37). Depends on report_llm.py for the
-actual OpenRouter call.
+actual OpenRouter call: deny, unpinned, flex with one standard-tier fallback (#793).
 """
 
 from __future__ import annotations
@@ -13,11 +13,7 @@ import openai
 
 from app.core.config import get_settings
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
-from app.services.report_llm import (
-    _call_llm,  # noqa: F401 — existing tests patch this module attribute
-    _call_llm_byok_with_fallback,
-    _openrouter_client,
-)
+from app.services.report_llm import _call_llm, _openrouter_client
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +31,8 @@ _TRANSLATION_MIN_SOURCE_CHARS = 200
 # deepseek-v4-flash after repeated full-pipeline runs).
 _TRANSLATION_PACING_SECONDS = 2.0
 
-# _BYOK_PROVIDER_ORDER lives in report_llm.py, next to _call_llm's deny/
-# allow_fallbacks pairing (PR #150 review) — it pins BOTH Pass 1 search-query
-# generation (report_generator.py) and translation (this module) via
-# `_call_llm_byok_with_fallback`. `_call_llm` remains imported so existing
-# tests can patch this module's name; production call sites use the helper.
+# Translation keeps data_collection=deny on both flex and standard tiers (#793).
+_TRANSLATION_SERVICE_TIER = "flex"
 
 
 def _build_glossary_instruction(target_lang: str) -> str:
@@ -107,8 +100,38 @@ def _translate_md(md: str, target_lang: str) -> str:
     return "\n".join(parts)
 
 
+def _translate_call(client: openai.OpenAI, model: str, system: str, chunk: str) -> str:
+    effort = get_settings().LOW_COST_LLM_REASONING_EFFORT
+    try:
+        return _call_llm(
+            client,
+            model,
+            system,
+            chunk,
+            with_holdings=True,
+            pin_provider=False,
+            reasoning_effort=effort,
+            allow_empty_content=True,
+            service_tier=_TRANSLATION_SERVICE_TIER,
+        )
+    except Exception as exc:
+        logger.warning(
+            "translation flex call failed (%s); retrying on standard tier", type(exc).__name__
+        )
+        return _call_llm(
+            client,
+            model,
+            system,
+            chunk,
+            with_holdings=True,
+            pin_provider=False,
+            reasoning_effort=effort,
+            allow_empty_content=True,
+        )
+
+
 def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str) -> str:
-    """Translate one chunk, guarding against the model silently dropping content.
+    """Translate via deny + flex (one standard-tier fallback), checking truncation.
 
     A successful HTTP 200 can still carry a truncated body (provider mid-response
     cut-off, common on the rate-limited free tier). Chinese is denser than English
@@ -117,10 +140,9 @@ def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str)
     the English source for that chunk — a complete English section beats a silently
     dropped one (e.g. §3 vanishing from the report).
 
-    Routed through `_call_llm_byok_with_fallback`: the primary leg is the
-    issue #78 BYOK pin (order=["DeepSeek"], allow_fallbacks=False, deny off,
-    reasoning off). After that leg exhausts its retry budget on a retryable
-    error, issue #477 makes one additional deny-gated marketplace call.
+    Routed through `_translate_call`: unpinned, data_collection=deny,
+    reasoning_effort=none, flex tier with one standard-tier fallback per
+    failed flex call (#793). Standard-tier exceptions propagate.
     Translation carries holdings-derived report text (with_holdings=True).
     """
 
@@ -134,27 +156,13 @@ def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str)
     # source (_short()) — _call_llm raising on a blank body by default
     # (PR #161 review) would replace that graceful degradation with a hard
     # failure of the whole translation pass over one chunk.
-    out = _call_llm_byok_with_fallback(
-        client,
-        model,
-        system,
-        chunk,
-        with_holdings=True,
-        allow_empty_content=True,
-    )
+    out = _translate_call(client, model, system, chunk)
     if _short(out):
         logger.warning(
             "translation chunk looked truncated (%d->%d chars); retrying", len(chunk), len(out)
         )
         time.sleep(_TRANSLATION_PACING_SECONDS)
-        out = _call_llm_byok_with_fallback(
-            client,
-            model,
-            system,
-            chunk,
-            with_holdings=True,
-            allow_empty_content=True,
-        )
+        out = _translate_call(client, model, system, chunk)
     if _short(out):
         logger.error("translation chunk still truncated after retry; keeping source for this chunk")
         return chunk

@@ -1140,7 +1140,7 @@
         },
         {
           "q": "¿Están seguros los datos de mis posiciones?",
-          "a": "Sí. Sus posiciones se cifran campo por campo en nuestra base de datos, al igual que los datos derivados de ellas: informes, instantáneas diarias de la cartera, archivos cargados ya procesados e historial de cambios. Las llamadas de IA rechazan por defecto la recopilación de datos para entrenamiento, con una excepción declarada en nuestra Política de Privacidad, y cada llamada envía solo lo que necesita ese informe, nunca toda su cartera."
+          "a": "Sí. Sus posiciones se cifran campo por campo en nuestra base de datos, al igual que los datos derivados de ellas: informes, instantáneas diarias de la cartera, archivos cargados ya procesados e historial de cambios. Las llamadas de IA rechazan la recopilación de datos para entrenamiento, y cada llamada envía solo lo que necesita ese informe, nunca toda su cartera."
         },
         {
           "q": "¿Qué mercados y posiciones admite?",
@@ -1376,7 +1376,6 @@
           "heading": "5. Procesamiento por terceros",
           "body": [
             "Generar un informe implica enviar partes de sus datos a proveedores de grandes modelos de lenguaje para redactarlo. Por defecto, cada llamada se configura para excluir el uso de sus datos en el entrenamiento del proveedor.",
-            "Una excepción limitada, aprobada por el propietario, se aplica a un único paso de procesamiento no analítico: traducir un informe terminado al idioma de visualización que usted utiliza. Este paso se envía directamente a la API propia de un único proveedor específico, en lugar de aplicar la exclusión del entrenamiento descrita arriba, porque es la única forma de acceder a ese modelo específico de bajo costo. Las condiciones estándar de la API de ese proveedor permiten usar los datos enviados para mejorar sus modelos, por lo que esta excepción acepta ese riesgo únicamente para este paso; no está respaldada por un acuerdo que prohíba usar los datos para entrenamiento. El enrutamiento está fijado a ese proveedor. Si ese proveedor falla, el paso se reintenta una vez con otro modelo, aplicando la exclusión del entrenamiento. El paso de traducción procesa texto del informe derivado de sus posiciones, ya que traduce el informe terminado.",
             "{merchantOfRecord} procesa los pagos como comerciante registrado (Merchant of Record) y gestiona su información de pago bajo su propio aviso de privacidad."
           ]
         },

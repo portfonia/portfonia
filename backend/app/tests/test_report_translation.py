@@ -10,10 +10,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from app.services import report_translation as rt
-from app.services.report_llm import _BYOK_PROVIDER_ORDER
 
 
 def _fake_llm_response(content: str | None) -> MagicMock:
@@ -85,28 +82,29 @@ def test_split_sections_chunks_at_section_and_subsection_headings_and_roundtrips
     assert "\n".join(chunks) == md
 
 
-@pytest.mark.no_byok_fallback_alias
-def test_translate_chunk_uses_byok_hard_pin_no_deny_no_reasoning() -> None:
-    """PR #79 review: lock down the exact extra_body shape of the BYOK
-    exception (issue #78) end-to-end through the real _call_llm — not just
-    that the call site passes the right kwargs, but that they actually produce
-    a hard-pinned, deny-off, reasoning-off request. Guards against a future
-    edit silently re-enabling deny, dropping the allow_fallbacks=False pin
-    (which would reopen the marketplace-fallback compliance gap), or
-    re-enabling paid reasoning tokens on this cheap tier."""
+def test_translate_chunk_uses_deny_unpinned_none_flex() -> None:
     client = MagicMock()
-    client.chat.completions.create.return_value = _fake_llm_response(
-        "## §3 持仓背景\n\n" + ("该持仓非常重要并值得密切关注。" * 20)
-    )
-    source = "## §3 Holdings Context\n\n" + ("This holding matters. " * 20)
-    rt._translate_chunk(client, "m", "sys", source)
+    client.chat.completions.create.return_value = _fake_llm_response("translated")
+    rt._translate_chunk(client, "m", "sys", "short source")
+    extra = client.chat.completions.create.call_args.kwargs["extra_body"]
+    assert extra.get("service_tier") == "flex"
+    assert extra["provider"]["data_collection"] == "deny"
+    assert "order" not in extra["provider"]
+    assert extra["reasoning"] == {"effort": "none"}
 
-    kwargs = client.chat.completions.create.call_args.kwargs
-    provider = kwargs["extra_body"]["provider"]
-    assert provider["order"] == _BYOK_PROVIDER_ORDER == ["DeepSeek"]
-    assert provider["allow_fallbacks"] is False
-    assert "data_collection" not in provider
-    assert kwargs["extra_body"]["reasoning"] == {"enabled": False}
+
+def test_translate_chunk_retries_failed_flex_on_standard_tier() -> None:
+    client = MagicMock()
+    client.chat.completions.create.side_effect = [
+        TypeError("failed flex call"),
+        _fake_llm_response("translated"),
+    ]
+    out = rt._translate_chunk(client, "m", "sys", "short source")
+    assert client.chat.completions.create.call_count == 2
+    assert (
+        "service_tier" not in client.chat.completions.create.call_args_list[1].kwargs["extra_body"]
+    )
+    assert out == "translated"
 
 
 def test_translate_chunk_falls_back_to_source_when_truncated() -> None:
@@ -123,7 +121,6 @@ def test_translate_chunk_falls_back_to_source_when_truncated() -> None:
     assert out == source  # kept the English source rather than dropping the section
 
 
-@pytest.mark.no_byok_fallback_alias
 def test_translate_chunk_falls_back_to_source_on_real_empty_response() -> None:
     """End-to-end through the real (unmocked) _call_llm: a blank model
     response must resolve via _translate_chunk's own short-then-retry-then-

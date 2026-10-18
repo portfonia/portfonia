@@ -73,9 +73,8 @@ from app.services.portfolio_weights import _holding_identifier as _identifier
 from app.services.portfolio_weights import _weight, large_weight_identifiers
 from app.services.price_anomaly_detector import PriceAnomaly
 from app.services.report_context import ReportContext, ReportInputsDict
-from app.services.report_llm import (  # noqa: F401 - retained for legacy test fixture patching
+from app.services.report_llm import (
     _call_llm,
-    _call_llm_byok_with_fallback,
     _openrouter_client,
 )
 from app.services.report_prompts import (
@@ -154,7 +153,10 @@ def _pass2_route(session: Session, user_id: uuid.UUID) -> tuple[str, dict[str, A
             "pin_provider": False,
             "reasoning_effort": settings.JADE_PASS2_REASONING_EFFORT,
         }
-    return settings.PRIMARY_LLM_MODEL, {}
+    return settings.PRIMARY_LLM_MODEL, {
+        "pin_provider": False,
+        "reasoning_effort": settings.PRIMARY_LLM_REASONING_EFFORT,
+    }
 
 
 def _serialize_holding_move(move: HoldingMove) -> dict[str, Any]:

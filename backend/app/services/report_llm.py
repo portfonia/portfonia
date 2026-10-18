@@ -17,7 +17,6 @@ import openai
 
 from app.core.config import OR_ATTRIBUTION_HEADERS, get_settings
 from app.services.llm_errors import (
-    LLMCallError,
     LLMEmptyResponseError,
     LLMErrorCode,
     classify,
@@ -41,30 +40,6 @@ def _openrouter_client() -> openai.OpenAI:
         base_url=settings.OPENROUTER_BASE_URL,
         default_headers=OR_ATTRIBUTION_HEADERS,
     )
-
-
-# Provider preference for the unstructured/BYOK calls — Pass 1 search-query
-# generation (report_generator.py) and translation (report_translation.py),
-# issue #78, 2026-08-06. Lives here (transport/compliance policy), not in
-# either call site's own module (PR #150 review): both sites treat this as
-# THE shared hard pin, so a translation-only or Pass-1-only home would let a
-# future edit to that one leaf ("this module no longer needs BYOK") silently
-# break the other site's pin. Distinct from OPENROUTER_PROVIDER_ORDER
-# (DigitalOcean,Venice — used for pinned Pass2/regenerate calls on
-# PRIMARY_LLM_MODEL): pins straight to DeepSeek's own first-party backend via
-# OpenRouter BYOK rather than the DigitalOcean/Venice marketplace pool. Both
-# call sites also pass enforce_data_collection=False (see _call_llm) — a
-# scoped compliance exception, since routing to DeepSeek's own API means the
-# general OPENROUTER_DATA_COLLECTION=deny guard (which exists specifically to
-# keep calls off DeepSeek's first-party endpoint) would otherwise exclude this
-# provider entirely. UNLIKE _call_llm's usual allow_fallbacks=True default,
-# both call sites force allow_fallbacks=False — a HARD pin, not a preference:
-# since the deny guard is off for these calls, an open fallback on DeepSeek
-# unavailability could silently reroute a payload (translation ships
-# with_holdings=True) to an arbitrary marketplace provider deny would
-# normally have excluded. Fail the call rather than degrade the compliance
-# guarantee (PR #79 review finding).
-_BYOK_PROVIDER_ORDER = ["DeepSeek"]
 
 
 class _RetryGroup(StrEnum):
@@ -96,8 +71,7 @@ _RETRY_GROUPS: dict[LLMErrorCode, _RetryGroup] = {
 # Backoff sequences inside _call_llm (bounded, then re-raise so the outer
 # Celery retry still sees a persistent failure). (I-DEBT-2)
 # Values are admin-editable via config/llm_retry.yml (#38), loaded fresh on
-# every call by load_llm_retry_config() — see that module's docstring for why
-# BYOK provider order is deliberately NOT included in the same config.
+# every call by load_llm_retry_config().
 
 
 def _call_llm(
@@ -110,9 +84,9 @@ def _call_llm(
     pin_provider: bool = True,
     provider_order: list[str] | None = None,
     allow_fallbacks: bool | None = None,
-    enforce_data_collection: bool = True,
     disable_reasoning: bool = False,
     reasoning_effort: str | None = None,
+    service_tier: str | None = None,
     usage_sink: list[dict[str, Any]] | None = None,
     allow_empty_content: bool = False,
 ) -> str:
@@ -124,18 +98,6 @@ def _call_llm(
     is still protected. `with_holdings` is retained only as an explicit intent
     marker for callers (and the test harness) — it no longer gates the data
     policy.
-
-    `enforce_data_collection=False` opts a call OUT of the deny guard — issue
-    #78 decision (2026-08-06): a scoped compliance exception for Pass 1 /
-    translation only, which route via OpenRouter BYOK straight to DeepSeek's
-    own first-party backend (a specific `order` pin, not the general
-    marketplace pool), where the data_collection filter would otherwise exclude
-    it. Every other call site keeps the default (True). Because this bypasses
-    the deny guard, those same call sites MUST also pass
-    `allow_fallbacks=False` (see below) — otherwise a DeepSeek outage could
-    silently reroute the (holdings-bearing, for translation) payload to an
-    arbitrary marketplace provider deny would normally have excluded
-    (PR #79 review finding).
 
     `pin_provider=False` omits OPENROUTER_PROVIDER_ORDER, letting OpenRouter
     route to whichever provider is available — used for translation calls so
@@ -150,9 +112,7 @@ def _call_llm(
     `allow_fallbacks`, when not None, overrides OPENROUTER_ALLOW_FALLBACKS for
     this call. Pass `False` alongside a `provider_order` pin to make that pin a
     hard requirement — the call fails outright rather than silently routing to
-    an unpinned provider. Required whenever `enforce_data_collection=False`
-    (the BYOK exception above only holds if the pinned provider is the only
-    one that can ever be used).
+    an unpinned provider.
 
     `disable_reasoning=True` suppresses reasoning/thinking tokens via
     `extra_body={"reasoning": {"enabled": False}}`. Needed for
@@ -167,10 +127,7 @@ def _call_llm(
     same `reasoning` key. Do not use the `-pro` suffix to turn reasoning
     off: Homepage eval showed luna-pro re-injects prior reasoning tokens.
 
-    `enforce_data_collection=False` and `allow_fallbacks=False` are a required
-    pair, enforced at runtime (not just by docstring/call-site discipline —
-    PR #81 review): a caller cannot silently reopen the PR #79
-    marketplace-fallback gap by passing the former without the latter.
+    `service_tier` sets the top-level `extra_body` service tier when supplied.
 
     `allow_empty_content=True` opts a call OUT of the blank-body guard below
     (default False — a missing/blank `message.content` raises
@@ -183,16 +140,12 @@ def _call_llm(
     pass over one chunk.
     """
     extra: dict[str, Any] = {}
+    if service_tier is not None:
+        extra["service_tier"] = service_tier
     settings = get_settings()
     effective_allow_fallbacks = (
         settings.OPENROUTER_ALLOW_FALLBACKS if allow_fallbacks is None else allow_fallbacks
     )
-    if not enforce_data_collection and effective_allow_fallbacks is not False:
-        raise ValueError(
-            "_call_llm: enforce_data_collection=False requires allow_fallbacks=False "
-            "explicitly — an open fallback with the deny guard off can silently reroute "
-            "a holdings-bearing payload to an arbitrary marketplace provider (PR #79/#81 review)."
-        )
     provider: dict[str, object] = {"allow_fallbacks": effective_allow_fallbacks}
     if provider_order:
         provider["order"] = provider_order
@@ -200,7 +153,7 @@ def _call_llm(
         order = [p.strip() for p in settings.OPENROUTER_PROVIDER_ORDER.split(",") if p.strip()]
         if order:
             provider["order"] = order
-    if enforce_data_collection and settings.OPENROUTER_DATA_COLLECTION:
+    if settings.OPENROUTER_DATA_COLLECTION:
         provider["data_collection"] = settings.OPENROUTER_DATA_COLLECTION
     # An explicitly-passed allow_fallbacks (a deliberate hard pin, e.g. False)
     # must never be silently dropped just because it's the only key present —
@@ -351,69 +304,3 @@ def _call_llm(
         )
     content = choice.message.content or ""
     return content.strip()
-
-
-def _call_llm_byok_with_fallback(
-    client: openai.OpenAI,
-    byok_model: str,
-    system: str,
-    user: str,
-    *,
-    with_holdings: bool,
-    usage_sink: list[dict[str, Any]] | None = None,
-    allow_empty_content: bool = False,
-) -> str:
-    """BYOK low-cost call, then one deny-gated marketplace retry on exhaustion.
-
-    The primary leg is the existing Pass 1 / translation shape (issue #78):
-    provider_order=_BYOK_PROVIDER_ORDER, allow_fallbacks=False,
-    enforce_data_collection=False, disable_reasoning=True. That pairing is
-    unchanged. If that call exhausts `_call_llm`'s retry budget on a
-    retryable error, one additional `_call_llm` runs against
-    FALLBACK_LLM_MODEL with enforce_data_collection=True and no BYOK kwargs
-    (issue #477). A non-retryable primary failure is re-raised as-is.
-    """
-    try:
-        return _call_llm(
-            client,
-            byok_model,
-            system,
-            user,
-            with_holdings=with_holdings,
-            pin_provider=False,
-            provider_order=_BYOK_PROVIDER_ORDER,
-            allow_fallbacks=False,
-            enforce_data_collection=False,
-            disable_reasoning=True,
-            allow_empty_content=allow_empty_content,
-            usage_sink=usage_sink,
-        )
-    except Exception as primary_exc:
-        if not is_retryable(primary_exc):
-            raise
-        settings = get_settings()
-        logger.warning(
-            "llm call: BYOK model=%s exhausted, falling back to model=%s",
-            byok_model,
-            settings.FALLBACK_LLM_MODEL,
-        )
-        try:
-            return _call_llm(
-                client,
-                settings.FALLBACK_LLM_MODEL,
-                system,
-                user,
-                with_holdings=with_holdings,
-                pin_provider=False,
-                enforce_data_collection=True,
-                reasoning_effort=settings.FALLBACK_LLM_REASONING_EFFORT,
-                allow_empty_content=allow_empty_content,
-                usage_sink=usage_sink,
-            )
-        except Exception as fallback_exc:
-            raise LLMCallError(
-                classify(fallback_exc),
-                f"BYOK model={byok_model} failed ({primary_exc}); "
-                f"fallback model={settings.FALLBACK_LLM_MODEL} also failed "
-                f"({fallback_exc})",
-            ) from fallback_exc

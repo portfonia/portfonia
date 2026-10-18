@@ -22,11 +22,9 @@ instead of on concrete SDK exception types.
   retried as if transient. Note `APITimeoutError` subclasses
   `APIConnectionError`; both are `CONNECTION`.
 - **`fallbackable` has no consumer today and must not be given a speculative
-  one.** No call site has a second-tier model to escalate to (holdings
-  parsing runs one model twice since #84; `_BYOK_PROVIDER_ORDER` is a
-  compliance hard pin that by definition must not fall back). It is stored
-  because it is half of the classification's meaning, not as scaffolding for
-  a fallback orchestrator that does not exist.
+  one.** Holdings parsing runs one model twice (#84). Translation uses the
+  same model on flex, then one standard-tier call after a failed flex call
+  (#793), independently of this classification flag.
 - **Five real defects this replaced** (all reproduced as failing tests
   before the fix, none of them theoretical):
   1. `holding_parser` indexed `response.choices[0]` with no empty-choices
@@ -144,16 +142,17 @@ locking on the first failure.
   in issue #37) logs model/finish_reason/tokens/cost on every call and warns on
   non-`stop` finish; raises `LLMEmptyResponseError` on empty `choices` and
   retries per the failure taxonomy above (issue #55) with bounded backoff.
-  `pin_provider=False` (used only for
+  `pin_provider=False` (used for Pass 2 and
   translation) lets OpenRouter route freely instead of restricting to the
   pinned provider order. Backoff sequences are admin-editable via
   `config/llm_retry.yml` (issue #38, `app/services/llm_retry_config.py`),
   loaded fresh on every call — same hot-reload pattern as
   `asset_class_thresholds.yml` (#35, see below). Bounded (300s/wait, 5
   entries/sequence, finite-only) so a config typo can't pin a worker
-  indefinitely. `_BYOK_PROVIDER_ORDER` (`app/services/report_llm.py` — the
-  Pass 1 + translation DeepSeek pin, issue #78/#79) is deliberately NOT in
-  this config — it's a compliance decision, not an operational tuning knob.
+  indefinitely. Translation uses deny, unpinned routing and
+  `reasoning_effort=none` on `LOW_COST_LLM_MODEL` (`openai/gpt-6-luna`):
+  flex first, then one standard-tier fallback per failed flex call (#793).
+  There is no BYOK route; #793 supersedes #78/#477.
 - `report_inputs` (encrypted at rest) is written via `ReportContext.to_jsonb()` (still
   `dict[str, Any]` — the ORM column uses `EncryptedJSON`) but read back
   through `ReportInputsDict` (issue #39, a `TypedDict, total=False` mirroring
