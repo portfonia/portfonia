@@ -521,6 +521,7 @@ def send_report_email(report: Report, session: Session) -> bool:
                 recipient_email=recipient,
                 recipient_purpose=purpose,
             )
+            .execution_options(synchronize_session=False)
         )
         session.commit()
     except Exception:
