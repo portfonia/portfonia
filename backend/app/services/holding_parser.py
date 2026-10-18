@@ -1107,8 +1107,8 @@ def _summarize(rows: list[ParsedRow]) -> list[BrokerGroup]:
 # OpenRouter's /api/v1/models). Changing STRUCTURED_LLM_MODEL to a model
 # without one requires either dropping this or replacing it with that
 # model's equivalent (e.g. some models only support `reasoning.enabled`,
-# not graduated effort levels — see LOW_COST_LLM_MODEL's disable_reasoning
-# in report_generator.py for that shape).
+# not graduated effort levels — use {"reasoning": {"enabled": False}}
+# for that shape).
 _STRUCTURED_REASONING_EFFORT = "none"
 
 

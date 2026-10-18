@@ -14,11 +14,6 @@
 # 5 entries — the loader (llm_retry_config.py) rejects anything outside
 # these bounds rather than letting a typo (or `.inf`/`.nan`) pin a worker.
 #
-# NOT covered here: BYOK provider order (`_BYOK_PROVIDER_ORDER` in
-# report_generator.py). That pin is a compliance decision (issue #78/#79),
-# not an operational tuning knob — it stays a hardcoded constant so changing
-# it requires a code review + explicit product-owner sign-off, not an
-# unreviewed config edit.
 
 # 429 rate-limit: short waits — rate-limit windows are usually seconds.
 ratelimit_backoff_seconds: [5.0, 15.0]

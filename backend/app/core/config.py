@@ -119,46 +119,28 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "openrouter"
     OPENROUTER_API_KEY: SecretStr
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
-    # Pass 2 report body + regenerate ONLY. Unaffected by the BYOK/structured
-    # split below (issue #78) — stays on OPENROUTER_PROVIDER_ORDER (marketplace
-    # pin) with OPENROUTER_DATA_COLLECTION=deny enforced, no exception.
+    # Non-Jade Pass 2 and regenerate: Haiku, deny, unpinned (#793).
     PRIMARY_LLM_MODEL: str
+    PRIMARY_LLM_REASONING_EFFORT: str = "medium"
     # Issue #725: Pass 2 + analyze regenerate for Jade subscribers only.
     JADE_PASS2_MODEL: str = "anthropic/claude-haiku-5.5"
     JADE_PASS2_REASONING_EFFORT: str = "high"
-    # Unstructured (free-text) calls only: report translation (report_generator.py).
-    # Structured/JSON extraction
-    # (holdings parsing) does NOT use this — see STRUCTURED_LLM_MODEL below.
-    # These two call sites route via OpenRouter BYOK (order=["DeepSeek"],
-    # allow_fallbacks forced False — no marketplace fallback) straight to
-    # DeepSeek's own backend and run WITHOUT the OPENROUTER_DATA_COLLECTION
-    # guard below (issue #78, decision 2026-08-06: accepted as a scoped compliance
-    # exception for these two calls only — everything else keeps "deny"). The
-    # hard pin (no fallback) matters here specifically because translation
-    # carries holdings-derived report text: if DeepSeek's endpoint is
-    # unavailable, the call must fail rather than silently reroute that payload
-    # to an arbitrary marketplace provider the deny guard would otherwise have
-    # excluded (PR #79 review).
+    # Report translation: Luna, deny, flex with one standard-tier fallback (#793).
+    # No call site uses BYOK; structured extraction uses STRUCTURED_LLM_MODEL.
     LOW_COST_LLM_MODEL: str
-    # Provider pinning for Pass 2 / regenerate (PRIMARY_LLM_MODEL) — precision/
-    # quality for report synthesis, not a structured-extraction concern (that's
-    # STRUCTURED_LLM_MODEL + structured_provider below). OpenRouter routes one
-    # model id across providers of differing precision; for deepseek/deepseek-
-    # v4-pro pin "DigitalOcean,Venice" (high precision). See Daily_Intel design
-    # doc section 8. Comma-separated, highest priority first. Empty = no order
-    # pin.
+    LOW_COST_LLM_REASONING_EFFORT: str = "none"
+    # Optional provider preference for callers that request pinning.
+    # Pass 2 and translation are unpinned and do not use this order (#793).
     OPENROUTER_PROVIDER_ORDER: str = ""
     OPENROUTER_ALLOW_FALLBACKS: bool = True
     # Data-collection policy for OpenRouter provider routing. Portfonia is a
     # multi-tenant SaaS handling user holdings, so any call carrying holdings data
     # (parsing, personalized reports, follow-ups) must route ONLY to providers
     # that do not retain or train on the payload. "deny" makes OpenRouter exclude
-    # data-collecting providers — this is how we use cheap DeepSeek V4 Flash/Pro
-    # while still meeting the "not used for training" requirement (we never hit the
-    # DeepSeek first-party API, whose terms allow training). See §8.8. Set to empty
+    # data-collecting providers, so every call meets the "not used for training"
+    # requirement. See §8.8. Set to empty
     # only to disable this guard (not recommended for holdings-bearing calls).
-    # Applied to every holdings-bearing call; translation remains the only
-    # BYOK exception.
+    # Applied to every LLM call, including translation (#793).
     OPENROUTER_DATA_COLLECTION: str = "deny"
     # The only model used for structured (JSON schema-required) extraction —
     # currently holdings parsing only. Uniformly routed here (not a fallback tier
@@ -184,16 +166,6 @@ class Settings(BaseSettings):
     # the previous model — worth a broader pass before treating this as
     # fully validated long-term.
     STRUCTURED_LLM_MODEL: str = "openai/gpt-5.6-luna"
-    # Second-tier model for the LOW_COST_LLM_MODEL / BYOK translation call
-    # after `_call_llm`'s own retry
-    # budget is exhausted on a retryable error (issue #477). Independent
-    # marketplace call with data_collection=deny — does not loosen the BYOK
-    # leg's allow_fallbacks=False pairing. Same model id as
-    # STRUCTURED_LLM_MODEL; reasoning_effort is separate because this path is
-    # free-text generation, not JSON extraction.
-    FALLBACK_LLM_MODEL: str = "openai/gpt-5.6-luna"
-    FALLBACK_LLM_REASONING_EFFORT: str = "high"
-
     # Report output language. The LLM reasons in English (higher quality), then
     # the assembled report is translated to this language at render time. "en"
     # skips translation. English is the fallback only when no user record is found.

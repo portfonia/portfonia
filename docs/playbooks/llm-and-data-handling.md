@@ -1,11 +1,9 @@
 # LLM model selection + data-handling rationale
 
-Full reasoning behind the model-routing table row and the `data_collection`
-exception in CLAUDE.md's System conventions / Data Handling sections.
-Read this when changing model selection, provider pinning, or the
-`enforce_data_collection` exception — not needed for day-to-day work.
+Routing and data-handling policy behind CLAUDE.md's System conventions and
+Data Handling sections. Read when changing model selection or provider routing.
 
-## Model routing (issue #78, 2026-08-06)
+## Model routing (issue #793)
 
 **Structured/JSON** (holdings parsing, `holding_parser.py`, the only call
 site requiring schema-compliant output) = `STRUCTURED_LLM_MODEL`
@@ -24,62 +22,30 @@ site requiring schema-compliant output) = `STRUCTURED_LLM_MODEL`
   this model, unlike gemma's third-party quantized resellers.
 - `data_collection=deny` applies throughout.
 
-**Unstructured/free-text** (translation render in `report_translation.py`) =
-`LOW_COST_LLM_MODEL`
-(`~deepseek/deepseek-v4-flash-latest` — leading `~` is OpenRouter's
-"-latest" alias convention):
+**Translation** (`report_translation.py`) uses `LOW_COST_LLM_MODEL`
+(`openai/gpt-6-luna`) with `LOW_COST_LLM_REASONING_EFFORT=none`,
+`data_collection=deny`, and unpinned providers. `_translate_call` requests
+`service_tier=flex`; if that call fails, it makes one standard-tier call
+with the same model and reasoning effort, omitting `service_tier`. If the
+standard-tier call fails, its exception propagates. Both the initial
+translation and truncation retry use this helper; chunking, pacing,
+truncation detection and keep-source behavior are unchanged.
 
-- Routed via OpenRouter BYOK straight to DeepSeek's own backend
-  (`order=["DeepSeek"]`, module constant `_BYOK_PROVIDER_ORDER` in
-  `report_llm.py`) with `enforce_data_collection=False` — a scoped
-  compliance exception for translation only.
-- **`allow_fallbacks=False` (hard pin, no marketplace fallback)**: since
-  `deny` is off for these calls, an open fallback on DeepSeek unavailability
-  could silently reroute the (holdings-bearing, for translation) payload to
-  a training-permitting provider `deny` would normally have excluded; the
-  call must fail rather than degrade that guarantee (PR #79 review finding).
-- Reasoning/thinking tokens are explicitly disabled (`disable_reasoning=
-  True`) since this alias defaults reasoning on unlike the non-aliased
-  model.
+**Non-Jade Pass 2 analysis and analyze regenerate** use `PRIMARY_LLM_MODEL`
+(`anthropic/claude-haiku-5.5`) with `PRIMARY_LLM_REASONING_EFFORT=medium`,
+`data_collection=deny`, and unpinned providers.
 
-**PRIMARY (Pass 2 analysis + analyze regenerate) for non-Jade users =
-`deepseek/deepseek-v4-pro`**, unchanged — provider=DigitalOcean,Venice,
-`data_collection=deny`, no BYOK. Jade users' Pass 2 and analyze regenerate
-use `JADE_PASS2_MODEL` (`anthropic/claude-haiku-5.5`, `reasoning_effort=high`,
-`data_collection=deny`, unpinned, issue #725), selected by `is_jade(user)`
-at generation or rerun time. Any `anthropic/*` value on `PRIMARY_LLM_MODEL`
-is still config drift; revert it.
+**Jade Pass 2 analysis and analyze regenerate** continue to use
+`JADE_PASS2_MODEL` (`anthropic/claude-haiku-5.5`) with
+`JADE_PASS2_REASONING_EFFORT=high`, `data_collection=deny`, and unpinned
+providers, selected by `is_jade(user)` at generation or rerun time (#725).
 
-## Data handling: scheduled intelligence isolation + the BYOK exception
+## Data handling: scheduled intelligence isolation and deny-only routing
 
 **Scheduled intelligence isolation (enforced)**: collection and paid
 deepening are performed in the scheduled intel slot. The report path reads
 only URL-free accepted article bodies linked to the requesting user's
 identifiers and macro themes; it performs no outbound search.
-**`data_collection=deny` is applied to every report-analysis LLM call by
-default**; the report path's only exception is translation.
+Every LLM call uses `data_collection=deny`; no call site uses BYOK.
 
-**Exception (issue #78, 2026-08-06)**: translation render on
-`LOW_COST_LLM_MODEL` passes
-`enforce_data_collection=False` because they're routed via OpenRouter BYOK
-straight to DeepSeek's own first-party backend (`order=["DeepSeek"]`,
-`_BYOK_PROVIDER_ORDER` in `report_llm.py`), the exact provider `deny`
-exists to exclude. Translation carries holdings-derived report text
-(`with_holdings=True`); this was an explicit, scoped compliance tradeoff
-the product owner accepted for translation only — Pass 2,
-regenerate, and holdings parsing (structured extraction) all keep `deny`
-enforced unchanged. Both call sites also pass `allow_fallbacks=False` (a
-hard pin, not a preference) alongside the `order` pin — since `deny` is off,
-an open fallback on DeepSeek unavailability could otherwise silently reroute
-the payload to an arbitrary marketplace provider that `deny` would normally
-have excluded; the call fails outright instead (PR #79 review finding). Do
-not extend the exception to any other call site without the same explicit
-sign-off, and never drop the `allow_fallbacks=False` pairing if you do.
-
-**Second-tier fallback (issue #477):** after that translation BYOK leg exhausts
-`_call_llm`'s own retry budget on a retryable error, `_call_llm_byok_with_fallback`
-makes one additional independent call to `FALLBACK_LLM_MODEL`
-(`openai/gpt-5.6-luna`, `FALLBACK_LLM_REASONING_EFFORT=high`) with
-`enforce_data_collection=True` and no BYOK kwargs. This does not loosen the
-BYOK pairing; a non-retryable primary failure (e.g. AUTH) is re-raised
-without the second call.
+History: #793 supersedes the #78 translation exception and #477 fallback.

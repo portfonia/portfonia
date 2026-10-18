@@ -1140,7 +1140,7 @@
         },
         {
           "q": "Is my holdings data safe?",
-          "a": "Yes. Your holdings are encrypted field by field in our database, and so is the data derived from them: reports, daily portfolio snapshots, parsed uploads and change history. AI calls deny training-data collection by default, with one disclosed exception described in our Privacy Policy, and each call carries only what that report needs, never your whole portfolio."
+          "a": "Yes. Your holdings are encrypted field by field in our database, and so is the data derived from them: reports, daily portfolio snapshots, parsed uploads and change history. AI calls deny training-data collection, and each call carries only what that report needs, never your whole portfolio."
         },
         {
           "q": "Which markets and holdings does it support?",
@@ -1376,7 +1376,6 @@
           "heading": "5. Third-Party Processing",
           "body": [
             "Generating a report involves sending portions of your data to third-party large-language-model providers to compose the report text. By default, every such call is configured to opt out of the provider using your data for model training.",
-            "A narrow, owner-approved exception applies to one non-analytical processing step: translating a finished report into your display language. This step is routed directly to a single named provider's own first-party API instead of through the training opt-out described above, because that is the only way to reach that specific low-cost model. That provider's standard API terms permit using submitted data to improve its models, so this exception accepts that risk for this step only; it is not backed by a no-training data agreement. The routing is pinned to that provider. If that provider fails, the step is retried once through a different model with the training opt-out applied. The translation step processes report text derived from your holdings, since it translates the finished report itself.",
             "Payments are processed by {merchantOfRecord}, which acts as Merchant of Record and handles your payment information under its own privacy notice."
           ]
         },

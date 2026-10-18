@@ -45,7 +45,7 @@ independent of that feature's existence.)
 rulebook, not a diary — read the linked file when its topic comes up, not
 proactively):
 - `docs/playbooks/llm-and-data-handling.md` — full LLM model-routing
-  reasoning, the two-pass isolation / BYOK exception provenance.
+  reasoning, two-pass isolation and deny-only routing.
 - `docs/playbooks/regression-notes.md` — full incident history for every
   "known-fixed bug" one-liner.
 - `docs/playbooks/git-and-review-incidents.md` — stacked-branch recovery
@@ -105,7 +105,7 @@ This file holds **conventions and mechanisms**, not a project status board.
 
 | Item | Value |
 |------|-------|
-| LLM model | OpenRouter, split by call shape (issue #78). Structured/JSON (holdings parsing) = `STRUCTURED_LLM_MODEL` (`openai/gpt-5.6-luna`, `reasoning_effort=none`, `data_collection=deny`). Unstructured/free-text translation render only = `LOW_COST_LLM_MODEL` (`~deepseek/deepseek-v4-flash-latest`, OpenRouter BYOK to DeepSeek direct, `enforce_data_collection=False` + `allow_fallbacks=False` — the scoped translation exception). After that BYOK leg exhausts `_call_llm`'s retry budget on a retryable error, `_call_llm_byok_with_fallback` makes one additional `FALLBACK_LLM_MODEL` call (`openai/gpt-5.6-luna`, `reasoning_effort=high`, `data_collection=deny`, no BYOK — issue #477); a non-retryable primary failure is not retried this way. PRIMARY (Pass 2 + analyze regenerate) applies to non-Jade users = `deepseek/deepseek-v4-pro`, `data_collection=deny`, no BYOK. Jade users' Pass 2 and analyze regenerate use `JADE_PASS2_MODEL` (`anthropic/claude-haiku-5.5`, `reasoning_effort=high`, `data_collection=deny`, unpinned, issue #725); any `anthropic/*` value on `PRIMARY_LLM_MODEL` is still config drift. *Full reasoning in `docs/playbooks/llm-and-data-handling.md`.* |
+| LLM model | OpenRouter, split by call shape. Structured/JSON (holdings parsing) = `STRUCTURED_LLM_MODEL` (`openai/gpt-5.6-luna`, `reasoning_effort=none`, `data_collection=deny`). Non-Jade Pass 2 + analyze regenerate = `PRIMARY_LLM_MODEL` (`anthropic/claude-haiku-5.5`, `reasoning_effort=medium`, `data_collection=deny`, unpinned, #793). Translation = `LOW_COST_LLM_MODEL` (`openai/gpt-6-luna`, `reasoning_effort=none`, `data_collection=deny`, flex tier with one standard-tier fallback, #793). Jade Pass 2 + analyze regenerate = `JADE_PASS2_MODEL` (`anthropic/claude-haiku-5.5`, `reasoning_effort=high`, `data_collection=deny`, unpinned, #725). No BYOK. *Full reasoning in `docs/playbooks/llm-and-data-handling.md`.* |
 | Infrastructure | Homebrew PostgreSQL@16 + Redis (native, not Docker); `make infra-up` not needed |
 | **App runtime retired locally (2026-08-10)** | No local uvicorn/celery worker/celery beat/Next.js dev server anymore — running the app for manual verification happens only via production deploy (see Three-layer deployment flow below). Homebrew Postgres/Redis stay running locally, but only as backing services for `pytest` (real-Postgres integration tests per the Tests section) — never as targets for a locally-running app process. Do **not** start `uvicorn`/`celery worker`/`celery beat`/`next dev` on this machine; if a task needs to be seen working, that means deploying to production, not spinning up a local server. The old "kill and restart uvicorn/celery after any model/migration/router change" drill no longer applies — there is no long-lived local process to go stale. |
 | Output language | reason in EN, render in `output_lang` via a translation pass with a fixed-term glossary — locale-keyed, single source of truth in `backend/config/i18n_glossary.yml` (`report_glossary`/`forbidden_renderings`; only `zh-Hans` populated today, schema reserves `zh-Hant`/`fr`/`es` for later); `en` = no-op. **Per-user since issue #308**: Ops async generation/rerun and the scheduled fan-out read the requesting/recipient user's own `users.locale` (`VALID_REPORT_LANGUAGES = ("en", "zh", "zh-Hant")`, self-service `PATCH /me/report-language`, Ops `POST /admin/users/by-email/report-language`) — `Settings.OUTPUT_LANG` (default `en`) is now only the fallback for a missing principal row for unresolved users; Ops async generation resolves the target user in its worker (#642). |
@@ -474,16 +474,8 @@ legitimate local state is `.env` (uploaded via `scp`).
   deepening run in the scheduled intel slot. The report path reads only
   URL-free accepted bodies linked to the requesting user's identifiers and
   macro themes; it performs no outbound search and no collection LLM call.
-- **`data_collection=deny` on every LLM call by default**, as defense in
-  depth. **Exception (issue #78)**: translation render — `LOW_COST_LLM_MODEL`
-  — passes `enforce_data_collection=False`
-  + `allow_fallbacks=False` (routed via OpenRouter BYOK straight to
-  DeepSeek's first-party backend; a scoped, sign-off compliance tradeoff for
-  translation rendering only). Never extend to another call site without the
-  same sign-off, never drop the `allow_fallbacks=False` pairing. After that
-  BYOK leg exhausts `_call_llm`'s retry budget on a retryable error, issue
-  #477 adds one independent `FALLBACK_LLM_MODEL` marketplace call with
-  `data_collection=deny` — not an `allow_fallbacks=True` on the BYOK leg.
+- **Every LLM call uses `data_collection=deny`, with no exception.**
+  Issue #793 supersedes the #78 translation exception and #477 fallback.
   *Full reasoning: playbook `docs/playbooks/llm-and-data-handling.md`.*
 - Market data: cache same-day, same-symbol queries. yfinance is the default
   source; treat rate limits as a real constraint when adding new query paths.

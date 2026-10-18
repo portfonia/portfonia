@@ -20,7 +20,6 @@ import uuid
 from collections.abc import Generator
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -40,40 +39,6 @@ from app.main import app
 from app.models.holding import Holding
 from app.models.report import Report
 from app.models.user import User
-
-
-@pytest.fixture(autouse=True)
-def _alias_byok_fallback_helper_to_call_llm(
-    request: pytest.FixtureRequest,
-) -> Generator[None, None, None]:
-    """Keep existing `_call_llm` patches covering Pass 1 / translation.
-
-    Those call sites now go through `_call_llm_byok_with_fallback`. Tests that
-    already patch the caller's `_call_llm` name would otherwise miss Pass 1
-    and hit a live `_call_llm` inside the helper. Late-bind the helper name
-    to whatever `_call_llm` currently is (including a test's own patch).
-    The helper is unit-tested on `app.services.report_llm`. Opt out with
-    `@pytest.mark.no_byok_fallback_alias`.
-    """
-    if request.node.get_closest_marker("no_byok_fallback_alias") is not None:
-        yield
-        return
-
-    from app.services import report_generator as rg
-    from app.services import report_translation as rt
-
-    def _rg_delegate(*args: object, **kwargs: object) -> str:
-        return cast(str, getattr(rg, "_call_llm")(*args, **kwargs))  # noqa: B009
-
-    def _rt_delegate(*args: object, **kwargs: object) -> str:
-        return cast(str, getattr(rt, "_call_llm")(*args, **kwargs))  # noqa: B009
-
-    with (
-        patch.object(rg, "_call_llm_byok_with_fallback", side_effect=_rg_delegate),
-        patch.object(rt, "_call_llm_byok_with_fallback", side_effect=_rt_delegate),
-    ):
-        yield
-
 
 TEST_DB_NAME = TEST_DATABASE_NAME
 # Same PID-suffixing rationale as TEST_DATABASE_NAME (issue #152) — this is a

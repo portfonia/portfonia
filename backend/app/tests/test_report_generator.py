@@ -2473,8 +2473,14 @@ def test_issue725_route_non_jade(db_session: Session, status: str, plan: str | N
     user.subscription_type = plan
     db_session.flush()
 
-    assert rg._pass2_route(db_session, _USER) == (get_settings().PRIMARY_LLM_MODEL, {})
-    assert rg._pass2_route(db_session, uuid.uuid4()) == (get_settings().PRIMARY_LLM_MODEL, {})
+    assert rg._pass2_route(db_session, _USER) == (
+        get_settings().PRIMARY_LLM_MODEL,
+        {"pin_provider": False, "reasoning_effort": get_settings().PRIMARY_LLM_REASONING_EFFORT},
+    )
+    assert rg._pass2_route(db_session, uuid.uuid4()) == (
+        get_settings().PRIMARY_LLM_MODEL,
+        {"pin_provider": False, "reasoning_effort": get_settings().PRIMARY_LLM_REASONING_EFFORT},
+    )
 
 
 def test_issue725_generate_jade_route_and_stored_model(db_session: Session) -> None:
@@ -2521,7 +2527,12 @@ def test_issue725_generate_daily_request_unchanged(db_session: Session) -> None:
 
     llm.assert_called_once()
     assert llm.call_args.args[1] == get_settings().PRIMARY_LLM_MODEL
-    assert llm.call_args.kwargs == {"with_holdings": True, "usage_sink": []}
+    assert llm.call_args.kwargs == {
+        "pin_provider": False,
+        "reasoning_effort": get_settings().PRIMARY_LLM_REASONING_EFFORT,
+        "with_holdings": True,
+        "usage_sink": [],
+    }
     assert report.status == "success"
     assert report.report_inputs is not None
     assert report.report_inputs["pass2_model"] == get_settings().PRIMARY_LLM_MODEL
@@ -2568,7 +2579,12 @@ def test_issue725_analyze_uses_current_tier_and_updates_stored_model(db_session:
         out = rg.regenerate_report(db_session, report.id, user_id=_USER, mode="analyze")
         llm.assert_called_once()
         assert llm.call_args.args[1] == get_settings().PRIMARY_LLM_MODEL
-        assert llm.call_args.kwargs == {"with_holdings": True, "usage_sink": []}
+        assert llm.call_args.kwargs == {
+            "pin_provider": False,
+            "reasoning_effort": get_settings().PRIMARY_LLM_REASONING_EFFORT,
+            "with_holdings": True,
+            "usage_sink": [],
+        }
         db_session.expire(out, ["report_inputs"])
         assert out.report_inputs is not None
         assert out.report_inputs["pass2_model"] == get_settings().PRIMARY_LLM_MODEL

@@ -11,7 +11,7 @@ exact body, verified by the same test assertions passing before and after):
 | Module | Responsibility |
 |---|---|
 | `app/services/report_context.py` | `ReportContext`/`ReportInputsDict` (the `report_inputs` JSONB shape) |
-| `app/services/report_llm.py` | OpenRouter transport: `_openrouter_client`, `_call_llm`, `_BYOK_PROVIDER_ORDER` |
+| `app/services/report_llm.py` | OpenRouter transport: `_openrouter_client`, `_call_llm` |
 | `app/services/report_serializers.py` | ORM/dataclass → JSONB dict (`_serialize_*`) |
 | `app/services/report_search.py` | Tavily search + daily-budget tracking + targeted anomaly queries (report-time search removed by issue #622; module removed by issue #640) |
 | `app/services/report_prompts.py` | Pass 1 / Pass 2 prompt text (system prompts, `_build_pass1_prompt`/`_build_pass2_prompt`, `_stale_ticker_hint`) |
