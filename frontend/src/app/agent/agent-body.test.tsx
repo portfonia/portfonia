@@ -67,6 +67,15 @@ it.each([true, false])("acceptance_16 revoke page posts once under StrictMode (%
 });
 
 
+it("797 renders endpoint headings in the approved order", async () => {
+  mocks.session = { status: "authed" };
+  render(<NextIntlClientProvider locale="en" messages={en}><AgentBody /></NextIntlClientProvider>);
+  await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(1));
+  const endpointsCard = screen.getByRole("heading", { name: en.agent.docs.endpointsTitle }).closest('[data-slot="card"]')!;
+  const headings = Array.from(endpointsCard.querySelectorAll("h3"), heading => heading.textContent);
+  expect(headings).toEqual((["token", "reports", "snapshots", "intel", "jade", "holdingsRead", "changes", "holdingsValidate", "holdingsAdd", "holdingsReplace", "holdingsPatch", "holdingsDelete", "holdingsReplaceAll"] as const).map(k => en.agent.docs[`${k}Heading`]));
+});
+
 it.each(Object.keys(catalogs) as Locale[])("acceptance_09 documents all endpoints in %s with existing limits and security copy", async (locale) => {
   mocks.session = { status: "authed" };
   const messages = catalogs[locale];
