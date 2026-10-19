@@ -96,7 +96,7 @@ it.each(["en", "es", "zh-Hans", "zh-Hant"] as Locale[])("737 A9 %s Pricing links
   const plans = container.querySelectorAll('[data-plan]');
   plans.forEach((plan, i) => {
     expect([...plan.querySelectorAll('li')].map(li => li.textContent)).toEqual(catalogs[locale].pricingPlans.plans[i].features.map(s => s.replace(/<\/?[a-z]+>/g, "")));
-    expect(plan.querySelectorAll('li a')).toHaveLength(i === 2 ? 6 : 0);
+    expect(plan.querySelectorAll('li a')).toHaveLength(i === 2 ? 7 : 0);
   });
   const jade = within(plans[2] as HTMLElement);
   expect(jade.getByRole('link', { name: catalogs[locale].pricingPlans.plans[2].features[1].replace(/<\/?[a-z]+>/g, "") })).toHaveAttribute('href', localizedPath('/guides/jade-replay', locale));

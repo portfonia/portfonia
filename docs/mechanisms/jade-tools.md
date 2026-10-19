@@ -665,3 +665,72 @@ The five routes additionally share one request per 180 seconds and ten per hour
 per user; existing Agent limits and quiet windows apply. Successful reads share
 the daily private-data notice. `capabilities.jade` reports current entitlement.
 No reference read/write endpoint, export or computation change is added.
+
+## Rebalance & what-if (issue #799)
+
+Active Jade subscribers can open `/jade/what-if` from the CTA at the bottom of
+`/jade`. The page compares a fixed current column with two independent edited
+versions. `GET /portfolio/summary` prefills positive valued holdings in the report
+currency; unvalued rows are listed without inputs. A zero current total shows a
+notice linking to `/holdings`, without an editor or Calculate button. Changing
+currency reloads current values and resets both versions. Changing currency or
+span never submits; results retain their calculated currency and span labels.
+
+Each version accepts display-currency amounts for the caller's own holdings,
+12 fixed ETFs (SPY, QQQ, EFA, EEM, 2800.HK, 510300.SS, ISF.L, EXSA.DE, 1306.T,
+069500.KS, AGG, GLD), and one cash row. Zero amounts omit rows. Live shares use the
+version total. The footer shows total, its ratio to the current total, and signed
+difference. Ratios are rounded half-up to one decimal percent before comparing
+with the inclusive 99.0%-101.0% confirmation-free band. Both versions submit only
+on Calculate, with confirmation outside that band. Inputs persist only for the
+current page load.
+
+`POST /jade/what-if` requires a web Jade session, a `BaseCurrency`, a replay span
+(default 1Y), and one or two versions with nonempty rows. It values current
+holdings once. Validation checks owned and unique holding IDs, allowed and unique
+ETF symbols, one cash row, nonnegative amounts with at most two decimal places,
+positive current valuation for referenced holdings, and a positive version total.
+Invalid requests return 422 before claiming the cooldown. Redis atomically claims
+one calculation per user per 120 seconds; early submissions return 429
+`what_if_cooldown` with `Retry-After`. Redis failure returns 503; a computation
+failure leaves the claimed slot in place. The page displays the localized
+countdown, disabling Calculate until it expires.
+
+The service synthesizes transient `HoldingValue` rows, without database writes,
+provider calls, saved settings or result caching. Existing replay, tail-risk and
+stress functions accept optional holdings and a rebalancing rule; their defaults
+preserve existing web and Agent outputs. The fixed column uses no rebalancing and
+matches the existing three GET tools for the same currency and span.
+
+Monthly and quarterly paths begin with units equal to each weight divided by its
+first valid price. Each day's value is the sum of units times prices. At the close
+of the first valid day in a new calendar month or quarter, units reset to the
+column's original weights at that closing value. Replay and tail risk without
+rebalancing carry today's quantities backward; rebalanced columns begin at today's
+weights on the window's first valid day. Stress starts every column at today's
+weights on each scenario's first valid day, then either drifts or resets. Rebalanced
+stress contributions are empty; the page displays neither contributions nor
+benchmark lines, style exposure or tracking recomputations.
+
+The page presents a three-line replay chart and metrics, tail-risk percent/amount
+cells, and five chronological stress scenarios. Its notices distinguish anchoring
+by result type, explain hindsight, and disclose omitted costs, taxes and timing.
+Repeated diagonal localized text overlays charts and tables, with the same sentence
+in accessible ordinary text. No column is ranked. Tables scroll within their own
+containers at narrow widths. There are no downloads, Agent access or saved versions.
+
+The public `/guides/jade-what-if` is the sixth guide, in four locales. Its committed
+SPY/AGG adjusted-close example covers 2021-10-11 through 2026-10-09. Both example
+paths start at 60% SPY / 40% AGG; one drifts and the other resets quarterly, unlike
+the current-quantity anchoring of a no-rebalancing Jade replay. Pricing links to
+the guide and names the new feature; homepage and guides copy describe six tools.
+
+### Adding an ETF
+
+1. Every ETF offered by a Jade picker must belong to a nightly-filled set:
+   `FIXED_ETF_SYMBOLS` or `STYLE_KEYS`. Add a new symbol to the fill set and the
+   picker list through a code PR.
+2. Adding a symbol to `FIXED_ETF_SYMBOLS` also requires a substitute chain entry
+   in `backend/config/jade_substitutes.yml`; its load-time key check enforces this.
+3. The next 22:15 ET run downloads five years, followed by nightly updates.
+4. Update public surfaces that list the ETFs in the same PR.

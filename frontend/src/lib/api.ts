@@ -1259,3 +1259,21 @@ export async function rollbackHoldings(groupId: string, version: string): Promis
   });
   if (!res.ok) await throwOnHttpError(res);
 }
+
+export type RebalanceRule = "none" | "monthly" | "quarterly";
+export interface WhatIfRow { kind: "holding" | "etf" | "cash"; holding_id?: string; symbol?: string; amount: string }
+export interface WhatIfVersion { rule: RebalanceRule; rows: WhatIfRow[] }
+export interface JadeWhatIf {
+  base_currency: BaseCurrency;
+  range: ReplayRange;
+  columns: { key: "current" | "a" | "b"; rule: RebalanceRule; total: string; replay: JadeReplay; tail_risk: JadeTailRisk; stress: JadeStress }[];
+}
+export class WhatIfCooldownError extends ApiError {
+  constructor(public seconds: number) { super(429, "what_if_cooldown"); }
+}
+export async function calculateJadeWhatIf(body: { base_currency: BaseCurrency; range: ReplayRange; versions: WhatIfVersion[] }): Promise<JadeWhatIf> {
+  const response = await fetch("/api/jade/what-if", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store" });
+  if (response.status === 429) throw new WhatIfCooldownError(Number(response.headers.get("Retry-After")));
+  if (!response.ok) await throwOnHttpError(response);
+  return response.json() as Promise<JadeWhatIf>;
+}

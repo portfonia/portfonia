@@ -19,9 +19,9 @@ it.each(["en", "es", "zh-Hans", "zh-Hant"] as const)("739 A11 %s three card link
     expect(screen.getByText(catalogs[locale].jade[kind].whatItSays).nextElementSibling).toBe(link); cleanup();
   }
 });
-it.each(["en", "es", "zh-Hans", "zh-Hant"] as const)("739 A11 %s Pricing has six ordered Jade links with original text", locale => {
+it.each(["en", "es", "zh-Hans", "zh-Hant"] as const)("739 A11 %s Pricing has seven ordered Jade links with original text", locale => {
   const { container } = render(<LocaleProvider routeLocale={locale}><PlanComparison /></LocaleProvider>);
-  expect([...container.querySelectorAll('[data-plan="jade"] li a')].map(e => e.getAttribute("href"))).toEqual([...(["replay", "var", "stress", "style", "tracking"].map(k => localizedPath(`/guides/jade-${k}`, locale))), localizedPath("/agent/guide", locale)]);
+  expect([...container.querySelectorAll('[data-plan="jade"] li a')].map(e => e.getAttribute("href"))).toEqual([...(["replay", "var", "stress", "style", "tracking", "what-if"].map(k => localizedPath(`/guides/jade-${k}`, locale))), localizedPath("/agent/guide", locale)]);
   for (const [i, plan] of [...container.querySelectorAll('[data-plan]')].entries()) expect([...plan.querySelectorAll('li')].map(e => e.textContent)).toEqual(catalogs[locale].pricingPlans.plans[i].features.map(s => s.replace(/<\/?[a-z]+>/g, "")));
   expect(container.querySelectorAll('[data-plan="briefing"] a')).toHaveLength(0);
   expect(container.querySelectorAll('[data-plan="advanced"] a')).toHaveLength(0);

@@ -13,6 +13,7 @@ export function PlanComparison() {
   const t = useTranslations("pricingPlans");
   const href = useLocalizedHref();
   const tags = {
+    whatif: (chunks: ReactNode) => <Link className="underline" href={href("/guides/jade-what-if")}>{chunks}</Link>,
     guide: (chunks: ReactNode) => <Link className="underline" href={href("/agent/guide")}>{chunks}</Link>,
     replay: (chunks: ReactNode) => <Link className="underline" href={href("/guides/jade-replay")}>{chunks}</Link>,
     var: (chunks: ReactNode) => <Link className="underline" href={href("/guides/jade-var")}>{chunks}</Link>,

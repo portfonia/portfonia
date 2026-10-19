@@ -38,6 +38,7 @@ from app.services.jade_replay_config import (
     REPLAY_YEARS,
     SCENARIOS,
     EtfSpec,
+    RebalanceRule,
     Scenario,
     ScenarioId,
 )
@@ -160,6 +161,31 @@ def weighted_path(
     ]
 
 
+def rebalanced_path(
+    days: list[date], curves: list[tuple[dict[date, Decimal], Decimal]], rule: RebalanceRule
+) -> list[tuple[date, float]]:
+    valid = [d for d in days if curves and all(d in values for values, _ in curves)]
+    if not valid:
+        return []
+    units = [weight / values[valid[0]] for values, weight in curves]
+
+    def period(d: date) -> tuple[int, int]:
+        return d.year, d.month if rule == "monthly" else (d.month - 1) // 3
+
+    out = []
+    previous = valid[0]
+    for day in valid:
+        value = sum(
+            (unit * values[day] for unit, (values, _) in zip(units, curves, strict=True)),
+            Decimal(0),
+        )
+        out.append((day, float(value)))
+        if period(day) != period(previous):
+            units = [weight * value / values[day] for values, weight in curves]
+        previous = day
+    return out
+
+
 def compute_stress(
     session: Session,
     user_id: UUID,
@@ -167,8 +193,11 @@ def compute_stress(
     benchmark: str,
     *,
     scenario: ScenarioId | None = None,
+    holdings: list[HoldingValue] | None = None,
+    rule: RebalanceRule = "none",
 ) -> JadeStressOut:
-    snap = compute_portfolio(session, user_id, base_currency)
+    if holdings is None:
+        holdings = compute_portfolio(session, user_id, base_currency).holdings
     spec = BENCHMARK_ETF[benchmark]
     betas: dict[UUID, tuple[float, int]] = {}
     out = JadeStressOut(
@@ -181,7 +210,9 @@ def compute_stress(
     for s in SCENARIOS:
         if scenario is not None and s.id != scenario:
             continue
-        out.scenarios.append(scenario_result(session, s, snap.holdings, base_currency, spec, betas))
+        out.scenarios.append(
+            scenario_result(session, s, holdings, base_currency, spec, betas, rule)
+        )
     return out
 
 
@@ -192,6 +223,7 @@ def scenario_result(
     base: str,
     spec: EtfSpec,
     betas: dict[UUID, tuple[float, int]],
+    rule: RebalanceRule = "none",
 ) -> StressScenario:
     keys = {CALENDAR_KEY, *(c.key for c in candidates(spec))}
     currencies = {base, *(c.currency for c in candidates(spec))}
@@ -378,7 +410,9 @@ def scenario_result(
         data_quality=approx >= DATA_QUALITY_SHARE,
         pending_share=ratio(pending_value / (total + pending_value)) if pending_value else None,
     )
-    portfolio = weighted_path(days, curves)
+    portfolio = (
+        weighted_path(days, curves) if rule == "none" else rebalanced_path(days, curves, rule)
+    )
     count = max(len(portfolio) - 1, 0)
     first_valid = portfolio[0][0] if portfolio else None
     status = (
@@ -496,6 +530,8 @@ def scenario_result(
         StressContribution(asset_class=k, contribution=ratio(v))
         for k, v in sorted(contributions.items(), key=lambda kv: (kv[1], kv[0]))
     ]
+    if rule != "none":
+        out.contributions = []
     if bench_status == "ok":
         out.benchmark_shock_return = ratio(bv[s.trough] / bv[s.peak] - 1)
         out.benchmark_max_drawdown = metrics(bench, hide_worst_month=True).max_drawdown

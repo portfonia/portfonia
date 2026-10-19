@@ -1,0 +1,35 @@
+"use client";
+import { useTranslations } from "next-intl";
+import { useLocale } from "@/app/_components/locale-provider";
+import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { formatTickPct, formatShortDate } from "@/app/portfolio/performance/_components/performance-format";
+import type { JadeWhatIf, TailCell } from "@/lib/api";
+const metricKeys = ["cumulative_return", "annualized_return", "annualized_vol", "max_drawdown", "worst_day", "worst_month"] as const;
+const colors = ["#64748b", "#8b7bb8", "#4e8b9d"];
+const cell = "border-b border-foreground/10 px-3 py-3 text-left align-top font-normal";
+export function WhatIfResults({ data }: { data: JadeWhatIf }) {
+ const t=useTranslations("jade.whatIf"), replay=useTranslations("jade.replay"), tail=useTranslations("jade.tailRisk"), stress=useTranslations("jade.stress");
+ const {locale}=useLocale();
+ const percent=(value: string | number | null | undefined) => value == null ? "—" : formatTickPct(Number(value));
+ const money=(value: string | null | undefined) => value == null ? "—" : new Intl.NumberFormat(locale,{style:"currency",currency:data.base_currency,minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(value));
+ const points=new Map<string,Record<string,string|number|null>>();
+ data.columns.forEach(column=>column.replay.points.forEach(point=>{ const row=points.get(point.date)??{time:Date.parse(point.date)}; row[column.key]=point.portfolio===null?null:Number(point.portfolio); points.set(point.date,row); }));
+ function headers(label: string) { return <thead><tr><th className={cell}>{label}</th>{data.columns.map(column=><th key={column.key} className={cell}>{t(`columns.${column.key}`)}<p className="text-xs text-muted-foreground">{t(`rules.${column.rule}`)}</p></th>)}</tr></thead>; }
+ function tailValue(value: TailCell|null|undefined) { return <><p>{tail("rows.var")}: {percent(value? -Number(value.var):null)} · {money(value?.var_amount==null?null:String(-Number(value.var_amount)))}</p><p>{tail("rows.cvar")}: {percent(value? -Number(value.cvar):null)} · {money(value?.cvar_amount==null?null:String(-Number(value.cvar_amount)))}</p></>; }
+ return <div data-testid="what-if-results" className="relative isolate min-w-0 overflow-hidden rounded-lg border p-3 sm:p-5">
+  <div data-testid="watermark" aria-hidden="true" className="pointer-events-none absolute inset-0 z-10 grid select-none content-around overflow-hidden text-foreground/[0.09]">{Array.from({length:14},(_,i)=><span key={i} className="block -rotate-[30deg] whitespace-nowrap text-center text-sm font-medium sm:text-lg">{t("watermark")} · {t("watermark")}</span>)}</div>
+  <div className="relative flex min-w-0 flex-col gap-5">
+   <h2 className="font-heading text-lg">{t("resultsFor",{range:replay(`ranges.${data.range}`),currency:data.base_currency})}</h2>
+   <div className="flex flex-wrap gap-3 text-sm">{data.columns.map(column=><p key={column.key}>{t(`columns.${column.key}`)} · {t(`rules.${column.rule}`)} · {money(column.total)}</p>)}</div>
+   <div className="h-64 w-full min-w-0"><ResponsiveContainer width="100%" height="100%"><LineChart data={[...points.values()].sort((a,b)=>Number(a.time)-Number(b.time))} margin={{top:8,right:8,left:0,bottom:0}}><CartesianGrid stroke="var(--border)" vertical={false} strokeDasharray="3 3" /><XAxis dataKey="time" type="number" domain={["dataMin","dataMax"]} tickFormatter={value=>formatShortDate(new Date(Number(value)).toISOString().slice(0,10),locale)} tick={{fill:"var(--muted-foreground)",fontSize:12}} /><YAxis width={52} tickFormatter={formatTickPct} tick={{fill:"var(--muted-foreground)",fontSize:12}} /><Tooltip isAnimationActive={false} labelFormatter={value=>formatShortDate(new Date(Number(value)).toISOString().slice(0,10),locale)} formatter={value=>percent(Number(value))} wrapperStyle={{maxWidth:"100%"}} /><Legend />{data.columns.map((column,i)=><Line key={column.key} dataKey={column.key} name={t(`columns.${column.key}`)} stroke={colors[i]} strokeWidth={2} dot={false} isAnimationActive={false} />)}</LineChart></ResponsiveContainer></div>
+   <div className="max-w-full overflow-x-auto"><table className="w-full min-w-[36rem] table-fixed text-sm">{headers(replay("title"))}<tbody>{metricKeys.map(key=><tr key={key}><th scope="row" className={cell}>{replay(`metrics.${key}`)}</th>{data.columns.map(column=>{ const metrics=column.replay.status==="ok"?column.replay.metrics.portfolio:null;return <td key={column.key} className={cell}>{percent(metrics?.[key])}{metrics && key==="max_drawdown" && <p className="text-xs">{metrics.max_drawdown_peak} → {metrics.max_drawdown_trough}</p>}{metrics && key==="worst_day" && <p className="text-xs">{metrics.worst_day_date}</p>}{metrics && key==="worst_month" && metrics.worst_month_label && <p className="text-xs">{metrics.worst_month_label}</p>}</td>; })}</tr>)}</tbody></table></div>
+   {data.columns.map(column=><div className="space-y-1 text-xs" key={column.key}>
+    {column.replay.status!=="ok" && <p>{t(`columns.${column.key}`)}: {replay(column.replay.status==="no_holdings"?"noHoldings":column.replay.status)}</p>}
+    {column.replay.coverage.data_quality && <p>{t(`columns.${column.key}`)}: {replay("dataQuality")}</p>}
+    {column.replay.coverage.pending_share && <p>{t(`columns.${column.key}`)}: {replay("pendingShare",{pct:(Number(column.replay.coverage.pending_share)*100).toFixed(2)})}</p>}
+   </div>)}
+   <div className="max-w-full overflow-x-auto"><table className="w-full min-w-[36rem] table-fixed text-sm">{headers(tail("title"))}<tbody>{([95,99] as const).flatMap(level=>(["daily","monthly"] as const).map(period=><tr key={`${level}-${period}`}><th scope="row" className={cell}>{tail(`levels.${level}`)} · {tail(period==="daily"?"columns.day":"columns.month")}</th>{data.columns.map(column=>{const selected=column.tail_risk.levels.find(row=>row.level===level);return <td key={column.key} className={cell}>{column.tail_risk.status!=="ok"?replay(column.tail_risk.status==="no_holdings"?"noHoldings":column.tail_risk.status):!selected?.available?tail("insufficient99",{count:column.tail_risk.sample_count}):tailValue(selected[period])}</td>;})}</tr>))}</tbody></table></div>
+   <div className="max-w-full overflow-x-auto"><table className="w-full min-w-[36rem] table-fixed text-sm">{headers(stress("title"))}<tbody>{data.columns[0]?.stress.scenarios.map((scenario,index)=><tr key={scenario.id}><th scope="row" className={cell}>{stress(`scenarios.${scenario.id}.name`)}<p className="text-xs">{scenario.peak_date} → {scenario.trough_date}</p></th>{data.columns.map(column=>{const row=column.stress.scenarios[index];return <td key={column.key} className={cell}>{row.status!=="ok"?replay(row.status==="no_holdings"?"noHoldings":row.status):<><p>{stress("rows.shock")}: {percent(row.shock_return)} · {money(row.shock_amount)}</p><p>{stress("rows.maxDrawdown")}: {percent(row.max_drawdown)}</p></>}</td>;})}</tr>)}</tbody></table></div>
+  </div>
+ </div>;
+}

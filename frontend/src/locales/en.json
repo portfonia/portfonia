@@ -1159,7 +1159,7 @@
     },
     "jadeTools": {
       "heading": "Jade portfolio tools",
-      "body": "The Jade plan includes five tools that read your own holdings against past prices and scenarios. The chart below uses real closing prices for a fixed example portfolio, separate from your holdings; the guides explain each method.",
+      "body": "The Jade plan includes six tools that read your own holdings against past prices and scenarios. The chart below uses real closing prices for a fixed example portfolio, separate from your holdings; the guides explain each method.",
       "ctaHeading": "See your portfolio through a wider lens",
       "ctaBody": "Explore the history, loss patterns, market styles and reference comparisons behind your own portfolio. Each reading makes its data and method visible, giving you more context for the risks you are watching."
     },
@@ -1442,7 +1442,7 @@
             "Weekly briefing — 0.99 credits per month. One personalized briefing email per week, tied to the holdings you have entered.",
             "Mon / Wed / Fri briefing — 1.99 credits per month. Three personalized briefing emails per week (Monday, Wednesday, Friday).",
             "Daily briefing (Advanced) — 2.49 credits per month. One personalized briefing email every weekday (Monday to Friday), including market holidays.",
-            "Jade — 9.99 credits per month. Includes everything in the Advanced plan. You choose the Weekly, Mon / Wed / Fri, or Daily briefing schedule and can change it at any time on the Jade page. Jade includes five portfolio risk tools: holdings replay, tail risk (VaR / CVaR), historical stress scenarios, style exposure, and tracking against your reference.",
+            "Jade — 9.99 credits per month. Includes everything in the Advanced plan. You choose the Weekly, Mon / Wed / Fri, or Daily briefing schedule and can change it at any time on the Jade page. Jade includes five portfolio risk tools: holdings replay, tail risk (VaR / CVaR), historical stress scenarios, style exposure, and tracking against your reference. It also includes holdings rebalancing what-if: compare holdings with up to two edited versions and rebalancing rules over past prices.",
             "Weekly and Mon / Wed / Fri differ only in how often briefings are sent. Daily is the Advanced plan. Advanced and Jade subscriptions both let your AI agent read your daily holding snapshots and intelligence headlines related to your holdings and macro themes; Jade additionally provides headline summaries and included article text for holdings and macro themes. Report history is available to AI agents on every plan. Saved holding rows, including cash and watched rows, are limited to 30 on Weekly and Mon / Wed / Fri, 50 while Advanced is active, and 100 while Jade is active. Active Jade also supports reading and managing current holdings through your own agent; changes require a holdings-write token."
           ]
         },
@@ -1702,6 +1702,10 @@
   },
   "seo": {
     "pages": {
+      "guideWhatIf": {
+        "title": "Rebalance & what-if: reading the comparison",
+        "description": "A historical calculation of current holdings and up to two user-edited versions, with separate rebalancing rules."
+      },
       "home": {
         "title": "Portfonia — Daily briefings on your multi-broker holdings",
         "description": "Consolidate holdings across brokers and US, Hong Kong, China A-share and other markets, and get a daily briefing on the news and macro developments tied to each position."
@@ -1740,7 +1744,7 @@
       },
       "guides": {
         "title": "Jade method guides",
-        "description": "Public explanations of the five Jade portfolio tools, with fixed examples and transparent calculations."
+        "description": "Public explanations of the six Jade portfolio tools, with fixed examples and transparent calculations."
       },
       "guideStress": {
         "title": "Historical stress scenarios: reading the paths and contributions",
@@ -1821,6 +1825,65 @@
     "homeLink": "Return home"
   },
   "jade": {
+    "whatIf": {
+      "title": "Rebalance & what-if",
+      "intro": "Compare current holdings with two versions of your own amounts and calendar rebalancing rules over past prices.",
+      "access": "This calculation is available with an active Jade subscription.",
+      "jadeLink": "Jade",
+      "guideLink": "Read the method guide",
+      "holdingsLink": "Open holdings",
+      "noHoldings": "What-if starts from existing valued holdings. Add holdings to begin.",
+      "currencyHint": "Changing the display currency reloads current amounts and resets both versions. It does not calculate results.",
+      "columns": {
+        "current": "Current",
+        "a": "Version A",
+        "b": "Version B"
+      },
+      "rule": "Rebalancing rule",
+      "rules": {
+        "none": "No rebalancing",
+        "monthly": "Monthly",
+        "quarterly": "Quarterly"
+      },
+      "add": "Add a row",
+      "remove": "Remove",
+      "cash": "Cash",
+      "total": "Column total",
+      "ratio": "Ratio to current total",
+      "difference": "Difference from current total",
+      "notIncluded": "Not included: no positive current value.",
+      "etfList": "About the 12 ETFs",
+      "calculate": "Calculate",
+      "cooldown": "The system is still preparing calculation results. Please submit again shortly.",
+      "countdown": "{seconds} seconds",
+      "confirmTitle": "Confirm column totals",
+      "confirmRatios": "These versions fall outside 99.0%–101.0% of the current total: {versions}. Calculate with these amounts?",
+      "confirm": "Confirm",
+      "cancel": "Cancel",
+      "hindsight": "These results replay past prices for assumptions chosen today. Trying alternatives against the same history favours whichever happened to fit it; the columns have no ranking.",
+      "replayAnchoring": "Replay and tail risk: no rebalancing carries today's quantities back. Rebalanced columns start at today's weights on the window's first day.",
+      "stressAnchoring": "Stress: every column starts at today's weights on the scenario's first valid day. Without rebalancing the weights drift; monthly or quarterly rules reset them on period starts, after that day's close.",
+      "notModelled": "Costs, taxes and transaction timing are not modelled.",
+      "watermark": "Calculated only from user-defined assumptions. Not investment advice.",
+      "resultsFor": "Calculated results: {range} · {currency}",
+      "ctaHeading": "Rebalance & what-if",
+      "ctaText": "Compare current holdings with two edited versions and calendar rebalancing over past prices.",
+      "open": "Open",
+      "etfs": {
+        "SPY": "Large U.S. equities represented by the S&P 500.",
+        "QQQ": "Nasdaq-100 non-financial companies.",
+        "EFA": "Developed-market equities outside the U.S. and Canada.",
+        "EEM": "Emerging-market equities.",
+        "2800_HK": "Hong Kong equities represented by the Hang Seng Index.",
+        "510300_SS": "Mainland China A-shares represented by the CSI 300.",
+        "ISF_L": "Large U.K. equities represented by the FTSE 100.",
+        "EXSA_DE": "European equities represented by the STOXX Europe 600.",
+        "1306_T": "Japanese equities represented by TOPIX.",
+        "069500_KS": "South Korean equities represented by the KOSPI 200.",
+        "AGG": "U.S. investment-grade aggregate bonds.",
+        "GLD": "Gold price exposure."
+      }
+    },
     "title": "Jade",
     "intro": "Jade is a set of portfolio risk tools for long-term holders. It works from the holdings you have today, and every result states the data it used and how it was calculated. A Jade subscription includes everything in the Advanced plan, and you can choose any briefing schedule and change it at any time.",
     "price": "9.99 credits per month",
@@ -2146,6 +2209,7 @@
           "<stress>Historical stress scenarios: five past market shocks</stress>",
           "<style>Style exposure</style>",
           "<tracking>Tracking against your reference: a portfolio you define, with tracking error</tracking>",
+          "<whatif>Holdings rebalancing what-if</whatif>: compare holdings with up to two edited versions and rebalancing rules over past prices",
           "Your AI agent can read these risk results",
           "Give your AI agent fuller intelligence: headline summaries and included article text for holdings and macro themes",
           "<guide>Programmatic holdings writes</guide>: create a write-permission token so your AI agent can read and write standardized holdings, and update the instrument, quantity, cost, account and related details for one holding or the complete book. Every request is audit-logged.",
@@ -2156,6 +2220,38 @@
     "footnote": "1 credit = US$1."
   },
   "guides": {
+    "whatIf": {
+      "title": "Rebalance & what-if: reading the comparison",
+      "intro": "A historical calculation of current holdings and up to two user-edited versions, with separate rebalancing rules.",
+      "window": "Example window: {start} to {end}.",
+      "chartCaption": "Cumulative returns of the same initial 60% SPY / 40% AGG mixture under two rules. Neither line is ranked.",
+      "sections": {
+        "compare": {
+          "heading": "What the page compares",
+          "text": "The Current column is fixed. Version A and Version B begin as copies; you edit amounts in the display currency, add one of twelve listed ETFs or cash, and choose a rule for each version. Live shares, totals, ratios to the current total and signed differences describe the inputs. Calculate submits both versions; amounts remain for the next round. Nothing is saved across page loads."
+        },
+        "rules": {
+          "heading": "Three calendar rules",
+          "text": "No rebalancing leaves quantities unchanged as prices move. Monthly and quarterly calculations start at the version's own weights and reset to them at the close of the first valid trading day of each new calendar month or quarter. They use the closing portfolio value at that reset, with no external cash flow."
+        },
+        "anchoring": {
+          "heading": "Where each path starts",
+          "text": "On the Jade page, replay and tail risk without rebalancing carry today's quantities back through history. Rebalanced columns begin at today's weights on the window's first day. Stress scenarios begin every column at today's weights on the scenario's first valid day; without rebalancing the weights then drift, while monthly and quarterly columns reset. These starting conventions answer different historical calculations."
+        },
+        "example": {
+          "heading": "A fixed SPY and AGG example",
+          "text": "This public example starts both lines at 60% SPY and 40% AGG on the first date. One line then drifts without rebalancing; the other resets quarterly after the first valid trading day closes. Both use committed adjusted closing prices, including distributions. The table shows cumulative return, annualized return, annualized volatility and maximum drawdown. This shared starting mix differs from the Jade replay without rebalancing, which carries current quantities back."
+        },
+        "limits": {
+          "heading": "Hindsight and omitted costs",
+          "text": "The inputs are selected today and evaluated against known history. Trying multiple versions against the same prices favours whichever happened to match that period; this supplies no ranking or forecast. Costs, taxes and transaction timing are not modelled. The past paths describe these assumptions over these dates only."
+        },
+        "watermark": {
+          "heading": "What the watermark means",
+          "text": "The repeated text across the result tables and chart identifies a calculation based only on user-defined assumptions. It also appears in screenshots. The same sentence is available as ordinary text for assistive technology; it is not an assessment of any version."
+        }
+      }
+    },
     "common": {
       "exampleLabel": "Example portfolio, not a recommendation",
       "portfolio": "{spyStart} SPY + {aggStart} AGG",
@@ -2295,8 +2391,9 @@
     },
     "index": {
       "title": "How Jade's portfolio tools work",
-      "intro": "Jade's method explanations are public. Every guide uses a fixed example portfolio to illustrate a calculation, with real price history and readable tables beside the charts. {exampleLabel}. The examples describe past movement, without assessing a person's choices. Results computed from your own holdings are available with Jade. These five guides follow the order of the tools on the Jade page, from a replay of the whole window to a comparison with a reference you define.",
+      "intro": "Jade's method explanations are public. Every guide uses a fixed example portfolio to illustrate a calculation, with real price history and readable tables beside the charts. {exampleLabel}. The examples describe past movement, without assessing a person's choices. Results computed from your own holdings are available with Jade. These six guides cover the Jade tools and the separate rebalancing what-if page.",
       "summaries": {
+        "whatIf": "A historical calculation of current holdings and up to two user-edited versions, with separate rebalancing rules.",
         "replay": "See how today's unchanged holdings are replayed through past prices, and what cumulative return, volatility and maximum drawdown measure.",
         "var": "Read historical loss distributions, the VaR boundary and the average loss beyond it, with their sampling limits.",
         "stress": "Follow a past market shock and see how each asset class contributed to the example's peak-to-trough return.",

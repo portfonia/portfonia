@@ -38,7 +38,7 @@ it("737 A3 anonymous pass and locale rewrites", async () => {
 
 it("737 A4 all eight guide sitemap URLs with fourteen alternates", () => {
   const entries = sitemap();
-  expect(entries).toHaveLength(56);
+  expect(entries).toHaveLength(60);
   for (const locale of locales)
     for (const path of ["/guides/jade-replay", "/guides/jade-var"]) {
       const row = entries.find(e => e.url === `https://portfonia.com${localizedPath(path, locale)}`);
