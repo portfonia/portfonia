@@ -1,7 +1,7 @@
 import { render, screen, waitFor, act } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
-const { usePathname, getUser, onAuthStateChange, unsubscribe, fetchMock } = vi.hoisted(() => ({
+const { usePathname, getUser, onAuthStateChange, unsubscribe, fetchMock, recordBackendTouch } = vi.hoisted(() => ({
   usePathname: vi.fn(() => "/"),
   getUser: vi.fn(),
   onAuthStateChange: vi.fn(),
@@ -11,7 +11,10 @@ const { usePathname, getUser, onAuthStateChange, unsubscribe, fetchMock } = vi.h
   // defaulting to ok — only the tests that specifically exercise the
   // probe override it.
   fetchMock: vi.fn(),
+  recordBackendTouch: vi.fn(),
 }));
+
+vi.mock("@/lib/session-clock", () => ({ recordBackendTouch }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), usePathname }));
 
@@ -66,7 +69,7 @@ describe("useSession", () => {
     vi.clearAllMocks();
     usePathname.mockReturnValue("/");
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ advanced: false }) });
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ advanced: false }) });
     vi.stubGlobal("fetch", fetchMock);
   });
 
@@ -93,6 +96,7 @@ describe("useSession", () => {
     expect(await screen.findByTestId("session-state")).toHaveTextContent(
       "authed:a@b.com",
     );
+    expect(recordBackendTouch).toHaveBeenCalledWith(expect.any(Number));
   });
 
   it("reports guest when getUser verifies no session", async () => {

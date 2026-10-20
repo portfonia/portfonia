@@ -1,6 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { act } from "react";
-import userEvent from "@testing-library/user-event";
+import { cleanup } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 const { session, logout } = vi.hoisted(() => ({
@@ -16,6 +16,7 @@ vi.mock("@/lib/auth-actions", () => ({ logout }));
 
 import { useIdleLogout, SESSION_IDLE_TIMEOUT_MS } from "./use-idle-logout";
 
+let testDay = 0;
 const IDLE_MS = SESSION_IDLE_TIMEOUT_MS;
 
 function armAuthed() {
@@ -26,10 +27,17 @@ describe("useIdleLogout", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-20T00:00:00Z").getTime() + testDay++ * 86_400_000);
+    const storage = new Map<string, string>();
+    vi.stubGlobal("localStorage", { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value); } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 200 }));
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
     session.current = { status: "guest" };
   });
 
   afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -47,7 +55,6 @@ describe("useIdleLogout", () => {
 
   it("resets the clock on user activity signals, so continuous activity never logs out", async () => {
     armAuthed();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderHook(() => useIdleLogout("authed", logout));
 
     await act(async () => {
@@ -57,7 +64,6 @@ describe("useIdleLogout", () => {
       window.dispatchEvent(new Event("pointerdown"));
       await vi.advanceTimersByTimeAsync(10 * 60 * 1000); // 30 min total, gaps < 15
     });
-    void user;
 
     expect(logout).not.toHaveBeenCalled();
   });
@@ -104,36 +110,52 @@ describe("useIdleLogout", () => {
     expect(logout).toHaveBeenCalledTimes(1);
   });
 
-  it("does not count hidden-tab time toward the idle timeout", async () => {
-    armAuthed();
-    // jsdom starts visible; park the tab before the idle stretch.
-    Object.defineProperty(document, "hidden", {
-      configurable: true,
-      get: () => true,
-    });
+  it("809 A7 expires exactly once at fifteen minutes in visible and hidden tabs", async () => {
+    for (const hidden of [false, true]) {
+      Object.defineProperty(document, "hidden", { configurable: true, value: hidden });
+      logout.mockClear();
+      const { unmount } = renderHook(() => useIdleLogout("authed", logout));
+      await act(async () => { await vi.advanceTimersByTimeAsync(IDLE_MS - 1); });
+      expect(logout).not.toHaveBeenCalled();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(logout).toHaveBeenCalledExactlyOnceWith("expired");
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(logout).toHaveBeenCalledTimes(1);
+      unmount();
+    }
+  });
+
+  it("809 A8 throttles heartbeat attempts including failures, expires on 401 and ignores rejection", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockRejectedValueOnce(new Error("offline"));
     renderHook(() => useIdleLogout("authed", logout));
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(IDLE_MS * 3);
-    });
-
+    window.dispatchEvent(new Event("scroll"));
+    expect(fetchMock).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); window.dispatchEvent(new Event("scroll")); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(logout).not.toHaveBeenCalled();
+    await act(async () => { window.dispatchEvent(new Event("keydown")); await vi.advanceTimersByTimeAsync(59_999); window.dispatchEvent(new Event("wheel")); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    let resolve!: (response: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>(done => { resolve = done; }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); window.dispatchEvent(new Event("pointerdown")); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); window.dispatchEvent(new Event("scroll")); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await act(async () => { resolve({ status: 200 } as Response); });
+    fetchMock.mockResolvedValueOnce({ status: 401 } as Response);
+    await act(async () => { window.dispatchEvent(new Event("touchstart")); });
+    expect(logout).toHaveBeenCalledExactlyOnceWith("expired");
+  });
 
-    // Returning to visibility restarts the clock and counts time again.
-    await act(async () => {
-      Object.defineProperty(document, "hidden", {
-        configurable: true,
-        get: () => false,
-      });
-      document.dispatchEvent(new Event("visibilitychange"));
-      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
-    });
+  it("809 A9 postpones expiry using a newer backend touch from another tab", async () => {
+    renderHook(() => useIdleLogout("authed", logout));
+    await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60_000); });
+    localStorage.setItem("portfonia.lastBackendTouch", String(Date.now()));
+    await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000); });
     expect(logout).not.toHaveBeenCalled();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(IDLE_MS + 30_000);
-    });
-    expect(logout).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60_000); });
+    expect(logout).toHaveBeenCalledExactlyOnceWith("expired");
   });
 
   it("disarms on unmount", async () => {

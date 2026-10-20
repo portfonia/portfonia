@@ -215,6 +215,30 @@ secret or the Supabase database password (business Postgres is self-hosted).
 
 ### Idle-timeout server enforcement — issue #235 (2026-08-27)
 
+**Client countdown (issue #809):** While authenticated, the shared site menu
+arms a 15-minute countdown from the last confirmed backend touch. The
+`session-clock.ts` module shares the maximum timestamp through
+`portfonia.lastBackendTouch` in localStorage and a module variable; unavailable
+storage falls back to the module clock. Starting the hook and successful 200
+session-status probes record a touch. Activity events stamp local activity and
+send a session-status heartbeat at most once per 60 seconds per tab, with only
+one request in flight. The attempt timestamp starts with the hook and advances
+when a request is sent, including failed requests. Only a 200 response records a
+backend touch; a 401 expires immediately. Other statuses and network failures
+neither extend the countdown nor trigger immediate logout.
+
+A five-second interval checks expiry in visible and hidden tabs, with an
+immediate check when visibility returns. Expiry invokes the existing logout
+flow once and redirects to `/login?reason=expired` without user input. Another
+tab's newer stored touch postpones expiry. The redirect happens 15 minutes after
+the last backend touch, which is at most one minute before 15 minutes after the
+user's last interaction (plus the interval's polling delay). The expired banner
+in all four locales states only that the session has timed out, without minutes
+or a cause. There is no client countdown for the eight-hour absolute lifetime.
+Backend idle/lifetime enforcement and server-side 401 handling are unchanged.
+
+The following sections record the server-enforcement history.
+
 **Bug**: issue #207/PR #208 (2026-08-25) implemented the product spec's
 "15 minutes of inactivity auto-logout" entirely client-side
 (`frontend/src/hooks/use-idle-logout.ts`, `frontend/src/lib/idle-timeout.ts`)

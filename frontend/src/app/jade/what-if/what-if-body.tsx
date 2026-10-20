@@ -31,6 +31,10 @@ function cents(value: string): bigint {
   const [whole, fraction = ""] = (plain || "0").split(".");
   return BigInt(whole || "0") * BigInt(100) + BigInt(fraction.padEnd(2, "0").slice(0, 2)) * (value.startsWith("-") ? -BigInt(1) : BigInt(1));
 }
+function cellChanged(row: Row, currentAmount: string) {
+  const amount = normalizeAmount(row.amount);
+  return amount === null || cents(amount) !== cents(currentAmount);
+}
 function total(rows: Row[]) { return rows.reduce((sum, row) => sum + cents(normalizeAmount(row.amount) ?? "0"), BigInt(0)); }
 function tenths(amount: bigint, base: bigint) { return base > BigInt(0) ? Number((amount * BigInt(1000) + base / BigInt(2)) / base) : null; }
 
@@ -42,7 +46,8 @@ export function WhatIfBody({ me, hadLoadError }: { me: Me | null; hadLoadError: 
   const [currency, setCurrency] = useState<BaseCurrency>((me?.report_currency ?? "USD") as BaseCurrency);
   const [range, setRange] = useState<ReplayRange>("1Y");
   const [current, setCurrent] = useState<Row[]>([]), [excluded, setExcluded] = useState<HoldingValueOut[]>([]);
-  const [versions, setVersions] = useState<Version[]>([]), [selected, setSelected] = useState(0);
+  const [versions, setVersions] = useState<Version[]>([]);
+  const [addedOrder, setAddedOrder] = useState<string[]>([]);
   const [loading, setLoading] = useState(true), [pending, setPending] = useState(false), [errorKey, setErrorKey] = useState<string | null>(null);
   const [data, setData] = useState<JadeWhatIf | null>(null), [seconds, setSeconds] = useState(0), [confirm, setConfirm] = useState(false);
   useEffect(() => {
@@ -54,7 +59,7 @@ export function WhatIfBody({ me, hadLoadError }: { me: Me | null; hadLoadError: 
       const rows: Row[] = valued.map(h => ({ id: h.holding_id, kind: "holding", holding_id: h.holding_id, name: h.name, amount: h.market_value_base ?? "0" }));
       setCurrent(rows); setExcluded(snapshot.holdings.filter(h => !valued.includes(h)));
       setVersions([{ rule: "none", rows: rows.map(row => ({ ...row })) }, { rule: "none", rows: rows.map(row => ({ ...row })) }]);
-      setSelected(0);
+      setAddedOrder([]);
     }).catch(() => { if (active) setErrorKey("jade.replay.loadError"); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [currency, isJade]);
@@ -65,15 +70,23 @@ export function WhatIfBody({ me, hadLoadError }: { me: Me | null; hadLoadError: 
   }, [seconds]);
   const money = (value: bigint, signed = false) => new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2, ...(signed ? { signDisplay: "always" as const } : {}) }).format(Number(value) / 100);
   const pct = (value: number | null) => value === null ? "—" : new Intl.NumberFormat(locale, { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value / 1000);
-  const base = total(current), rows = selected === 0 ? current : versions[selected - 1]?.rows ?? [], sum = total(rows);
+  const base = total(current);
+  const currentAmount = (row: Row) => current.find(value => value.id === row.id)?.amount ?? "0";
+  const versionModified = (version: Version) => version.rule !== "none" || version.rows.some(row => cellChanged(row, currentAmount(row)));
+  const modified = versions.map(versionModified);
+  const editorRows = [...current, ...addedOrder.flatMap(id => { const row = versions.flatMap(version => version.rows).find(row => row.id === id); return row ? [row] : []; })];
   const invalidAmount = versions.some(version => version.rows.some(row => normalizeAmount(row.amount) === null));
   const outside = versions.map((version, i) => ({ i, ratio: tenths(total(version.rows), base) })).filter(v => v.ratio !== null && (v.ratio < 990 || v.ratio > 1010));
   const names = [t("columns.current"), t("columns.a"), t("columns.b")];
-  function edit(next: Version) { setVersions(values => values.map((value, i) => i === selected - 1 ? next : value)); }
+  function edit(index: number, next: Version) { setVersions(values => values.map((value, i) => i === index ? next : value)); }
   async function submit() {
-    if (pending || seconds > 0 || loading || invalidAmount) return;
+    if (pending || seconds > 0 || loading || invalidAmount || !modified.some(Boolean)) return;
     setPending(true); setErrorKey(null); setConfirm(false);
-    try { setData(await calculateJadeWhatIf({ base_currency: currency, range, versions: versions.map(version => ({ rule: version.rule, rows: version.rows.map(({ kind, holding_id, symbol, amount }) => ({ kind, holding_id, symbol, amount: normalizeAmount(amount) ?? "0" })) })) })); }
+    try {
+      const keys = (["a", "b"] as const).filter((_, i) => modified[i]);
+      const response = await calculateJadeWhatIf({ base_currency: currency, range, versions: versions.filter((_, i) => modified[i]).map(version => ({ rule: version.rule, rows: version.rows.map(({ kind, holding_id, symbol, amount }) => ({ kind, holding_id, symbol, amount: normalizeAmount(amount) ?? "0" })) })) });
+      setData({ ...response, columns: response.columns.map((column, i) => column.key === "current" ? column : { ...column, key: keys[i - 1] }) });
+    }
     catch (err) {
       if (err instanceof WhatIfCooldownError) setSeconds(err.seconds);
       else if (err instanceof ApiError && err.status === 422) {
@@ -91,25 +104,49 @@ export function WhatIfBody({ me, hadLoadError }: { me: Me | null; hadLoadError: 
     {!loading && base === BigInt(0) && !errorKey && <p>{t("noHoldings")} <Link className="underline" href={href("/holdings")}>{t("holdingsLink")}</Link></p>}
     {!loading && base > BigInt(0) && <>
       <Card className="min-w-0"><CardContent className="flex min-w-0 flex-col gap-4 pt-6">
-        <div className="flex flex-wrap gap-2">{names.map((name, i) => <Button key={i} variant={selected === i ? "default" : "outline"} aria-pressed={selected === i} onClick={() => setSelected(i)} disabled={pending}>{name}</Button>)}</div>
-        {selected > 0 && <label className="flex flex-wrap items-center gap-2 text-sm">{t("rule")}<select aria-label={t("rule")} className="rounded-md border bg-background p-2" disabled={pending} value={versions[selected - 1].rule} onChange={event => edit({ ...versions[selected - 1], rule: event.target.value as RebalanceRule })}>{(["none", "monthly", "quarterly"] as const).map(rule => <option key={rule} value={rule}>{t(`rules.${rule}`)}</option>)}</select></label>}
-        <div className="flex min-w-0 flex-col gap-3">{rows.map(row => <div key={row.id} data-testid={`row-${row.id}`} className="flex min-w-0 flex-wrap items-center gap-2 rounded-md border p-3 text-sm">
-          <label htmlFor={`amount-${row.id}`} className="min-w-0 flex-1 basis-36 break-words">{row.name}</label>
-          {selected === 0 ? <span>{money(cents(row.amount))}</span> : <input id={`amount-${row.id}`} aria-label={row.name} type="text" inputMode="decimal" aria-invalid={normalizeAmount(row.amount) === null ? true : undefined} className={`w-36 max-w-full rounded border bg-background p-2${normalizeAmount(row.amount) === null ? " border-destructive" : ""}`} value={row.amount} disabled={pending} onBlur={() => {
-            const normalized = normalizeAmount(row.amount);
-            if (normalized !== null) edit({ ...versions[selected - 1], rows: rows.map(value => value.id === row.id ? { ...value, amount: normalized } : value) });
-          }} onChange={event => edit({ ...versions[selected - 1], rows: rows.map(value => value.id === row.id ? { ...value, amount: event.target.value } : value) })} />}
-          <span>{pct(tenths(cents(normalizeAmount(row.amount) ?? "0"), sum))}</span>
-          {selected > 0 && row.kind !== "holding" && <Button variant="outline" size="sm" disabled={pending} onClick={() => edit({ ...versions[selected - 1], rows: rows.filter(value => value.id !== row.id) })}>{t("remove")}</Button>}
-        </div>)}</div>
-        {selected > 0 && <label className="flex flex-wrap items-center gap-2 text-sm">{t("add")}<select aria-label={t("add")} className="max-w-full rounded border bg-background p-2" disabled={pending} value="" onChange={event => { const symbol = event.target.value; if (!symbol) return; edit({ ...versions[selected - 1], rows: [...rows, symbol === "cash" ? { id: "cash", kind: "cash", name: t("cash"), amount: "0" } : { id: `etf-${symbol}`, kind: "etf", symbol, name: symbol, amount: "0" }] }); }}><option value="">{t("add")}</option>{symbols.filter(symbol => !rows.some(row => row.kind === "etf" && row.symbol === symbol)).map(symbol => <option key={symbol} value={symbol}>{symbol}</option>)}{!rows.some(row => row.kind === "cash") && <option value="cash">{t("cash")}</option>}</select></label>}
-        <dl className="grid min-w-0 grid-cols-[1fr_auto] gap-2 text-sm"><dt>{t("total")}</dt><dd data-testid="editor-total">{money(sum)}</dd><dt>{t("ratio")}</dt><dd data-testid="editor-ratio">{pct(tenths(sum, base))}</dd><dt>{t("difference")}</dt><dd data-testid="editor-difference">{money(sum - base, true)}</dd></dl>
+        <div className="overflow-x-auto">
+          <div className="grid min-w-[48rem] grid-cols-[minmax(9rem,1fr)_repeat(3,minmax(12rem,1fr))] gap-3 text-sm">
+            <div />
+            {names.map((name, column) => <div key={name} className="space-y-2 font-medium">
+              <p>{name}</p>
+              {column > 0 && <label className="flex flex-col gap-2 font-normal">{t("rule")}<select aria-label={t("rule")} className="rounded-md border bg-background p-2" disabled={pending} value={versions[column - 1].rule} onChange={event => edit(column - 1, { ...versions[column - 1], rule: event.target.value as RebalanceRule })}>{(["none", "monthly", "quarterly"] as const).map(rule => <option key={rule} value={rule}>{t(`rules.${rule}`)}</option>)}</select></label>}
+            </div>)}
+            {editorRows.map(editorRow => <div key={editorRow.id} data-testid={`row-${editorRow.id}`} className="contents">
+              <div className="break-words py-3">{editorRow.name}</div>
+              <div className="space-y-2 rounded-md border p-3">{current.some(row => row.id === editorRow.id) ? <><p>{money(cents(editorRow.amount))}</p><p>{pct(tenths(cents(editorRow.amount), base))}</p></> : "—"}</div>
+              {versions.map((version, index) => {
+                const row = version.rows.find(row => row.id === editorRow.id);
+                if (!row) return <div key={index} className="rounded-md border p-3">—</div>;
+                const invalid = normalizeAmount(row.amount) === null;
+                const changed = cellChanged(row, currentAmount(row));
+                const changeAmount = (amount: string) => edit(index, { ...version, rows: version.rows.map(value => value.id === row.id ? { ...value, amount } : value) });
+                return <div key={index} data-testid={`editor-cell-${row.id}-${index === 0 ? "a" : "b"}`} className={`space-y-2 rounded-md p-3 ${invalid ? "border-2 border-destructive" : changed ? "border-2 border-foreground" : "border"}`}>
+                  <input aria-label={row.name} type="text" inputMode="decimal" aria-invalid={invalid ? true : undefined} className={`w-full rounded border bg-background p-2${invalid ? " border-destructive" : ""}`} value={row.amount} disabled={pending} onBlur={() => { const normalized = normalizeAmount(row.amount); if (normalized !== null) changeAmount(normalized); }} onChange={event => changeAmount(event.target.value)} />
+                  <p>{pct(tenths(cents(normalizeAmount(row.amount) ?? "0"), total(version.rows)))}</p>
+                  {row.kind !== "holding" && <Button variant="outline" size="sm" disabled={pending} onClick={() => edit(index, { ...version, rows: version.rows.filter(value => value.id !== row.id) })}>{t("remove")}</Button>}
+                </div>;
+              })}
+            </div>)}
+            <div /><div />
+            {versions.map((version, index) => <label key={index} className="flex flex-col gap-2">{t("add")}<select aria-label={t("add")} className="max-w-full rounded border bg-background p-2" disabled={pending} value="" onChange={event => {
+              const symbol = event.target.value; if (!symbol) return;
+              const row: Row = symbol === "cash" ? { id: "cash", kind: "cash", name: t("cash"), amount: "0" } : { id: `etf-${symbol}`, kind: "etf", symbol, name: symbol, amount: "0" };
+              setAddedOrder(order => order.includes(row.id) ? order : [...order, row.id]);
+              edit(index, { ...version, rows: [...version.rows, row] });
+            }}><option value="">{t("add")}</option>{symbols.filter(symbol => !version.rows.some(row => row.kind === "etf" && row.symbol === symbol)).map(symbol => <option key={symbol} value={symbol}>{symbol}</option>)}{!version.rows.some(row => row.kind === "cash") && <option value="cash">{t("cash")}</option>}</select></label>)}
+            <div />
+            {[current, ...versions.map(version => version.rows)].map((rows, index) => {
+              const key = ["current", "a", "b"][index], sum = total(rows);
+              return <dl key={key} className="grid grid-cols-[1fr_auto] gap-2"><dt>{t("total")}</dt><dd data-testid={`editor-total-${key}`}>{money(sum)}</dd><dt>{t("ratio")}</dt><dd data-testid={`editor-ratio-${key}`}>{pct(tenths(sum, base))}</dd><dt>{t("difference")}</dt><dd data-testid={`editor-difference-${key}`}>{money(sum - base, true)}</dd></dl>;
+            })}
+          </div>
+        </div>
         {excluded.length > 0 && <div className="text-sm"><p>{t("notIncluded")}</p><ul>{excluded.map(row => <li key={row.holding_id}>{row.name}</li>)}</ul></div>}
       </CardContent></Card>
       {invalidAmount && <p role="alert" className="text-destructive">{t("errors.invalidAmount")}</p>}
       <details data-testid="etf-list" className="min-w-0 text-sm"><summary className="cursor-pointer">{t("etfList")}</summary><ul className="mt-3 space-y-2">{symbols.map(symbol => <li key={symbol} data-symbol={symbol}>{symbol} — {t(`etfs.${symbol.replaceAll(".", "_")}`)}</li>)}</ul></details>
       <ReplayRangeTabs value={range} onChange={setRange} disabled={pending} />
-      <Button className="self-start" disabled={pending || seconds > 0 || loading || invalidAmount} onClick={() => outside.length ? setConfirm(true) : void submit()}>{t("calculate")}</Button>
+      <Button className="self-start" disabled={pending || seconds > 0 || loading || invalidAmount || !modified.some(Boolean)} onClick={() => outside.length ? setConfirm(true) : void submit()}>{t("calculate")}</Button>
     </>}
     {seconds > 0 && <p role="status" data-testid="cooldown">{t("cooldown")} {t("countdown", { seconds })}</p>}
     {errorKey && <p role="alert" className="text-destructive">{copy(errorKey)}</p>}

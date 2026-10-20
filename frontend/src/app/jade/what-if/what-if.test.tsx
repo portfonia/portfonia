@@ -19,17 +19,17 @@ const me: Me = { email: "a@example.com", credit_balance: "10", delivery_email: n
 const result = { base_currency: "USD", range: "1Y", columns: ["current", "a", "b"].map(key => ({ key, rule: "none", total: "100000", replay: { status: "ok", range: "1Y", points: [], metrics: { portfolio: null }, coverage: {} }, tail_risk: { status: "ok", levels: [] }, stress: { scenarios: [] } })) };
 beforeEach(() => { vi.clearAllMocks(); summary.mockResolvedValue({ holdings: [{ holding_id: "one", name: "One", market_value_base: "403218.77" }, { holding_id: "two", name: "Two", market_value_base: "596532.10" }] }); submit.mockResolvedValue(result); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
-async function editor() { render(<WhatIfBody me={me} hadLoadError={false} />); fireEvent.click(await screen.findByRole("button", { name: "columns.a" })); }
+async function editor() { render(<WhatIfBody me={me} hadLoadError={false} />); await screen.findAllByRole("textbox", { name: "One" }); fireEvent.change(screen.getAllByRole("combobox", { name: "rule" })[0], { target: { value: "monthly" } }); }
 it("F1 shares and totals update from edited amounts", async () => {
- await editor(); fireEvent.change(screen.getByRole("textbox", { name: "One" }), { target: { value: "500000" } });
- expect(screen.getByTestId("editor-total")).toHaveTextContent("1,096,532.10"); expect(screen.getByTestId("editor-ratio")).toHaveTextContent("109.7%");
+ await editor(); fireEvent.change(screen.getAllByRole("textbox", { name: "One" })[0], { target: { value: "500000" } });
+ expect(screen.getByTestId("editor-total-a")).toHaveTextContent("1,096,532.10"); expect(screen.getByTestId("editor-ratio-a")).toHaveTextContent("109.7%");
  expect(screen.getByTestId("row-one")).toHaveTextContent("45.6%"); expect(screen.getByTestId("row-two")).toHaveTextContent("54.4%");
 });
 it("F2 displayed band, signed difference, confirmation and cancel", async () => {
  summary.mockResolvedValue({ holdings: [{ holding_id: "one", name: "One", market_value_base: "100000" }] }); await editor();
  for (const [amount, prompt] of [["100000", false], ["100960", false], ["101050", true], ["98900", true]] as const) {
-  submit.mockClear(); fireEvent.change(screen.getByRole("textbox", { name: "One" }), { target: { value: amount } });
-  expect(screen.getByTestId("editor-difference")).toHaveTextContent(new Intl.NumberFormat("en", { style:"currency", currency:"USD", minimumFractionDigits:2, signDisplay:"always" }).format(Number(amount)-100000));
+  submit.mockClear(); fireEvent.change(screen.getAllByRole("textbox", { name: "One" })[0], { target: { value: amount } });
+  expect(screen.getByTestId("editor-difference-a")).toHaveTextContent(new Intl.NumberFormat("en", { style:"currency", currency:"USD", minimumFractionDigits:2, signDisplay:"always" }).format(Number(amount)-100000));
   fireEvent.click(screen.getByRole("button", { name: "calculate" }));
   if (prompt) { const dialog=await screen.findByRole("alertdialog"); fireEvent.click(within(dialog).getByRole("button", { name:"cancel" })); expect(submit).not.toHaveBeenCalled(); fireEvent.click(screen.getByRole("button", { name:"calculate" })); fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name:"confirm" })); }
   await waitFor(() => expect(submit).toHaveBeenCalledOnce()); await waitFor(() => expect(screen.getByRole("button", {name:"calculate"})).toBeEnabled());
@@ -61,9 +61,8 @@ it("F6 ETF list is closed initially with twelve symbols", async () => {
 
 it("English confirmation separates two out-of-range versions with the locale separator", async () => {
  await editor();
- fireEvent.change(screen.getByRole("textbox", { name: "One" }), { target: { value: "500000" } });
- fireEvent.click(screen.getByRole("button", { name: "columns.b" }));
- fireEvent.change(screen.getByRole("textbox", { name: "One" }), { target: { value: "500000" } });
+ fireEvent.change(screen.getAllByRole("textbox", { name: "One" })[0], { target: { value: "500000" } });
+ fireEvent.change(screen.getAllByRole("textbox", { name: "One" })[1], { target: { value: "500000" } });
  fireEvent.click(screen.getByRole("button", { name: "calculate" }));
  const description = within(await screen.findByRole("alertdialog")).getByText(/^confirmRatios/);
  expect(description.textContent).toContain("; ");
@@ -72,12 +71,12 @@ it("English confirmation separates two out-of-range versions with the locale sep
 
 it("non-finite exponent amount does not crash the editor", async () => {
  await editor();
- const input = screen.getByRole("textbox", { name: "One" });
+ const input = screen.getAllByRole("textbox", { name: "One" })[0];
  // Preserve the exponent string to check the editor does not throw.
  Object.defineProperty(input, "value", { configurable: true, get: () => "1e309", set: () => {} });
  fireEvent.change(input);
- expect(screen.getByTestId("editor-total")).toHaveTextContent("596,532.10");
- expect(screen.getByRole("textbox", { name: "One" })).toBeInTheDocument();
+ expect(screen.getByTestId("editor-total-a")).toHaveTextContent("596,532.10");
+ expect(screen.getAllByRole("textbox", { name: "One" })[0]).toBeInTheDocument();
 });
 
 async function calculateEdited() {
@@ -90,24 +89,24 @@ it("801 A1 normalizes the specified amount examples", () => {
  for (const [raw, expected] of [["", "0"], ["  ", "0"], ["1,234.567", "1234.56"], ["1\uFF0C000", "1000"], [".5", "0.5"], ["12.", "12"], ["0.999", "0.99"], ["1.2.3", null], ["-5", null], ["1e5", null], ["abc", null]]) expect(normalizeAmount(raw!)).toBe(expected);
 });
 it("801 A2 clears and blurs to zero and submits zero", async () => {
- await editor(); const input = screen.getByLabelText("One");
+ await editor(); const input = screen.getAllByLabelText("One")[0];
  fireEvent.change(input, { target: { value: "" } }); fireEvent.blur(input);
  expect(input).toHaveValue("0"); await calculateEdited();
  expect(submit.mock.calls[0][0].versions[0].rows[0].amount).toBe("0");
 });
 it("801 A3 submits both comma forms without separators", async () => {
  await editor();
- fireEvent.change(screen.getByLabelText("One"), { target: { value: "1,000" } });
- fireEvent.change(screen.getByLabelText("Two"), { target: { value: "1\uFF0C000" } });
+ fireEvent.change(screen.getAllByLabelText("One")[0], { target: { value: "1,000" } });
+ fireEvent.change(screen.getAllByLabelText("Two")[0], { target: { value: "1\uFF0C000" } });
  await calculateEdited();
  expect(submit.mock.calls[0][0].versions[0].rows.map((row: { amount: string }) => row.amount)).toEqual(["1000", "1000"]);
 });
 it("801 A4 truncates submitted fractional digits", async () => {
- await editor(); fireEvent.change(screen.getByLabelText("One"), { target: { value: "12.345" } });
+ await editor(); fireEvent.change(screen.getAllByLabelText("One")[0], { target: { value: "12.345" } });
  await calculateEdited(); expect(submit.mock.calls[0][0].versions[0].rows[0].amount).toBe("12.34");
 });
 it("801 A5 invalid amount marks input and blocks calculation", async () => {
- await editor(); const input = screen.getByLabelText("One");
+ await editor(); const input = screen.getAllByLabelText("One")[0];
  fireEvent.change(input, { target: { value: "1.2.3" } });
  expect(input).toHaveAttribute("aria-invalid", "true"); expect(input).toHaveClass("border-destructive");
  expect(screen.getByRole("button", { name: "calculate" })).toBeDisabled();
@@ -134,11 +133,12 @@ it("804 A7 keeps the slow calculation notice visible while the request is pendin
  expect(screen.queryByTestId("calculating-overlay")).not.toBeInTheDocument();
 });
 
-const { axis806, tooltip806, yAxis806 } = vi.hoisted(() => ({ axis806: vi.fn(), tooltip806: vi.fn(), yAxis806: vi.fn() }));
+const { axis806, tooltip806, yAxis806, line809 } = vi.hoisted(() => ({ axis806: vi.fn(), tooltip806: vi.fn(), yAxis806: vi.fn(), line809: vi.fn() }));
 vi.mock("recharts", async () => {
  const actual = await vi.importActual<typeof import("recharts")>("recharts");
  const Container = ({ children }: { children: import("react").ReactNode }) => <div>{children}</div>;
  return { ...actual, ResponsiveContainer: Container, LineChart: Container,
+  Line: (props: object) => { line809(props); return null; },
   XAxis: (props: object) => { axis806(props); return null; },
   YAxis: (props: object) => { yAxis806(props); return null; },
   Tooltip: (props: object) => { tooltip806(props); return null; } };
@@ -186,4 +186,61 @@ it("806 A7 every column header labels its total", () => {
   expect(header).toHaveLength(1);
   expect(header[0]).toHaveTextContent("total");
  }
+});
+
+async function ready809() {
+ render(<WhatIfBody me={me} hadLoadError={false} />);
+ await screen.findAllByRole("textbox", { name: "One" });
+}
+it("809 A1 submits only A and reports untouched B without its result", async () => {
+ submit.mockResolvedValue({ ...result, columns: result.columns.slice(0, 2) });
+ await ready809();
+ fireEvent.change(screen.getAllByRole("textbox", { name: "One" })[0], { target: { value: "403219" } });
+ await calculateEdited();
+ expect(submit.mock.calls[0][0].versions).toHaveLength(1);
+ expect(await screen.findByText('sameAsCurrent' + JSON.stringify({ version: "columns.b" }))).toBeInTheDocument();
+ expect(line809.mock.calls.map(call => call[0].dataKey)).toEqual(["a", "current"]);
+ expect(screen.queryByRole("columnheader", { name: /^columns.b/ })).not.toBeInTheDocument();
+});
+it("809 A2 relabels the single response version as B when only its rule changes", async () => {
+ submit.mockResolvedValue({ ...result, columns: result.columns.slice(0, 2) });
+ await ready809();
+ const rules = screen.getAllByRole("combobox", { name: "rule" });
+ fireEvent.change(rules[rules.length - 1], { target: { value: "monthly" } });
+ await calculateEdited();
+ expect(submit.mock.calls[0][0].versions).toHaveLength(1);
+ expect(submit.mock.calls[0][0].versions[0].rule).toBe("monthly");
+ expect((await screen.findAllByRole("columnheader", { name: /^columns.b/ })).length).toBeGreaterThan(0);
+ expect(screen.queryByRole("columnheader", { name: /^columns.a/ })).not.toBeInTheDocument();
+});
+it("809 A3 treats an added zero row as untouched and disables Calculate", async () => {
+ await ready809();
+ fireEvent.change(screen.getAllByRole("combobox", { name: "add" })[0], { target: { value: "SPY" } });
+ expect(screen.getAllByRole("textbox", { name: "SPY" })[0]).toHaveValue("0");
+ expect(screen.getByRole("button", { name: "calculate" })).toBeDisabled();
+});
+it("809 A4 outlines changed cells and gives invalid amounts the destructive border", async () => {
+ await ready809();
+ const input = screen.getAllByRole("textbox", { name: "One" })[0];
+ expect(input.closest('[data-testid^="editor-cell"]')).not.toHaveClass("border-2", "border-foreground");
+ fireEvent.change(input, { target: { value: "403219" } });
+ expect(input.closest('[data-testid^="editor-cell"]')).toHaveClass("border-2", "border-foreground");
+ fireEvent.change(input, { target: { value: "invalid" } });
+ expect(input.closest('[data-testid^="editor-cell"]')).toHaveClass("border-destructive");
+ expect(input.closest('[data-testid^="editor-cell"]')).not.toHaveClass("border-foreground");
+ expect(input).toHaveClass("border-destructive");
+});
+it("809 A5 draws Current last with a thick dashed stroke", () => {
+ render(<WhatIfResults data={fiveYear806} />);
+ const lines = line809.mock.calls.map(call => call[0]);
+ expect(lines.map(line => line.dataKey)).toEqual(["a", "b", "current"]);
+ expect(lines[2]).toMatchObject({ stroke: "#64748b", strokeWidth: 3, strokeDasharray: "6 4" });
+});
+it("809 A6 renders all three editor columns at once without switching buttons", async () => {
+ await ready809();
+ for (const key of ["current", "a", "b"]) {
+  expect(screen.queryByRole("button", { name: `columns.${key}` })).not.toBeInTheDocument();
+  expect(screen.getByTestId(`editor-total-${key}`)).toBeInTheDocument();
+ }
+ expect(screen.getAllByRole("textbox", { name: "One" })).toHaveLength(2);
 });
