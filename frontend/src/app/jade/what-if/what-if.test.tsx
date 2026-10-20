@@ -1,8 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { catalogs } from "@/locales";
 import type { Me } from "@/lib/api";
 const { summary, submit } = vi.hoisted(() => ({ summary: vi.fn(), submit: vi.fn() }));
-vi.mock("next-intl", () => ({ useTranslations: () => (key: string, values?: object) => key + (values ? JSON.stringify(values) : "") }));
+vi.mock("next-intl", () => ({ useTranslations: () => (key: string, values?: object) => key === "listSeparator" ? (catalogs.en.jade.whatIf as { listSeparator?: string }).listSeparator ?? key : key + (values ? JSON.stringify(values) : "") }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 vi.mock("@/app/_components/locale-provider", () => ({ useLocalizedHref: () => (p: string) => p, useLocale: () => ({ locale: "en" }) }));
@@ -56,4 +57,15 @@ it("F5 access notice links to Jade and CTA appears only for Jade", () => {
 it("F6 ETF list is closed initially with twelve symbols", async () => {
  await editor(); const list=screen.getByTestId("etf-list"); expect(list).not.toHaveAttribute("open"); expect(list.querySelectorAll("li")).toHaveLength(12);
  expect([...list.querySelectorAll("li")].map(e=>e.getAttribute("data-symbol"))).toEqual(["SPY","QQQ","EFA","EEM","2800.HK","510300.SS","ISF.L","EXSA.DE","1306.T","069500.KS","AGG","GLD"]);
+});
+
+it("English confirmation separates two out-of-range versions with the locale separator", async () => {
+ await editor();
+ fireEvent.change(screen.getByRole("spinbutton", { name: "One" }), { target: { value: "500000" } });
+ fireEvent.click(screen.getByRole("button", { name: "columns.b" }));
+ fireEvent.change(screen.getByRole("spinbutton", { name: "One" }), { target: { value: "500000" } });
+ fireEvent.click(screen.getByRole("button", { name: "calculate" }));
+ const description = within(await screen.findByRole("alertdialog")).getByText(/^confirmRatios/);
+ expect(description.textContent).toContain("; ");
+ expect(description.textContent).not.toContain("\uFF1B");
 });

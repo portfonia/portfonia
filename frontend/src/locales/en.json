@@ -1703,7 +1703,7 @@
   "seo": {
     "pages": {
       "guideWhatIf": {
-        "title": "Rebalance & what-if: reading the comparison",
+        "title": "Holdings rebalancing what-if: reading the comparison",
         "description": "A historical calculation of current holdings and up to two user-edited versions, with separate rebalancing rules."
       },
       "home": {
@@ -1826,7 +1826,8 @@
   },
   "jade": {
     "whatIf": {
-      "title": "Rebalance & what-if",
+      "listSeparator": "; ",
+      "title": "Holdings rebalancing what-if",
       "intro": "Compare current holdings with two versions of your own amounts and calendar rebalancing rules over past prices.",
       "access": "This calculation is available with an active Jade subscription.",
       "jadeLink": "Jade",
@@ -1866,7 +1867,7 @@
       "notModelled": "Costs, taxes and transaction timing are not modelled.",
       "watermark": "Calculated only from user-defined assumptions. Not investment advice.",
       "resultsFor": "Calculated results: {range} · {currency}",
-      "ctaHeading": "Rebalance & what-if",
+      "ctaHeading": "Holdings rebalancing what-if",
       "ctaText": "Compare current holdings with two edited versions and calendar rebalancing over past prices.",
       "open": "Open",
       "etfs": {
@@ -2221,36 +2222,60 @@
   },
   "guides": {
     "whatIf": {
-      "title": "Rebalance & what-if: reading the comparison",
+      "title": "Holdings rebalancing what-if: reading the comparison",
       "intro": "A historical calculation of current holdings and up to two user-edited versions, with separate rebalancing rules.",
       "window": "Example window: {start} to {end}.",
-      "chartCaption": "Cumulative returns of the same initial 60% SPY / 40% AGG mixture under two rules. Neither line is ranked.",
+      "chartCaption": "{portfolio}. {start} to {end}. {exampleLabel}. Cumulative returns under no rebalancing, monthly and quarterly rules; the shared starting mixture and dates are the same for all three lines.",
       "sections": {
-        "compare": {
-          "heading": "What the page compares",
-          "text": "The Current column is fixed. Version A and Version B begin as copies; you edit amounts in the display currency, add one of twelve listed ETFs or cash, and choose a rule for each version. Live shares, totals, ratios to the current total and signed differences describe the inputs. Calculate submits both versions; amounts remain for the next round. Nothing is saved across page loads."
+        "s1": {
+          "heading": "What the page answers",
+          "p1": "Holdings rebalancing what-if compares the holdings recorded today with up to two versions of amounts and rebalancing rules chosen by you. It applies past prices to those inputs. The question is how those specified mixtures trace different paths over the same history, with the calculation and its data limits visible beside the results.",
+          "p2": "This is a historical calculation, not a forecast or an assessment of any version. It does not describe the transactions that actually occurred in your account. A version can contain amounts or instruments that were never part of your account during the selected dates. The column order is fixed; neither order nor colour assigns a ranking."
         },
-        "rules": {
+        "s2": {
+          "heading": "The three columns",
+          "p1": "Current is fixed and matches the Jade replay, tail-risk and historical-stress cards for the same currency and replay span. Version A and Version B begin as independent copies. Edit each row’s amount in the display currency; its share updates with the version’s total. A zero amount omits that row from the calculation. The footer shows the total, its ratio to the current total and the signed difference, so a change in portfolio size is visible alongside a change in composition.",
+          "p2": "The additional ETF list is fixed: SPY, QQQ, EFA, EEM, 2800.HK, 510300.SS, ISF.L, EXSA.DE, 1306.T, 069500.KS, AGG and GLD. Cash is another available row. Added cash is denominated in the display currency, with the entered amount as its current base-currency value. It enters the calculation as cash rather than an ETF price series; there is no modelled interest return for that same-currency cash row.",
+          "p3": "The confirmation dialog appears only when a version’s displayed ratio falls outside the inclusive band from ninety-nine percent to one hundred and one percent of the current total. That displayed ratio is rounded half-up to a decimal place before the band is checked. The dialog identifies the affected versions and their ratios; Confirm calculates with those amounts, while Cancel returns to editing.",
+          "p4": "Changing the replay span does not calculate. Changing currency reloads current amounts and resets both versions to copies, without calculating. Calculate submits both versions; earlier results retain the span and currency used for that calculation until another submission succeeds. Each user can submit once every two minutes; an early attempt shows a countdown. Inputs remain for another editing round but nothing is saved after the page reloads. With no valued current holdings, the page links to holdings instead of showing the editor."
+        },
+        "s3": {
           "heading": "Three calendar rules",
-          "text": "No rebalancing leaves quantities unchanged as prices move. Monthly and quarterly calculations start at the version's own weights and reset to them at the close of the first valid trading day of each new calendar month or quarter. They use the closing portfolio value at that reset, with no external cash flow."
+          "p1": "No rebalancing leaves quantities unchanged as prices move. Monthly and quarterly calculations start at the version’s own weights and reset to them at the close of the first valid trading day of each new calendar month or quarter. They use the closing portfolio value at that reset, with no external cash flow.",
+          "p2": "In the committed example window, the monthly line resets {monthlyResets} times and the quarterly line resets {quarterlyResets} times. Every reset uses the initial {spyStart} SPY and {aggStart} AGG weights. The value for the reset day is calculated first, and the new quantities apply to subsequent price changes. A calendar boundary during a market closure therefore uses the first valid trading day, rather than a fabricated price on the calendar date.",
+          "p3": "The no-rebalancing line begins at those same {spyStart} SPY and {aggStart} AGG weights. By {end}, its value weights are {endSpyWeight} SPY and {endAggWeight} AGG. The quantities have not changed; the two price paths have changed their shares of the total. This drift is what a reset removes at each scheduled close. Between resets, the monthly and quarterly mixtures also drift."
         },
-        "anchoring": {
+        "s4": {
           "heading": "Where each path starts",
-          "text": "On the Jade page, replay and tail risk without rebalancing carry today's quantities back through history. Rebalanced columns begin at today's weights on the window's first day. Stress scenarios begin every column at today's weights on the scenario's first valid day; without rebalancing the weights then drift, while monthly and quarterly columns reset. These starting conventions answer different historical calculations."
+          "p1": "On the Jade page, replay and tail risk without rebalancing carry today’s quantities back through history. Rebalanced columns instead begin at today’s weights on the window’s first day. These are different starting conventions: a current value weight does not imply that the same weight applied on every earlier date. The tail-risk calculation uses its fixed historical replay window, while the chart follows the span selected for Calculate.",
+          "p2": "Stress scenarios begin every column at today’s weights on the scenario’s first valid day, as the existing Jade stress tool does. Without rebalancing the weights then drift; monthly and quarterly columns reset on their calendar boundaries after the reset day’s close. Stress therefore has the same starting convention across columns even though their subsequent rules differ. The selected replay span does not change those scenario windows."
         },
-        "example": {
-          "heading": "A fixed SPY and AGG example",
-          "text": "This public example starts both lines at 60% SPY and 40% AGG on the first date. One line then drifts without rebalancing; the other resets quarterly after the first valid trading day closes. Both use committed adjusted closing prices, including distributions. The table shows cumulative return, annualized return, annualized volatility and maximum drawdown. This shared starting mix differs from the Jade replay without rebalancing, which carries current quantities back."
+        "s5": {
+          "heading": "The example: three lines",
+          "p1": "This public example uses {portfolio}, starting on {start} and ending on {end}. All three lines begin with the same mixture at the first date: no rebalancing, monthly and quarterly. They use the committed SPY and AGG adjusted closing prices, including distributions. This is a fixed illustration, separate from any person’s holdings.",
+          "p2": "The common starting mixture isolates the effect of the calendar rule within this example. It differs from the no-rebalancing replay on the Jade page, which carries today’s quantities backward. The chart places cumulative returns on the same date axis; the table applies the same metric definitions and observation window to all three lines.",
+          "p3": "Cumulative return compares the final value with the initial value for the entire window. It is {none_cumulative} without rebalancing, {monthly_cumulative} with monthly resets and {quarterly_cumulative} with quarterly resets. These are changes in the example’s calculated value, including the adjusted-price distribution treatment. They are not the realized returns of a user’s account and do not assign a preference to a rule.",
+          "p4": "Annualized return expresses the full-window compounded change as a yearly rate using the elapsed calendar time. The values are {none_annualized} without rebalancing, {monthly_annualized} monthly and {quarterly_annualized} quarterly. This puts the total change on a common yearly scale; it does not mean that the path delivered that rate in each calendar year.",
+          "p5": "Annualized volatility describes the dispersion of consecutive daily returns, using their sample standard deviation scaled to a year. It is {none_volatility} without rebalancing, {monthly_volatility} monthly and {quarterly_volatility} quarterly. It concerns variation along each path, rather than the direction or size of its final cumulative return. The three figures use the same price dates.",
+          "p6": "Maximum drawdown is the largest decline from an earlier calculated peak to a subsequent trough in the window. It is {none_drawdown} without rebalancing, {monthly_drawdown} monthly and {quarterly_drawdown} quarterly. These negative figures describe a peak-to-trough interval within each path, not the full-window return. The number summarizes one observed decline and is not a boundary on future losses."
         },
-        "limits": {
+        "s6": {
+          "heading": "What the results show on the page",
+          "p1": "The Jade page displays a replay curve and its metrics for each column, then VaR and CVaR in percentage and currency amounts for daily and monthly horizons. VaR describes a historical loss boundary at the displayed confidence level; CVaR describes the average within the associated tail. They summarize the replay observations used for that column rather than a forecast of a particular future day or month.",
+          "p2": "The stress table places the five historical scenarios in time order. Each column reports the scenario peak-to-trough return and amount, together with its in-window maximum drawdown. Read columns across the same dates and result type, including each column’s rule and data-coverage notice. A pending or insufficient-data state is not a zero return. The page has no benchmark line, contribution bars or ranking."
+        },
+        "s7": {
           "heading": "Hindsight and omitted costs",
-          "text": "The inputs are selected today and evaluated against known history. Trying multiple versions against the same prices favours whichever happened to match that period; this supplies no ranking or forecast. Costs, taxes and transaction timing are not modelled. The past paths describe these assumptions over these dates only."
+          "p1": "The inputs are selected today and evaluated against known history. Trying multiple versions against the same prices favours whichever happened to match that period; this supplies no ranking or forecast. Costs, taxes and transaction timing are not modelled. The past paths describe these assumptions over these dates only.",
+          "p2": "A reset in practice would involve transactions. Their execution prices, costs, taxes and timing are outside this calculation; the model resets at the selected day’s closing values without those effects. Applying a different mixture repeatedly to familiar history also leaves the same hindsight limitation in place. A displayed difference records the assumptions and price path, rather than an assessment of which version fits a person."
         },
-        "watermark": {
-          "heading": "What the watermark means",
-          "text": "The repeated text across the result tables and chart identifies a calculation based only on user-defined assumptions. It also appears in screenshots. The same sentence is available as ordinary text for assistive technology; it is not an assessment of any version."
+        "s8": {
+          "heading": "The watermark",
+          "p1": "The repeated text across the result tables and chart identifies a calculation based only on user-defined assumptions. It also appears in screenshots. The same sentence is available as ordinary text for assistive technology; it is not an assessment of any version.",
+          "p2": "The watermark accompanies the results alongside the notices on hindsight, starting conventions and omitted costs. It identifies what the calculation represents when the chart or a table is viewed separately from the editor. It does not turn an illustrative historical path into a forecast."
         }
-      }
+      },
+      "tableCaption": "{portfolio}. {start} to {end}. {exampleLabel}. The same metrics for the three calendar rules over the complete example window."
     },
     "common": {
       "exampleLabel": "Example portfolio, not a recommendation",
@@ -2391,7 +2416,7 @@
     },
     "index": {
       "title": "How Jade's portfolio tools work",
-      "intro": "Jade's method explanations are public. Every guide uses a fixed example portfolio to illustrate a calculation, with real price history and readable tables beside the charts. {exampleLabel}. The examples describe past movement, without assessing a person's choices. Results computed from your own holdings are available with Jade. These six guides cover the Jade tools and the separate rebalancing what-if page.",
+      "intro": "Jade's method explanations are public. Every guide uses a fixed example portfolio to illustrate a calculation, with real price history and readable tables beside the charts. {exampleLabel}. The examples describe past movement, without assessing a person's choices. Results computed from your own holdings are available with Jade. These six guides cover the Jade tools and the separate Holdings rebalancing what-if page.",
       "summaries": {
         "whatIf": "A historical calculation of current holdings and up to two user-edited versions, with separate rebalancing rules.",
         "replay": "See how today's unchanged holdings are replayed through past prices, and what cumulative return, volatility and maximum drawdown measure.",

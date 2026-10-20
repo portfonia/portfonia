@@ -1703,7 +1703,7 @@
   "seo": {
     "pages": {
       "guideWhatIf": {
-        "title": "Rebalanceo y escenarios: cómo leer la comparación",
+        "title": "Simulación de rebalanceo de posiciones: cómo leer la comparación",
         "description": "Un cálculo histórico de las posiciones actuales y hasta dos versiones editadas por usted, con reglas de rebalanceo independientes."
       },
       "home": {
@@ -1826,7 +1826,8 @@
   },
   "jade": {
     "whatIf": {
-      "title": "Rebalanceo y simulación de escenarios",
+      "listSeparator": "; ",
+      "title": "Simulación de rebalanceo de posiciones",
       "intro": "Compare sus posiciones actuales con dos versiones de importes definidos por usted y reglas de rebalanceo periódico, usando precios históricos.",
       "access": "Este cálculo está disponible con una suscripción Jade activa.",
       "jadeLink": "Jade",
@@ -1866,7 +1867,7 @@
       "notModelled": "No se modelan costos, impuestos ni el momento de las operaciones.",
       "watermark": "Cálculo basado únicamente en supuestos definidos por el usuario. No constituye asesoría de inversión.",
       "resultsFor": "Resultados calculados: {range} · {currency}",
-      "ctaHeading": "Rebalanceo y simulación de escenarios",
+      "ctaHeading": "Simulación de rebalanceo de posiciones",
       "ctaText": "Compare sus posiciones actuales con dos versiones editadas y rebalanceo periódico, usando precios históricos.",
       "open": "Abrir",
       "etfs": {
@@ -2221,36 +2222,60 @@
   },
   "guides": {
     "whatIf": {
-      "title": "Rebalanceo y escenarios: cómo leer la comparación",
+      "title": "Simulación de rebalanceo de posiciones: cómo leer la comparación",
       "intro": "Un cálculo histórico de las posiciones actuales y hasta dos versiones editadas por usted, con reglas de rebalanceo independientes.",
       "window": "Período del ejemplo: {start} a {end}.",
-      "chartCaption": "Rendimientos acumulados de la misma mezcla inicial de 60% SPY y 40% AGG con dos reglas. No se clasifican las líneas.",
+      "chartCaption": "{portfolio}. Del {start} al {end}. {exampleLabel}. Rendimientos acumulados sin rebalanceo y con reglas mensuales y trimestrales; las tres líneas comparten la mezcla inicial y las fechas.",
       "sections": {
-        "compare": {
-          "heading": "Qué compara la página",
-          "text": "La columna Actual es fija. Las versiones A y B comienzan como copias; usted edita importes en la moneda de visualización, agrega uno de los doce ETF o efectivo y elige una regla por versión. Las proporciones, totales y diferencias con signo describen los datos ingresados. Calcular envía ambas versiones y conserva los importes para otra ronda. No se guardan al recargar la página."
+        "s1": {
+          "heading": "Qué responde la página",
+          "p1": "Simulación de rebalanceo de posiciones compara las posiciones registradas hoy con hasta dos versiones de importes y reglas elegidos por usted. Aplica precios pasados a esos datos. La pregunta es cómo esas mezclas trazan trayectorias diferentes sobre la misma historia, con el cálculo y sus límites de datos visibles junto a los resultados.",
+          "p2": "Es un cálculo histórico, no un pronóstico ni una evaluación de ninguna versión. No describe las operaciones que ocurrieron en su cuenta. Una versión puede incluir importes o instrumentos que nunca estuvieron en ella durante las fechas seleccionadas. El orden de las columnas es fijo; ni el orden ni el color asignan una clasificación."
         },
-        "rules": {
+        "s2": {
+          "heading": "Las tres columnas",
+          "p1": "Actual es fija y coincide con las tarjetas de simulación histórica, riesgo de cola y estrés histórico de Jade para la misma moneda y período. Las versiones A y B comienzan como copias independientes. Edite el importe de cada fila en la moneda de visualización; su proporción se actualiza con el total de la versión. Un importe de cero omite la fila del cálculo. El pie muestra el total, su proporción respecto al total actual y la diferencia con signo, para distinguir un cambio de tamaño de uno de composición.",
+          "p2": "La lista adicional de ETF es fija: SPY, QQQ, EFA, EEM, 2800.HK, 510300.SS, ISF.L, EXSA.DE, 1306.T, 069500.KS, AGG y GLD. También puede agregar una fila de efectivo. El efectivo agregado está denominado en la moneda de visualización y el importe ingresado es su valor actual en esa moneda base. Se calcula como efectivo y no como una serie de precios de ETF; no se modelan intereses para esa fila en la misma moneda.",
+          "p3": "El diálogo de confirmación aparece únicamente cuando la proporción mostrada de una versión queda fuera de la banda inclusiva del noventa y nueve al ciento uno por ciento del total actual. Antes de comprobar la banda, se redondea a un decimal, con los empates hacia arriba. El diálogo identifica las versiones afectadas y sus proporciones; Confirmar calcula con esos importes y Cancelar regresa a la edición.",
+          "p4": "Cambiar el período no calcula. Cambiar la moneda recarga los importes actuales y restablece ambas versiones como copias, sin calcular. Calcular envía las dos versiones; los resultados anteriores conservan el período y la moneda de su cálculo hasta que otra solicitud finaliza. Cada usuario puede enviar una solicitud cada dos minutos; un intento anticipado muestra una cuenta regresiva. Los datos quedan para otra ronda de edición, pero no se guardan al recargar. Sin posiciones actuales con valor disponible, la página enlaza a posiciones en lugar de mostrar el editor."
+        },
+        "s3": {
           "heading": "Tres reglas de calendario",
-          "text": "Sin rebalanceo, las cantidades permanecen constantes mientras cambian los precios. Los cálculos mensuales y trimestrales parten de los pesos de cada versión y los restablecen al cierre del primer día bursátil válido de cada nuevo mes o trimestre calendario. Usan el valor de la cartera al cierre de ese día, sin flujos externos de efectivo."
+          "p1": "Sin rebalanceo, las cantidades permanecen constantes mientras cambian los precios. Los cálculos mensuales y trimestrales parten de los pesos de cada versión y los restablecen al cierre del primer día bursátil válido de cada nuevo mes o trimestre calendario. Usan el valor de la cartera al cierre de ese día, sin flujos externos de efectivo.",
+          "p2": "En el período del ejemplo, la línea mensual se restablece {monthlyResets} veces y la trimestral {quarterlyResets} veces. Cada restablecimiento utiliza los pesos iniciales de {spyStart} SPY y {aggStart} AGG. Primero se calcula el valor del día de restablecimiento y las nuevas cantidades se aplican a los cambios posteriores. Si el cambio de calendario ocurre con el mercado cerrado, se usa el primer día bursátil válido, sin inventar un precio para la fecha calendario.",
+          "p3": "La línea sin rebalanceo parte de esos mismos pesos de {spyStart} SPY y {aggStart} AGG. El {end}, sus pesos por valor son {endSpyWeight} SPY y {endAggWeight} AGG. Las cantidades no cambiaron; las dos trayectorias de precios modificaron sus proporciones del total. Esa desviación es lo que elimina el restablecimiento al cierre programado. Entre restablecimientos, las mezclas mensual y trimestral también varían."
         },
-        "anchoring": {
+        "s4": {
           "heading": "Dónde comienza cada trayectoria",
-          "text": "En Jade, la simulación histórica y el riesgo de cola sin rebalanceo llevan las cantidades actuales hacia atrás. Las columnas con rebalanceo parten de los pesos actuales el primer día del período. En estrés, todas las columnas parten de los pesos actuales el primer día válido del escenario; sin rebalanceo los pesos varían y con reglas mensuales o trimestrales se restablecen. Son convenciones de inicio diferentes."
+          "p1": "En Jade, la simulación histórica y el riesgo de cola sin rebalanceo llevan las cantidades actuales hacia atrás. Las columnas con rebalanceo parten de los pesos actuales el primer día del período. Son convenciones de inicio diferentes: un peso por valor actual no implica que ese peso se aplicara en todas las fechas anteriores. El riesgo de cola utiliza su período histórico fijo y el gráfico sigue el período elegido al calcular.",
+          "p2": "En estrés, todas las columnas parten de los pesos actuales el primer día válido del escenario, como en la herramienta de estrés existente. Sin rebalanceo los pesos varían; las columnas mensual y trimestral se restablecen en sus cambios de calendario después del cierre del día correspondiente. El inicio es común a todas las columnas, aunque sus reglas posteriores sean diferentes. El período de simulación seleccionado no cambia las ventanas de los escenarios."
         },
-        "example": {
-          "heading": "Un ejemplo fijo con SPY y AGG",
-          "text": "Ambas líneas de este ejemplo público parten de 60% SPY y 40% AGG en la primera fecha. Una continúa sin rebalanceo y la otra se restablece trimestralmente después del cierre del primer día bursátil válido. Ambas usan precios de cierre ajustados incluidos en el repositorio, con distribuciones. La tabla presenta rendimiento acumulado y anualizado, volatilidad anualizada y caída máxima. La mezcla inicial común difiere de la simulación de Jade sin rebalanceo, que lleva las cantidades actuales hacia atrás."
+        "s5": {
+          "heading": "El ejemplo: tres líneas",
+          "p1": "Este ejemplo público utiliza {portfolio}, desde {start} hasta {end}. Las tres líneas parten de la misma mezcla en la primera fecha: sin rebalanceo, mensual y trimestral. Usan los precios de cierre ajustados de SPY y AGG incluidos en el repositorio, con distribuciones. Es una ilustración fija, separada de las posiciones de cualquier persona.",
+          "p2": "La mezcla inicial común aísla el efecto de la regla de calendario en el ejemplo. Difiere de la simulación de Jade sin rebalanceo, que lleva las cantidades actuales hacia atrás. El gráfico coloca los rendimientos acumulados sobre las mismas fechas; la tabla aplica las mismas definiciones de métricas y el mismo período a las tres líneas.",
+          "p3": "El rendimiento acumulado compara el valor final con el inicial durante todo el período. Es {none_cumulative} sin rebalanceo, {monthly_cumulative} con restablecimientos mensuales y {quarterly_cumulative} con restablecimientos trimestrales. Son cambios en el valor calculado del ejemplo, con el tratamiento de distribuciones de los precios ajustados. No son rendimientos realizados de una cuenta ni asignan una preferencia a una regla.",
+          "p4": "El rendimiento anualizado expresa el cambio compuesto del período como una tasa anual usando el tiempo calendario transcurrido. Los valores son {none_annualized} sin rebalanceo, {monthly_annualized} mensual y {quarterly_annualized} trimestral. Coloca el cambio total en una escala anual común; no significa que la trayectoria haya generado esa tasa en cada año calendario.",
+          "p5": "La volatilidad anualizada describe la dispersión de los rendimientos diarios consecutivos mediante su desviación estándar muestral llevada a escala anual. Es {none_volatility} sin rebalanceo, {monthly_volatility} mensual y {quarterly_volatility} trimestral. Describe la variación de cada trayectoria, no la dirección ni el tamaño del rendimiento acumulado final. Las tres cifras usan las mismas fechas.",
+          "p6": "La caída máxima es el mayor descenso desde un máximo calculado anterior hasta un mínimo posterior dentro del período. Es {none_drawdown} sin rebalanceo, {monthly_drawdown} mensual y {quarterly_drawdown} trimestral. Estas cifras negativas describen un intervalo de máximo a mínimo en cada trayectoria, no el rendimiento de todo el período. Resumen un descenso observado y no son un límite para pérdidas futuras."
         },
-        "limits": {
+        "s6": {
+          "heading": "Qué muestran los resultados en la página",
+          "p1": "Jade muestra una curva de simulación histórica y sus métricas por columna, seguida de VaR y CVaR en porcentajes e importes para horizontes diarios y mensuales. VaR describe una frontera histórica de pérdida al nivel de confianza mostrado; CVaR describe el promedio dentro de la cola correspondiente. Resumen las observaciones de la simulación de cada columna, no un pronóstico para un día o mes futuro concreto.",
+          "p2": "La tabla de estrés ordena los cinco escenarios históricos por fecha. Cada columna presenta el rendimiento y el importe entre el máximo y el mínimo del escenario, junto con su caída máxima dentro de la ventana. Lea las columnas para las mismas fechas y el mismo tipo de resultado, incluida su regla y el aviso de cobertura. Un estado pendiente o con datos insuficientes no equivale a rendimiento cero. No hay línea de referencia, barras de contribución ni clasificación."
+        },
+        "s7": {
           "heading": "Retrospectiva y costos omitidos",
-          "text": "Los datos se eligen hoy y se evalúan con historia conocida. Probar versiones con los mismos precios favorece a la que coincidió con ese período; no aporta una clasificación ni un pronóstico. No se modelan costos, impuestos ni el momento de las operaciones. Las trayectorias describen únicamente esos supuestos y esas fechas."
+          "p1": "Los datos se eligen hoy y se evalúan con historia conocida. Probar versiones con los mismos precios favorece a la que coincidió con ese período; no aporta una clasificación ni un pronóstico. No se modelan costos, impuestos ni el momento de las operaciones. Las trayectorias describen únicamente esos supuestos y esas fechas.",
+          "p2": "Un restablecimiento en la práctica implicaría operaciones. Sus precios de ejecución, costos, impuestos y tiempos quedan fuera del cálculo; el modelo restablece a valores de cierre sin esos efectos. Aplicar repetidamente mezclas distintas a una historia conocida mantiene la misma limitación retrospectiva. Una diferencia mostrada registra los supuestos y la trayectoria de precios, sin evaluar qué versión se ajusta a una persona."
         },
-        "watermark": {
-          "heading": "Qué significa la marca de agua",
-          "text": "El texto repetido sobre las tablas y el gráfico identifica un cálculo basado únicamente en supuestos definidos por el usuario. También aparece en las capturas de pantalla. La misma frase figura como texto normal para tecnologías de asistencia; no evalúa ninguna versión."
+        "s8": {
+          "heading": "La marca de agua",
+          "p1": "El texto repetido sobre las tablas y el gráfico identifica un cálculo basado únicamente en supuestos definidos por el usuario. También aparece en las capturas de pantalla. La misma frase figura como texto normal para tecnologías de asistencia; no evalúa ninguna versión.",
+          "p2": "La marca acompaña a los resultados junto con los avisos de retrospectiva, convenciones de inicio y costos omitidos. Identifica qué representa el cálculo cuando un gráfico o una tabla se ve por separado del editor. No convierte una trayectoria histórica ilustrativa en un pronóstico."
         }
-      }
+      },
+      "tableCaption": "{portfolio}. Del {start} al {end}. {exampleLabel}. Las mismas métricas para las tres reglas de calendario durante todo el período del ejemplo."
     },
     "common": {
       "exampleLabel": "Cartera de ejemplo, no una recomendación",
@@ -2391,7 +2416,7 @@
     },
     "index": {
       "title": "Cómo funcionan las herramientas de cartera de Jade",
-      "intro": "Las explicaciones de los métodos de Jade son públicas. Cada guía utiliza una cartera fija para ilustrar un cálculo, con precios históricos reales y tablas legibles junto a los gráficos. {exampleLabel}. Los ejemplos describen movimientos pasados sin evaluar decisiones personales. Los resultados calculados con sus propias posiciones están disponibles con Jade. Estas seis guías cubren las herramientas de Jade y la página separada de simulación de rebalanceo.",
+      "intro": "Las explicaciones de los métodos de Jade son públicas. Cada guía utiliza una cartera fija para ilustrar un cálculo, con precios históricos reales y tablas legibles junto a los gráficos. {exampleLabel}. Los ejemplos describen movimientos pasados sin evaluar decisiones personales. Los resultados calculados con sus propias posiciones están disponibles con Jade. Estas seis guías cubren las herramientas de Jade y la página separada Simulación de rebalanceo de posiciones.",
       "summaries": {
         "whatIf": "Un cálculo histórico de las posiciones actuales y hasta dos versiones editadas por usted, con reglas de rebalanceo independientes.",
         "replay": "Conozca cómo se simulan sus posiciones actuales sin cambiar las cantidades y qué miden el rendimiento acumulado, la volatilidad y la caída máxima.",
