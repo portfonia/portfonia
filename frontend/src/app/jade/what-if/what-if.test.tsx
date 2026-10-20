@@ -121,3 +121,15 @@ it("801 A6 maps API errors to the corresponding catalog keys", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent(key); cleanup();
  }
 });
+
+it("804 A7 keeps the slow calculation notice visible while the request is pending", async () => {
+ let finish!: (value: typeof result) => void;
+ submit.mockReturnValue(new Promise<typeof result>(resolve => { finish = resolve; }));
+ await editor();
+ fireEvent.click(screen.getByRole("button", { name: "calculate" }));
+ const overlay = await screen.findByTestId("calculating-overlay");
+ // This file's translation mock returns the common catalog key.
+ expect(overlay).toHaveTextContent("calculatingSlow");
+ await act(async () => { finish(result); });
+ expect(screen.queryByTestId("calculating-overlay")).not.toBeInTheDocument();
+});

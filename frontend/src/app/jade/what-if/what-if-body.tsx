@@ -114,7 +114,7 @@ export function WhatIfBody({ me, hadLoadError }: { me: Me | null; hadLoadError: 
     {seconds > 0 && <p role="status" data-testid="cooldown">{t("cooldown")} {t("countdown", { seconds })}</p>}
     {errorKey && <p role="alert" className="text-destructive">{copy(errorKey)}</p>}
     <div className="space-y-2 text-sm text-muted-foreground"><p>{t("hindsight")}</p><p>{t("replayAnchoring")}</p><p>{t("stressAnchoring")}</p><p>{t("notModelled")}</p><p>{t("watermark")}</p></div>
-    <CalculatingOverlay active={pending} label={common("calculating")}><div className="min-h-24 min-w-0">{data && <WhatIfResults data={data} />}</div></CalculatingOverlay>
+    <CalculatingOverlay slow slowNotice={common("calculatingSlow")} active={pending} label={common("calculating")}><div className="min-h-24 min-w-0">{data && <WhatIfResults data={data} />}</div></CalculatingOverlay>
     <AlertDialog open={confirm} onOpenChange={setConfirm}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{t("confirmTitle")}</AlertDialogTitle><AlertDialogDescription>{t("confirmRatios", { versions: outside.map(v => `${names[v.i + 1]}: ${pct(v.ratio)}`).join(t("listSeparator")) })}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>{t("cancel")}</AlertDialogCancel><AlertDialogAction onClick={() => void submit()}>{t("confirm")}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
   </div>;
 }

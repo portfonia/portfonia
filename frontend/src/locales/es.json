@@ -1,7 +1,8 @@
 {
   "common": {
     "brandName": "Portfonia",
-    "calculating": "Calculando…"
+    "calculating": "Calculando…",
+    "calculatingSlow": "Este cálculo puede tardar hasta un minuto. Mantenga esta página abierta."
   },
   "menu": {
     "trigger": "Comenzar",
