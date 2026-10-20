@@ -1876,6 +1876,11 @@
       "confirm": "Confirm",
       "cancel": "Cancel",
       "hindsight": "These results replay past prices for assumptions chosen today. Trying alternatives against the same history favours whichever happened to fit it; the columns have no ranking.",
+      "basis": {
+        "summary": "Calculation basis",
+        "window": "Each line replays real historical prices from {start} to {end}. It shows how these allocations would have moved over that past period; it is not a forecast.",
+        "totals": "The amount after each column name is that column's total in the display currency. The lines show percentage returns, so their shape does not depend on the total."
+      },
       "replayAnchoring": "Replay and tail risk: no rebalancing carries today's quantities back. Rebalanced columns start at today's weights on the window's first day.",
       "stressAnchoring": "Stress: every column starts at today's weights on the scenario's first valid day. Without rebalancing the weights drift; monthly or quarterly rules reset them on period starts, after that day's close.",
       "notModelled": "Costs, taxes and transaction timing are not modelled.",

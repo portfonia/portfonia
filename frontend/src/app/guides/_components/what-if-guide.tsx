@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { LanguageLinks } from "@/app/_components/language-links";
 import { useLocale, useLocalizedHref } from "@/app/_components/locale-provider";
-import { INTL_LOCALES, formatShortDate, formatTickPct } from "@/app/portfolio/performance/_components/performance-format";
+import { INTL_LOCALES, formatAxisDate, formatTickPct } from "@/app/portfolio/performance/_components/performance-format";
 import type { WhatIfExample } from "../_lib/example-what-if";
 
 const ruleKeys = ["none", "monthly", "quarterly"] as const;
@@ -44,17 +44,18 @@ export function WhatIfGuide({ example, figureOnly = false }: { example: WhatIfEx
   for (const rule of ruleKeys) {
     for (const [, metric] of metricRows) values[`${rule}_${metric}`] = percent.format(example[rule][metric]);
   }
+  const spanDays = example.points.length < 2 ? 0 : (example.points[example.points.length - 1].time - example.points[0].time) / 86_400_000;
   const cell = "break-words border-b border-foreground/10 px-1 py-3 text-left align-top font-normal";
 
   function figures() {
     return <>
       <figure className="my-4 min-w-0">
-        <div data-guide-chart className="h-60 w-full min-w-0">
+        <div data-guide-chart className="h-60 w-full min-w-0 text-sm">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={example.points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="var(--border)" vertical={false} strokeDasharray="3 3" />
-              <XAxis dataKey="time" type="number" domain={["dataMin", "dataMax"]} tickFormatter={value => formatShortDate(new Date(Number(value)).toISOString().slice(0, 10), locale)} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
-              <YAxis width={52} tickFormatter={formatTickPct} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
+              <XAxis dataKey="time" type="number" domain={["dataMin", "dataMax"]} tickFormatter={value => formatAxisDate(new Date(Number(value)).toISOString().slice(0, 10), locale, spanDays)} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
+              <YAxis width={64} tickFormatter={formatTickPct} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
               <Tooltip contentStyle={{ background: "var(--card)", borderColor: "var(--border)" }} isAnimationActive={false} labelFormatter={value => date.format(new Date(Number(value)))} formatter={value => percent.format(Number(value))} wrapperStyle={{ maxWidth: "100%" }} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
               {ruleKeys.map(rule => <Line key={rule} dataKey={rule} name={rules(rule)} stroke={colors[rule]} strokeWidth={2} dot={false} isAnimationActive={false} />)}

@@ -717,6 +717,7 @@ benchmark lines, style exposure or tracking recomputations.
 The page presents a three-line replay chart and metrics, tail-risk percent/amount
 cells, and five chronological stress scenarios. Its notices distinguish anchoring
 by result type, explain hindsight, and disclose omitted costs, taxes and timing.
+Issue #806 adds a calculation-basis block, closed by default, describing the replay window when points exist, column totals, starting conventions and hindsight.
 Repeated diagonal localized text overlays charts and tables, with the same sentence
 in accessible ordinary text. No column is ranked. Tables scroll within their own
 containers at narrow widths. There are no downloads, Agent access or saved versions.

@@ -133,3 +133,57 @@ it("804 A7 keeps the slow calculation notice visible while the request is pendin
  await act(async () => { finish(result); });
  expect(screen.queryByTestId("calculating-overlay")).not.toBeInTheDocument();
 });
+
+const { axis806, tooltip806, yAxis806 } = vi.hoisted(() => ({ axis806: vi.fn(), tooltip806: vi.fn(), yAxis806: vi.fn() }));
+vi.mock("recharts", async () => {
+ const actual = await vi.importActual<typeof import("recharts")>("recharts");
+ const Container = ({ children }: { children: import("react").ReactNode }) => <div>{children}</div>;
+ return { ...actual, ResponsiveContainer: Container, LineChart: Container,
+  XAxis: (props: object) => { axis806(props); return null; },
+  YAxis: (props: object) => { yAxis806(props); return null; },
+  Tooltip: (props: object) => { tooltip806(props); return null; } };
+});
+import { WhatIfResults } from "./what-if-results";
+import { WhatIfGuide } from "@/app/guides/_components/what-if-guide";
+import { whatIfExample } from "@/app/guides/_lib/example-what-if";
+import { formatFullDate } from "@/app/portfolio/performance/_components/performance-format";
+const fiveYear806 = { ...result, range: "5Y", columns: result.columns.map(column => ({ ...column, replay: { ...column.replay, points: [
+ { date: "2021-01-24", portfolio: "0", benchmark: null },
+ { date: "2026-01-24", portfolio: "0.5", benchmark: null },
+] } })) } as unknown as import("@/lib/api").JadeWhatIf;
+it("806 A2 what-if chart dates include the year for a five-year fixture", () => {
+ axis806.mockClear(); tooltip806.mockClear();
+ render(<WhatIfResults data={fiveYear806} />);
+ const time = Date.parse("2023-01-24");
+ expect(axis806.mock.lastCall?.[0].tickFormatter(time)).toContain("2023");
+ expect(tooltip806.mock.lastCall?.[0].labelFormatter(time)).toContain("2023");
+});
+it("806 A4 both what-if charts reserve 64 pixels for percentage labels", () => {
+ yAxis806.mockClear(); render(<WhatIfResults data={fiveYear806} />);
+ expect(yAxis806).toHaveBeenCalledWith(expect.objectContaining({ width: 64 }));
+ cleanup(); yAxis806.mockClear(); render(<WhatIfGuide example={whatIfExample()} figureOnly />);
+ expect(yAxis806).toHaveBeenCalledWith(expect.objectContaining({ width: 64 }));
+});
+it("806 A5 both what-if chart containers use the platform tooltip text size", () => {
+ const results = render(<WhatIfResults data={fiveYear806} />);
+ expect(results.container.querySelector(".h-64")).toHaveClass("text-sm");
+ cleanup(); const guide = render(<WhatIfGuide example={whatIfExample()} figureOnly />);
+ expect(guide.container.querySelector("[data-guide-chart]")).toHaveClass("text-sm");
+});
+it("806 A6 calculation basis starts closed and includes the replay date window", () => {
+ const { container } = render(<WhatIfResults data={fiveYear806} />);
+ const details = container.querySelector("details");
+ expect(details).not.toBeNull();
+ expect(details).not.toHaveAttribute("open");
+ expect(details?.querySelector("summary")).toHaveTextContent("basis.summary");
+ expect(details).toHaveTextContent("basis.window" + JSON.stringify({ start: formatFullDate("2021-01-24", "en"), end: formatFullDate("2026-01-24", "en") }));
+});
+it("806 A7 every column header labels its total", () => {
+ render(<WhatIfResults data={fiveYear806} />);
+ for (const column of fiveYear806.columns) {
+  const name = `columns.${column.key}`;
+  const header = screen.getAllByText((_, element) => element?.tagName === "P" && element.textContent?.startsWith(`${name} ·`) === true);
+  expect(header).toHaveLength(1);
+  expect(header[0]).toHaveTextContent("total");
+ }
+});
