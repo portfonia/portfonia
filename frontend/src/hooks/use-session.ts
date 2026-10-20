@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { recordBackendTouch } from "@/lib/session-clock";
 import { createClient } from "@/lib/supabase/browser";
 
 export type SessionState =
@@ -140,6 +141,7 @@ async function probeBackendSession(): Promise<{ ok: boolean; advanced: boolean; 
   try {
     const res = await fetch("/api/auth/session-status", { cache: "no-store" });
     if (!res.ok) return { ok: false, advanced: false, jade: false };
+    if (res.status === 200) recordBackendTouch(Date.now());
     const body: { advanced: boolean; jade?: boolean } = await res.json();
     return { ok: true, advanced: body.advanced === true, jade: body.jade === true };
   } catch {

@@ -681,9 +681,26 @@ Each version accepts display-currency amounts for the caller's own holdings,
 069500.KS, AGG, GLD), and one cash row. Zero amounts omit rows. Live shares use the
 version total. The footer shows total, its ratio to the current total, and signed
 difference. Ratios are rounded half-up to one decimal percent before comparing
-with the inclusive 99.0%-101.0% confirmation-free band. Both versions submit only
+with the inclusive 99.0%-101.0% confirmation-free band. Modified versions submit only
 on Calculate, with confirmation outside that band. Inputs persist only for the
 current page load. #801 normalizes empty, comma-separated and overprecision amounts and distinguishes invalid, zero-total and stale-page errors.
+
+Issue #809 shows holding names, Current, Version A and Version B side by side,
+with the current holdings first and added ETF/cash rows in first-addition order
+across versions. Current is read-only. Each version has its own rule, add-row
+control, total, ratio and signed difference. Missing added rows show an em dash.
+Changed amount cells have a 2px foreground outline; invalid amounts retain the
+destructive border. The editor has a 48rem minimum width and scrolls horizontally.
+
+A version is modified when its rule is not No rebalancing or any normalized
+amount differs in cents from Current (zero for added rows); an invalid amount
+also counts as changed and blocks calculation. An added zero row alone is
+unmodified. Calculate is disabled when neither version is modified. Only modified
+versions are sent in A/B order. The client relabels positional response keys so a
+B-only submission appears as B. Untouched versions have a localized same-as-current
+message and no chart line, result column or calculation. Current is drawn last
+with a 3px dashed gray line; version line styles are unchanged. Legend order
+follows drawing order, while tables retain Current first.
 
 `POST /jade/what-if` requires a web Jade session, a `BaseCurrency`, a replay span
 (default 1Y), and one or two versions with nonempty rows. It values current
@@ -714,7 +731,7 @@ weights on each scenario's first valid day, then either drifts or resets. Rebala
 stress contributions are empty; the page displays neither contributions nor
 benchmark lines, style exposure or tracking recomputations.
 
-The page presents a three-line replay chart and metrics, tail-risk percent/amount
+The page presents a replay chart with Current and the submitted versions, metrics, tail-risk percent/amount
 cells, and five chronological stress scenarios. Its notices distinguish anchoring
 by result type, explain hindsight, and disclose omitted costs, taxes and timing.
 Issue #806 adds a calculation-basis block, closed by default, describing the replay window when points exist, column totals, starting conventions and hindsight.

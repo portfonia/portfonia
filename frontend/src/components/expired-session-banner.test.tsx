@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { catalogs } from "@/locales";
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import { ExpiredSessionBanner } from "./expired-session-banner";
 
@@ -17,7 +18,7 @@ describe("ExpiredSessionBanner", () => {
     renderBanner("expired");
 
     expect(
-      screen.getByText(/session ended after 15 minutes of inactivity/i),
+      screen.getByText(catalogs.en.menu.sessionExpired),
     ).toBeInTheDocument();
   });
 
