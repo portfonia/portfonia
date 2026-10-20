@@ -216,7 +216,7 @@ secret or the Supabase database password (business Postgres is self-hosted).
 ### Idle-timeout server enforcement — issue #235 (2026-08-27)
 
 **Client countdown (issue #809):** While authenticated, the shared site menu
-arms a 15-minute countdown from the last confirmed backend touch. The
+arms a 15-minute countdown from the last recorded backend touch. The
 `session-clock.ts` module shares the maximum timestamp through
 `portfonia.lastBackendTouch` in localStorage and a module variable; unavailable
 storage falls back to the module clock. Starting the hook and successful 200
@@ -230,9 +230,13 @@ neither extend the countdown nor trigger immediate logout.
 A five-second interval checks expiry in visible and hidden tabs, with an
 immediate check when visibility returns. Expiry invokes the existing logout
 flow once and redirects to `/login?reason=expired` without user input. Another
-tab's newer stored touch postpones expiry. The redirect happens 15 minutes after
-the last backend touch, which is at most one minute before 15 minutes after the
-user's last interaction (plus the interval's polling delay). The expired banner
+tab's newer stored touch postpones expiry. The countdown runs from the last recorded
+touch (hook start, a 200 session-status probe or a 200 heartbeat), which is at
+most one minute before the user's last interaction. It expires 15 minutes after
+that touch, plus the interval's polling delay. Other authenticated requests,
+such as holdings upload-job polling, also extend the backend idle window but
+are not recorded by this clock, so the backend window can end later than the
+client countdown, never earlier. The expired banner
 in all four locales states only that the session has timed out, without minutes
 or a cause. There is no client countdown for the eight-hour absolute lifetime.
 Backend idle/lifetime enforcement and server-side 401 handling are unchanged.
@@ -247,7 +251,7 @@ tab/browser destroys that timer along with it; nothing fires a logout and
 nothing persists to resume the count on reopen. The result: close the
 browser in the morning, reopen it that evening, still logged in. The
 implementing session's own code comment
-(`use-idle-logout.ts:7-14`) already named this limitation, and it made it
+(`use-idle-logout.ts` as shipped by #207) already named this limitation, and it made it
 into the design doc's §5 "honest limitations" section, but was never
 escalated to a standalone decision point (the OQ-1..OQ-5 pattern used
 elsewhere in that doc) for explicit product-owner sign-off — see the

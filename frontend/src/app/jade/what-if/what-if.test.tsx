@@ -198,6 +198,7 @@ it("809 A1 submits only A and reports untouched B without its result", async () 
  fireEvent.change(screen.getAllByRole("textbox", { name: "One" })[0], { target: { value: "403219" } });
  await calculateEdited();
  expect(submit.mock.calls[0][0].versions).toHaveLength(1);
+ expect(submit.mock.calls[0][0].versions[0].rows).toEqual(expect.arrayContaining([expect.objectContaining({ holding_id: "one", amount: "403219" })]));
  expect(await screen.findByText('sameAsCurrent' + JSON.stringify({ version: "columns.b" }))).toBeInTheDocument();
  expect(line809.mock.calls.map(call => call[0].dataKey)).toEqual(["a", "current"]);
  expect(screen.queryByRole("columnheader", { name: /^columns.b/ })).not.toBeInTheDocument();
