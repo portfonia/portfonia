@@ -23,3 +23,19 @@ it("F7 four locale guide, six cards, sitemap and ordered Pricing link", () => {
   expect(buildPageMetadata('guideWhatIf',locale).title).toBe(catalogs[locale].seo.pages.guideWhatIf.title); cleanup();
  }
 });
+
+const { tooltip } = vi.hoisted(() => ({ tooltip: vi.fn() }));
+vi.mock("recharts", async () => {
+ const actual = await vi.importActual<typeof import("recharts")>("recharts");
+ return { ...actual, LineChart: ({ children }: { children: import("react").ReactNode }) => <div>{children}</div>, ResponsiveContainer: ({ children }: { children: import("react").ReactNode }) => <div>{children}</div>, Tooltip: (props: object) => { tooltip(props); return null; } };
+});
+import { WhatIfResults } from "../jade/what-if/what-if-results";
+it("804 A5 both what-if charts use the Jade card tooltip style", () => {
+ const style = { background: "var(--card)", borderColor: "var(--border)" };
+ tooltip.mockClear();
+ render(<LocaleProvider routeLocale="en"><WhatIfGuide example={whatIfExample()} figureOnly /></LocaleProvider>);
+ expect(tooltip).toHaveBeenCalledWith(expect.objectContaining({ contentStyle: style }));
+ cleanup(); tooltip.mockClear();
+ render(<LocaleProvider routeLocale="en"><WhatIfResults data={{ base_currency: "USD", range: "1Y", columns: [] }} /></LocaleProvider>);
+ expect(tooltip).toHaveBeenCalledWith(expect.objectContaining({ contentStyle: style }));
+});

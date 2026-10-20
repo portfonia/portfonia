@@ -696,6 +696,8 @@ one calculation per user per 120 seconds; early submissions return 429
 failure leaves the claimed slot in place. The page displays the localized
 countdown, disabling Calculate until it expires.
 
+Issue #804 measured about 33 seconds on an idle single-CPU host (per column: replay under 1 second, tail risk about 3.5 seconds, stress about 7 seconds). The dedicated Next.js what-if route and shared `/api/*` rewrite both use a 45-second upstream timeout, allowing headroom above that duration. Sharing price/FX work across columns is a possible future speed-up and is not built. Both what-if chart tooltips use the Jade card style.
+
 The service synthesizes transient `HoldingValue` rows, without database writes,
 provider calls, saved settings or result caching. Existing replay, tail-risk and
 stress functions accept optional holdings and a rebalancing rule; their defaults

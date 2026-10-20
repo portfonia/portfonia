@@ -6,6 +6,8 @@ const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // #804: allow headroom above the measured ~33 s what-if calculation.
+  experimental: { proxyTimeout: 45_000 },
   async rewrites() {
     return [
       {

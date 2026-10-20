@@ -55,7 +55,7 @@ export function WhatIfGuide({ example, figureOnly = false }: { example: WhatIfEx
               <CartesianGrid stroke="var(--border)" vertical={false} strokeDasharray="3 3" />
               <XAxis dataKey="time" type="number" domain={["dataMin", "dataMax"]} tickFormatter={value => formatShortDate(new Date(Number(value)).toISOString().slice(0, 10), locale)} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
               <YAxis width={52} tickFormatter={formatTickPct} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
-              <Tooltip isAnimationActive={false} labelFormatter={value => date.format(new Date(Number(value)))} formatter={value => percent.format(Number(value))} wrapperStyle={{ maxWidth: "100%" }} />
+              <Tooltip contentStyle={{ background: "var(--card)", borderColor: "var(--border)" }} isAnimationActive={false} labelFormatter={value => date.format(new Date(Number(value)))} formatter={value => percent.format(Number(value))} wrapperStyle={{ maxWidth: "100%" }} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
               {ruleKeys.map(rule => <Line key={rule} dataKey={rule} name={rules(rule)} stroke={colors[rule]} strokeWidth={2} dot={false} isAnimationActive={false} />)}
             </LineChart>
