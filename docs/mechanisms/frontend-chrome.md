@@ -600,6 +600,8 @@ Guests and signed-in non-Jade users also see six sample-data figures reused
 from the public guides (`figureOnly` on the guide bodies) under a sample-data
 notice; Jade subscribers see the risk tool cards instead.
 
+Issue #806 adds `formatAxisDate` for year-bearing ticks on axes spanning more than 365 days, full dates in Jade chart tooltips, and 64px percentage Y axes on Jade cards and shared guide charts.
+
 The Jade client reuses Profile's `useSubscription` and `SubscriptionDialog`.
 Inactive/cancelled/Expired or briefing-plan users see Subscribe to Jade; no
 verified recipient disables it. Active Jade shows its paid period and Cancel,

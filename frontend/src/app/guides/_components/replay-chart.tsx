@@ -71,7 +71,7 @@ export function ReplayChart({ points, peakDate, troughDate, portfolioName, forma
               fontSize: 10,
               fill: 'var(--muted-foreground)'
             }} />
-            <YAxis width={48} tickFormatter={formatPercent} tick={{
+            <YAxis width={64} tickFormatter={formatPercent} tick={{
               fontSize: 10,
               fill: 'var(--muted-foreground)'
             }} />

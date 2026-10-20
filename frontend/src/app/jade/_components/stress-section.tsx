@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLocale, useLocalizedHref } from "@/app/_components/locale-provider";
 import type { BaseCurrency } from "@/app/portfolio/_components/currencies";
 import { formatMoney } from "@/app/portfolio/_components/portfolio-helpers";
-import { formatShortDate, formatTickPct } from "@/app/portfolio/performance/_components/performance-format";
+import { formatAxisDate, formatFullDate, formatTickPct } from "@/app/portfolio/performance/_components/performance-format";
 import { BENCHMARK_COLORS, PORTFOLIO_COLOR } from "@/app/portfolio/performance/_components/performance-colors";
 import { getJadeStress, type BenchmarkCode, type JadeStress, type ScenarioId, type StressHolding } from "@/lib/api";
 
@@ -76,6 +76,7 @@ export function StressSection({ settings }: { settings: Settings | null }) {
     .map(key => replay(`coverage.${key}`, { pct: (Number(selected.coverage[`${key}_share`]) * 100).toFixed(2) }))
     .join(locale === "en" ? ", " : "，") : "";
   const chart = selected?.points.map(p => ({ time: timestamp(p.date), portfolio: Number(p.portfolio), benchmark: p.benchmark === null ? null : Number(p.benchmark) })) ?? [];
+  const spanDays = chart.length < 2 ? 0 : (chart[chart.length - 1].time - chart[0].time) / 86_400_000;
   const maxContribution = Math.max(...(selected?.contributions.map(c => Math.abs(Number(c.contribution))) ?? []));
   function method(row: StressHolding) {
     if (row.method === "excluded") return replay(`excluded.${row.excluded_reason ?? "data_unavailable"}`);
@@ -121,9 +122,9 @@ export function StressSection({ settings }: { settings: Settings | null }) {
           <div data-testid="stress-chart" className="h-60 w-full min-w-0">
             {ok && data && <ResponsiveContainer width="100%" height="100%"><LineChart data={chart} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
               <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
-              <XAxis type="number" dataKey="time" domain={["dataMin", "dataMax"]} tickFormatter={(v: number) => formatShortDate(new Date(v).toISOString().slice(0, 10), locale)} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} minTickGap={24} />
-              <YAxis tickFormatter={formatTickPct} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} width={48} />
-              <Tooltip labelFormatter={v => formatShortDate(new Date(Number(v)).toISOString().slice(0, 10), locale)} formatter={v => typeof v === "number" ? formatTickPct(v) : "—"} contentStyle={{ background: "var(--card)", borderColor: "var(--border)" }} />
+              <XAxis type="number" dataKey="time" domain={["dataMin", "dataMax"]} tickFormatter={(v: number) => formatAxisDate(new Date(v).toISOString().slice(0, 10), locale, spanDays)} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} minTickGap={24} />
+              <YAxis tickFormatter={formatTickPct} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} width={64} />
+              <Tooltip labelFormatter={v => formatFullDate(new Date(Number(v)).toISOString().slice(0, 10), locale)} formatter={v => typeof v === "number" ? formatTickPct(v) : "—"} contentStyle={{ background: "var(--card)", borderColor: "var(--border)" }} />
               <ReferenceLine x={timestamp(selected.peak_date)} stroke="var(--muted-foreground)" strokeDasharray="6 3" />
               <ReferenceLine x={timestamp(selected.trough_date)} stroke="var(--muted-foreground)" strokeDasharray="2 3" />
               <Line dataKey="portfolio" name={t("legend.portfolio")} stroke={PORTFOLIO_COLOR} strokeWidth={2.5} dot={false} isAnimationActive={false} />

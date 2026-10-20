@@ -27,6 +27,17 @@ export function formatShortDate(iso: string, locale: Locale): string {
   }).format(toDate(iso));
 }
 
+export function formatMonthYear(iso: string, locale: Locale): string {
+  return new Intl.DateTimeFormat(INTL_LOCALES[locale], {
+    year: "numeric",
+    month: "short",
+  }).format(toDate(iso));
+}
+
+export function formatAxisDate(iso: string, locale: Locale, spanDays: number): string {
+  return spanDays > 365 ? formatMonthYear(iso, locale) : formatShortDate(iso, locale);
+}
+
 export function formatFullDate(iso: string, locale: Locale): string {
   return new Intl.DateTimeFormat(INTL_LOCALES[locale], {
     year: "numeric",

@@ -12,7 +12,7 @@ import { CurrencySwitcher } from "@/app/portfolio/_components/currency-switcher"
 import type { BaseCurrency } from "@/app/portfolio/_components/currencies";
 import { BenchmarkSingleSelectMenu } from "@/app/portfolio/performance/_components/benchmark-single-select-menu";
 import { BENCHMARK_COLORS, PORTFOLIO_COLOR } from "@/app/portfolio/performance/_components/performance-colors";
-import { formatShortDate, formatTickPct } from "@/app/portfolio/performance/_components/performance-format";
+import { formatAxisDate, formatFullDate, formatTickPct } from "@/app/portfolio/performance/_components/performance-format";
 import { getJadeReplay, type BenchmarkCode, type JadeReplay, type ReplayHolding, type ReplayMetrics, type ReplayRange } from "@/lib/api";
 
 const metricKeys = ["cumulative_return", "annualized_return", "annualized_vol", "max_drawdown", "worst_day", "worst_month"] as const;
@@ -70,6 +70,7 @@ export function ReplaySection({ onSettled }: { onSettled?: (currency: BaseCurren
   const names = portfolio.raw("performance.benchmarkNames") as Record<BenchmarkCode, string>;
   const benchmarkLabel = data ? `${names[data.benchmark]} (${data.benchmark_symbol})` : names[benchmark];
   const chart = data?.points.map((p) => ({ time: timestamp(p.date), portfolio: p.portfolio === null ? null : Number(p.portfolio), benchmark: p.benchmark === null ? null : Number(p.benchmark) })) ?? [];
+  const spanDays = chart.length < 2 ? 0 : (chart[chart.length - 1].time - chart[0].time) / 86_400_000;
   const coverage = data ? (["own", "proxy", "head_proxy", "cash", "cash_assumed"] as const).filter((key) => Number(data.coverage[`${key}_share`]) > 0).map((key) => t(`coverage.${key}`, { pct: (Number(data.coverage[`${key}_share`]) * 100).toFixed(2) })).join(locale === "en" ? ", " : "，") : "";
   return <Card className="min-w-0">
     <CardHeader><CardTitle>{t("title")}</CardTitle></CardHeader>
@@ -90,9 +91,9 @@ export function ReplaySection({ onSettled }: { onSettled?: (currency: BaseCurren
         <div data-testid="replay-chart" className="h-60 w-full min-w-0" aria-label={t("title")}>
           {data?.status === "ok" && <ResponsiveContainer width="100%" height="100%"><LineChart data={chart} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
-            <XAxis type="number" dataKey="time" domain={["dataMin", "dataMax"]} tickFormatter={(v: number) => formatShortDate(new Date(v).toISOString().slice(0, 10), locale)} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} minTickGap={24} />
-            <YAxis tickFormatter={formatTickPct} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} width={48} />
-            <Tooltip labelFormatter={(v) => formatShortDate(new Date(Number(v)).toISOString().slice(0, 10), locale)} formatter={(v) => typeof v === "number" ? formatTickPct(v) : "—"} contentStyle={{ background: "var(--card)", borderColor: "var(--border)" }} />
+            <XAxis type="number" dataKey="time" domain={["dataMin", "dataMax"]} tickFormatter={(v: number) => formatAxisDate(new Date(v).toISOString().slice(0, 10), locale, spanDays)} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} minTickGap={24} />
+            <YAxis tickFormatter={formatTickPct} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} width={64} />
+            <Tooltip labelFormatter={(v) => formatFullDate(new Date(Number(v)).toISOString().slice(0, 10), locale)} formatter={(v) => typeof v === "number" ? formatTickPct(v) : "—"} contentStyle={{ background: "var(--card)", borderColor: "var(--border)" }} />
             {data.holdings.map((h) => {
               const ownFirstDate = h.own_first_date;
               if (h.method !== "head_proxy" || !ownFirstDate) return null;

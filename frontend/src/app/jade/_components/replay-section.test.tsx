@@ -195,3 +195,20 @@ it("733 A6 desktop details start closed and summary toggles both ways", async ()
   expect(media.addEventListener).not.toHaveBeenCalled();
   vi.unstubAllGlobals();
 });
+
+const { axis806, tooltip806 } = vi.hoisted(() => ({ axis806: vi.fn(), tooltip806: vi.fn() }));
+vi.mock("recharts", async () => {
+  const actual = await vi.importActual<typeof import("recharts")>("recharts");
+  const Container = ({ children }: { children: import("react").ReactNode }) => <div>{children}</div>;
+  return { ...actual, ResponsiveContainer: Container, LineChart: Container,
+    XAxis: (props: object) => { axis806(props); return null; },
+    Tooltip: (props: object) => { tooltip806(props); return null; } };
+});
+it("806 A3 replay chart dates include the year for a five-year fixture", async () => {
+  axis806.mockClear(); tooltip806.mockClear();
+  getJadeReplay.mockResolvedValue({ ...data, range: "5Y" });
+  view(); await screen.findByText(/^Recent listing/);
+  const time = Date.parse(data.points[0].date);
+  expect(axis806.mock.lastCall?.[0].tickFormatter(time)).toContain("2021");
+  expect(tooltip806.mock.lastCall?.[0].labelFormatter(time)).toContain("2021");
+});

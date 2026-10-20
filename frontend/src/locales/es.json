@@ -1876,6 +1876,11 @@
       "confirm": "Confirmar",
       "cancel": "Cancelar",
       "hindsight": "Estos resultados recorren precios pasados con supuestos elegidos hoy. Probar alternativas con la misma historia favorece a la que coincidió con ella; las columnas no se clasifican.",
+      "basis": {
+        "summary": "Base de cálculo",
+        "window": "Cada línea reproduce precios históricos reales del {start} al {end}. Muestra cómo se habrían comportado estas distribuciones durante ese período pasado; no es un pronóstico.",
+        "totals": "El importe después del nombre de cada columna es el total de esa columna en la moneda de visualización. Las líneas muestran rendimientos porcentuales, por lo que su forma no depende del total."
+      },
       "replayAnchoring": "Simulación histórica y riesgo de cola: sin rebalanceo, las cantidades actuales se llevan hacia atrás. Las columnas con rebalanceo parten de los pesos actuales el primer día del período.",
       "stressAnchoring": "Estrés: todas las columnas parten de los pesos actuales el primer día válido del escenario. Sin rebalanceo, los pesos varían; las reglas mensuales o trimestrales los restablecen al inicio de cada período, después del cierre de ese día.",
       "notModelled": "No se modelan costos, impuestos ni el momento de las operaciones.",

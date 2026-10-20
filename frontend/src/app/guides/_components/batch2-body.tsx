@@ -138,7 +138,7 @@ export function Batch2Body(props: Props & { figureOnly?: boolean }) {
           <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
             <XAxis type="number" dataKey="time" domain={["dataMin", "dataMax"]} tickFormatter={v => date.format(new Date(Number(v)))} minTickGap={24} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
-            <YAxis width={48} tickFormatter={isStyle ? formatTickPct : v => percent.format(v)} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
+            <YAxis width={64} tickFormatter={isStyle ? formatTickPct : v => percent.format(v)} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
             <Tooltip isAnimationActive={false} cursor={{ stroke: "var(--foreground)" }} wrapperStyle={{ maxWidth: "100%" }} content={(props) => <BatchTooltip active={props.active} label={props.label} payload={props.payload} firstKey={firstKey} secondKey={secondKey} firstName={firstName} secondName={secondName} firstStroke={firstStroke} secondStroke={secondStroke} formatValue={isStyle ? formatTickPct : (value) => percent.format(value)} formatDate={(stamp) => date.format(new Date(stamp))} />} />
             <Line dataKey={firstKey} name={firstName} stroke={firstStroke} strokeWidth={2.5} dot={false} isAnimationActive={false} />
             <Line dataKey={secondKey} name={secondName} stroke={secondStroke} strokeWidth={1.5} dot={false} isAnimationActive={false} />

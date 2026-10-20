@@ -8,7 +8,7 @@ import { CalculatingOverlay } from "@/components/calculating-overlay";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLocale, useLocalizedHref } from "@/app/_components/locale-provider";
 import type { BaseCurrency } from "@/app/portfolio/_components/currencies";
-import { formatShortDate, formatTickPct } from "@/app/portfolio/performance/_components/performance-format";
+import { formatAxisDate, formatFullDate, formatTickPct } from "@/app/portfolio/performance/_components/performance-format";
 import { PORTFOLIO_COLOR } from "@/app/portfolio/performance/_components/performance-colors";
 import { getJadeStyle, type BenchmarkCode, type JadeStyle } from "@/lib/api";
 
@@ -76,6 +76,7 @@ export function StyleSection({ settings }: { settings: Settings | null }) {
   })).filter(row => row.weight > 0 || Number(row.benchmarkWeight ?? 0) > 0)
     .sort((a,b) => b.weight-a.weight || a.index-b.index);
   const chart = data?.points.map(p => ({ time: new Date(`${p.date}T00:00:00Z`).getTime(), portfolio: Number(p.portfolio), style_mix: Number(p.style_mix) })) ?? [];
+  const spanDays = chart.length < 2 ? 0 : (chart[chart.length - 1].time - chart[0].time) / 86_400_000;
   return <Card className="min-w-0">
     <CardHeader><CardTitle>{t("title")}</CardTitle></CardHeader>
     <CardContent className="flex min-w-0 flex-col gap-4 px-4 text-sm">
@@ -99,9 +100,9 @@ export function StyleSection({ settings }: { settings: Settings | null }) {
           <div data-testid="style-chart" className="h-60 w-full min-w-0">
             {ok && <ResponsiveContainer width="100%" height="100%"><LineChart data={chart} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
               <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
-              <XAxis type="number" dataKey="time" domain={["dataMin", "dataMax"]} tickFormatter={(v: number) => formatShortDate(new Date(v).toISOString().slice(0,10), locale)} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} minTickGap={24} />
-              <YAxis tickFormatter={formatTickPct} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} width={48} />
-              <Tooltip labelFormatter={v => formatShortDate(new Date(Number(v)).toISOString().slice(0,10),locale)} formatter={v => typeof v === "number" ? formatTickPct(v) : "—"} contentStyle={{ background: "var(--card)", borderColor: "var(--border)" }} />
+              <XAxis type="number" dataKey="time" domain={["dataMin", "dataMax"]} tickFormatter={(v: number) => formatAxisDate(new Date(v).toISOString().slice(0,10), locale, spanDays)} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} minTickGap={24} />
+              <YAxis tickFormatter={formatTickPct} tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} width={64} />
+              <Tooltip labelFormatter={v => formatFullDate(new Date(Number(v)).toISOString().slice(0,10),locale)} formatter={v => typeof v === "number" ? formatTickPct(v) : "—"} contentStyle={{ background: "var(--card)", borderColor: "var(--border)" }} />
               <Line dataKey="portfolio" name={t("legend.portfolio")} stroke={PORTFOLIO_COLOR} strokeWidth={2.5} dot={false} isAnimationActive={false} />
               <Line dataKey="style_mix" name={t("legend.styleMix")} stroke="var(--muted-foreground)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
             </LineChart></ResponsiveContainer>}
