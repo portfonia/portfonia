@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { catalogs } from "@/locales";
 import type { Me } from "@/lib/api";
 const { summary, submit } = vi.hoisted(() => ({ summary: vi.fn(), submit: vi.fn() }));
-vi.mock("next-intl", () => ({ useTranslations: () => (key: string, values?: object) => key === "listSeparator" ? (catalogs.en.jade.whatIf as { listSeparator?: string }).listSeparator ?? key : key + (values ? JSON.stringify(values) : "") }));
+vi.mock("next-intl", () => ({ useTranslations: (namespace?: string) => (key: string, values?: object) => !namespace ? key.replace(/^jade\.whatIf\./, "").replace(/^jade\.replay\./, "") : key === "listSeparator" ? (catalogs.en.jade.whatIf as { listSeparator?: string }).listSeparator ?? key : key + (values ? JSON.stringify(values) : "") }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 vi.mock("@/app/_components/locale-provider", () => ({ useLocalizedHref: () => (p: string) => p, useLocale: () => ({ locale: "en" }) }));
@@ -13,7 +13,7 @@ vi.mock("../_components/tail-risk-section", () => ({ TailRiskSection: () => null
 vi.mock("../_components/stress-section", () => ({ StressSection: () => null }));
 vi.mock("../_components/style-section", () => ({ StyleSection: () => null }));
 vi.mock("../_components/tracking-section", () => ({ TrackingSection: () => null }));
-import { WhatIfBody } from "./what-if-body";
+import { WhatIfBody, normalizeAmount } from "./what-if-body";
 import { JadePageBody } from "../_components/jade-page-body";
 const me: Me = { email: "a@example.com", credit_balance: "10", delivery_email: null, email_verified_at: "2026-10-01", delivery_email_verified_at: null, tos_accepted_at: null, has_questionnaire: true, has_holdings: true, missing: [], pending_email_verifications: [], report_language: "en", report_currency: "USD", subscription: { status: "active", type: "jade", cadence: "weekly", expires_on: null, cancel_pending: false, next_adjustment_at: null } };
 const result = { base_currency: "USD", range: "1Y", columns: ["current", "a", "b"].map(key => ({ key, rule: "none", total: "100000", replay: { status: "ok", range: "1Y", points: [], metrics: { portfolio: null }, coverage: {} }, tail_risk: { status: "ok", levels: [] }, stress: { scenarios: [] } })) };
@@ -21,14 +21,14 @@ beforeEach(() => { vi.clearAllMocks(); summary.mockResolvedValue({ holdings: [{ 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 async function editor() { render(<WhatIfBody me={me} hadLoadError={false} />); fireEvent.click(await screen.findByRole("button", { name: "columns.a" })); }
 it("F1 shares and totals update from edited amounts", async () => {
- await editor(); fireEvent.change(screen.getByRole("spinbutton", { name: "One" }), { target: { value: "500000" } });
+ await editor(); fireEvent.change(screen.getByRole("textbox", { name: "One" }), { target: { value: "500000" } });
  expect(screen.getByTestId("editor-total")).toHaveTextContent("1,096,532.10"); expect(screen.getByTestId("editor-ratio")).toHaveTextContent("109.7%");
  expect(screen.getByTestId("row-one")).toHaveTextContent("45.6%"); expect(screen.getByTestId("row-two")).toHaveTextContent("54.4%");
 });
 it("F2 displayed band, signed difference, confirmation and cancel", async () => {
  summary.mockResolvedValue({ holdings: [{ holding_id: "one", name: "One", market_value_base: "100000" }] }); await editor();
  for (const [amount, prompt] of [["100000", false], ["100960", false], ["101050", true], ["98900", true]] as const) {
-  submit.mockClear(); fireEvent.change(screen.getByRole("spinbutton", { name: "One" }), { target: { value: amount } });
+  submit.mockClear(); fireEvent.change(screen.getByRole("textbox", { name: "One" }), { target: { value: amount } });
   expect(screen.getByTestId("editor-difference")).toHaveTextContent(new Intl.NumberFormat("en", { style:"currency", currency:"USD", minimumFractionDigits:2, signDisplay:"always" }).format(Number(amount)-100000));
   fireEvent.click(screen.getByRole("button", { name: "calculate" }));
   if (prompt) { const dialog=await screen.findByRole("alertdialog"); fireEvent.click(within(dialog).getByRole("button", { name:"cancel" })); expect(submit).not.toHaveBeenCalled(); fireEvent.click(screen.getByRole("button", { name:"calculate" })); fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name:"confirm" })); }
@@ -52,7 +52,7 @@ it("F4 watermark is a repeated diagonal layer inside results", async () => {
 it("F5 access notice links to Jade and CTA appears only for Jade", () => {
  const non={...me, subscription:{...me.subscription,type:"daily" as const}};
  render(<WhatIfBody me={non} hadLoadError={false} />); expect(screen.getByRole("link")).toHaveAttribute("href","/jade"); cleanup();
- for(const user of [non,me]) { const {container}=render(<JadePageBody me={user} hadLoadError={false} />); expect(container.querySelector('a[href="/jade/what-if"]')!==null).toBe(user===me); cleanup(); }
+ for(const user of [non,me]) { const {container}=render(<JadePageBody guest={false} demo={null} me={user} hadLoadError={false} />); expect(container.querySelector('a[href="/jade/what-if"]')!==null).toBe(user===me); cleanup(); }
 });
 it("F6 ETF list is closed initially with twelve symbols", async () => {
  await editor(); const list=screen.getByTestId("etf-list"); expect(list).not.toHaveAttribute("open"); expect(list.querySelectorAll("li")).toHaveLength(12);
@@ -61,9 +61,9 @@ it("F6 ETF list is closed initially with twelve symbols", async () => {
 
 it("English confirmation separates two out-of-range versions with the locale separator", async () => {
  await editor();
- fireEvent.change(screen.getByRole("spinbutton", { name: "One" }), { target: { value: "500000" } });
+ fireEvent.change(screen.getByRole("textbox", { name: "One" }), { target: { value: "500000" } });
  fireEvent.click(screen.getByRole("button", { name: "columns.b" }));
- fireEvent.change(screen.getByRole("spinbutton", { name: "One" }), { target: { value: "500000" } });
+ fireEvent.change(screen.getByRole("textbox", { name: "One" }), { target: { value: "500000" } });
  fireEvent.click(screen.getByRole("button", { name: "calculate" }));
  const description = within(await screen.findByRole("alertdialog")).getByText(/^confirmRatios/);
  expect(description.textContent).toContain("; ");
@@ -72,10 +72,52 @@ it("English confirmation separates two out-of-range versions with the locale sep
 
 it("non-finite exponent amount does not crash the editor", async () => {
  await editor();
- const input = screen.getByRole("spinbutton", { name: "One" });
- // Preserve the number-input string so browser sanitization cannot hide the render failure.
+ const input = screen.getByRole("textbox", { name: "One" });
+ // Preserve the exponent string to check the editor does not throw.
  Object.defineProperty(input, "value", { configurable: true, get: () => "1e309", set: () => {} });
  fireEvent.change(input);
  expect(screen.getByTestId("editor-total")).toHaveTextContent("596,532.10");
- expect(screen.getByRole("spinbutton", { name: "One" })).toBeInTheDocument();
+ expect(screen.getByRole("textbox", { name: "One" })).toBeInTheDocument();
+});
+
+async function calculateEdited() {
+ fireEvent.click(screen.getByRole("button", { name: "calculate" }));
+ const dialog = screen.queryByRole("alertdialog");
+ if (dialog) fireEvent.click(within(dialog).getByRole("button", { name: "confirm" }));
+ await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+}
+it("801 A1 normalizes the specified amount examples", () => {
+ for (const [raw, expected] of [["", "0"], ["  ", "0"], ["1,234.567", "1234.56"], ["1\uFF0C000", "1000"], [".5", "0.5"], ["12.", "12"], ["0.999", "0.99"], ["1.2.3", null], ["-5", null], ["1e5", null], ["abc", null]]) expect(normalizeAmount(raw!)).toBe(expected);
+});
+it("801 A2 clears and blurs to zero and submits zero", async () => {
+ await editor(); const input = screen.getByLabelText("One");
+ fireEvent.change(input, { target: { value: "" } }); fireEvent.blur(input);
+ expect(input).toHaveValue("0"); await calculateEdited();
+ expect(submit.mock.calls[0][0].versions[0].rows[0].amount).toBe("0");
+});
+it("801 A3 submits both comma forms without separators", async () => {
+ await editor();
+ fireEvent.change(screen.getByLabelText("One"), { target: { value: "1,000" } });
+ fireEvent.change(screen.getByLabelText("Two"), { target: { value: "1\uFF0C000" } });
+ await calculateEdited();
+ expect(submit.mock.calls[0][0].versions[0].rows.map((row: { amount: string }) => row.amount)).toEqual(["1000", "1000"]);
+});
+it("801 A4 truncates submitted fractional digits", async () => {
+ await editor(); fireEvent.change(screen.getByLabelText("One"), { target: { value: "12.345" } });
+ await calculateEdited(); expect(submit.mock.calls[0][0].versions[0].rows[0].amount).toBe("12.34");
+});
+it("801 A5 invalid amount marks input and blocks calculation", async () => {
+ await editor(); const input = screen.getByLabelText("One");
+ fireEvent.change(input, { target: { value: "1.2.3" } });
+ expect(input).toHaveAttribute("aria-invalid", "true"); expect(input).toHaveClass("border-destructive");
+ expect(screen.getByRole("button", { name: "calculate" })).toBeDisabled();
+ expect(screen.getByRole("alert")).toHaveTextContent("errors.invalidAmount");
+});
+it("801 A6 maps API errors to the corresponding catalog keys", async () => {
+ const { ApiError } = await import("@/lib/api");
+ for (const [status, message, key] of [[422, "invalid_amount", "errors.invalidAmount"], [422, "empty_version", "errors.emptyVersion"], [422, "holding_not_found", "errors.stale"], [500, "failure", "loadError"]] as const) {
+  await editor(); submit.mockRejectedValueOnce(new ApiError(status, message));
+  fireEvent.click(screen.getByRole("button", { name: "calculate" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(key); cleanup();
+ }
 });

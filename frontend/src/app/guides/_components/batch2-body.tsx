@@ -69,8 +69,8 @@ const scenarios = ["dotcom_2000", "gfc_2008", "covid_2020", "rates_2022", "tarif
 const tableClass = "w-full table-fixed border-collapse text-xs sm:text-sm";
 const cellClass = "min-w-0 break-words border-b border-foreground/10 px-1 py-3 text-left align-top";
 
-export function Batch2Body(props: Props) {
-  const { kind, example } = props;
+export function Batch2Body(props: Props & { figureOnly?: boolean }) {
+  const { kind, example, figureOnly = false } = props;
   const t = useTranslations("guides");
   const stress = useTranslations("jade.stress");
   const style = useTranslations("jade.style");
@@ -225,6 +225,7 @@ export function Batch2Body(props: Props) {
       </tbody>
     </table>)}</div>;
   }
+  if (figureOnly) return curve();
   const sections = t.raw(`${kind}.sections`) as Record<string, Record<string, string>>;
   return <main className="mx-auto w-full max-w-2xl px-6 py-12">
     <h1 className="font-serif text-3xl">{t(`${kind}.title`)}</h1>

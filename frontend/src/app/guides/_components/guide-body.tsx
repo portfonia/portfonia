@@ -10,9 +10,10 @@ import type { Example } from "../_lib/example";
 import { PORTFOLIO_COLOR } from "@/app/portfolio/performance/_components/performance-colors";
 import type { Messages } from "@/locales";
 
-export function GuideBody({ kind, example }: {
+export function GuideBody({ kind, example, figureOnly = false }: {
   kind: "replay" | "var";
   example: Example;
+  figureOnly?: boolean;
 }) {
   const t = useTranslations("guides");
   const replay = useTranslations("jade.replay");
@@ -277,6 +278,7 @@ export function GuideBody({ kind, example }: {
   function paragraphKeys(section: Record<string, string>) {
     return Object.keys(section).filter(key => key !== "heading");
   }
+  if (figureOnly) return figure();
   const sections: Messages['guides']['replay']['sections'] | Messages['guides']['var']['sections'] = kind === 'replay' ? t.raw('replay.sections') : t.raw('var.sections');
   return <main className="mx-auto w-full max-w-2xl px-6 py-12">
     <h1 className="font-serif text-3xl">{t(`${kind}.title`)}</h1>

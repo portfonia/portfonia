@@ -139,6 +139,7 @@ export function GetStartedMenu() {
         )}
 
         {session.status === "guest" && <MenuItemLink href="/agent"><Bot aria-hidden="true" className="size-4" />{t("agent")}</MenuItemLink>}
+        {session.status === "guest" && <MenuItemLink href="/jade"><JadeDisc aria-hidden="true" className="size-4" />{t("jade")}</MenuItemLink>}
 
         {session.status === "authed" && (
           <>

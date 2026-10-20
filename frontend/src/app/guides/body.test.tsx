@@ -59,3 +59,18 @@ it.each([["replay", "light"], ["replay", "dark"], ["var", "light"], ["var", "dar
   expect(container.querySelector('[class*="overflow-x"]')).toBeNull();
   expect(container.querySelector('.recharts-responsive-container')).not.toBeNull();
 });
+
+it("801 A10 figureOnly renders each guide figure without section headings", async () => {
+ const { GuideBody } = await import("./_components/guide-body");
+ const { Batch2Body } = await import("./_components/batch2-body");
+ const { WhatIfGuide } = await import("./_components/what-if-guide");
+ const { calculateExample } = await import("./_lib/example");
+ const { stressExample, styleExample, trackingExample } = await import("./_lib/example-batch2");
+ const { whatIfExample } = await import("./_lib/example-what-if");
+ const example = calculateExample();
+ for (const figure of [<GuideBody key="replay" kind="replay" example={example} figureOnly />, <GuideBody key="var" kind="var" example={example} figureOnly />, <Batch2Body key="stress" kind="stress" example={stressExample()} figureOnly />, <Batch2Body key="style" kind="style" example={styleExample()} figureOnly />, <Batch2Body key="tracking" kind="tracking" example={trackingExample()} figureOnly />, <WhatIfGuide key="what-if" example={whatIfExample()} figureOnly />]) {
+  const { container } = render(<LocaleProvider routeLocale="en">{figure}</LocaleProvider>);
+  expect(container.querySelector("figure")).not.toBeNull();
+  expect(container.querySelector("h1,h2,section")).toBeNull(); cleanup();
+ }
+});

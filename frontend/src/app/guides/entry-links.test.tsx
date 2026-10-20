@@ -75,7 +75,7 @@ it.each(introCases)("737 A9 intro links with $locale Jade subscription $active",
   } : me;
   render(
     <LocaleProvider routeLocale={locale}>
-      <JadePageBody me={subscriber} hadLoadError={false} />
+      <JadePageBody guest={false} demo={null} me={subscriber} hadLoadError={false} />
     </LocaleProvider>
   );
   const copy = catalogs[locale].jade;

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 const { refresh, setJadeCadence, getSubscriptionQuote, setSubscription, cancelSubscription } = vi.hoisted(() => ({ refresh: vi.fn(), setJadeCadence: vi.fn(), getSubscriptionQuote: vi.fn(), setSubscription: vi.fn(), cancelSubscription: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
@@ -17,20 +17,20 @@ const me: Me = { email: "jade@example.com", credit_balance: "10.00", delivery_em
 const active: Me = { ...me, subscription: { ...me.subscription, status: "active", type: "jade", cadence: "weekly", expires_on: "2026-11-16" } };
 beforeEach(() => { vi.clearAllMocks(); });
 it("A9 inactive offers subscription without schedule", () => {
-  render(<JadePageBody me={me} hadLoadError={false} />);
+  render(<JadePageBody guest={false} demo={null} me={me} hadLoadError={false} />);
   expect(screen.getByRole("button", { name: "subscribe" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "subscribe" })).not.toHaveClass("h-auto");
   expect(screen.getByRole("button", { name: "subscribe" })).toHaveClass("h-8");
   expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
 });
 it("A9 unverified disables subscription and shows verification note", () => {
-  render(<JadePageBody me={{ ...me, email_verified_at: null }} hadLoadError={false} />);
+  render(<JadePageBody guest={false} demo={null} me={{ ...me, email_verified_at: null }} hadLoadError={false} />);
   expect(screen.getByRole("button", { name: "subscribe" })).toBeDisabled();
   expect(screen.getByText("subscriptionVerifyEmail")).toBeInTheDocument();
 });
 it("A9 active shows cancel and current schedule; cadence writes bypass dialog and daily lock", async () => {
   setJadeCadence.mockResolvedValue({ ...active.subscription, cadence: "mwf" });
-  render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, next_adjustment_at: "2099-10-17T00:00:00-04:00" } }} hadLoadError={false} />);
+  render(<JadePageBody guest={false} demo={null} me={{ ...active, subscription: { ...active.subscription, next_adjustment_at: "2099-10-17T00:00:00-04:00" } }} hadLoadError={false} />);
   expect(screen.getByRole("button", { name: "subscriptionCancel" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "subscriptionCancel" })).not.toHaveClass("h-auto");
   expect(screen.getByRole("button", { name: "subscriptionCancel" })).toHaveClass("h-8");
@@ -43,13 +43,13 @@ it("A9 active shows cancel and current schedule; cadence writes bypass dialog an
   expect(screen.getByText("subscriptionNeedsHoldings")).toBeInTheDocument();
 });
 it("A9 pending cancellation offers resume", () => {
-  render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, cancel_pending: true } }} hadLoadError={false} />);
+  render(<JadePageBody guest={false} demo={null} me={{ ...active, subscription: { ...active.subscription, cancel_pending: true } }} hadLoadError={false} />);
   expect(screen.getByRole("button", { name: "subscriptionResume" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "subscriptionCancel" })).not.toBeInTheDocument();
 });
 it("A9 cadence failure keeps server value and shows error", async () => {
   setJadeCadence.mockRejectedValue(new Error("unavailable"));
-  render(<JadePageBody me={active} hadLoadError={false} />);
+  render(<JadePageBody guest={false} demo={null} me={active} hadLoadError={false} />);
   fireEvent.change(screen.getByRole("combobox"), { target: { value: "daily" } });
   expect(await screen.findByRole("alert")).toHaveTextContent("cadenceError");
   expect(screen.getByRole("combobox")).toHaveValue("weekly");
@@ -57,18 +57,18 @@ it("A9 cadence failure keeps server value and shows error", async () => {
 });
 it("Jade subscription quote uses the shared dialog and shows cadence", async () => {
   getSubscriptionQuote.mockResolvedValue({ action: "subscribe", type: "jade", cadence: "daily", fee: "9.99", balance: "10.00", returned: "0.00", balance_after: "0.01", sufficient: true, expires_on: "2026-11-16", first_report_at: "2026-10-16T17:00:00-04:00", needs_holdings: true });
-  render(<JadePageBody me={me} hadLoadError={false} />);
+  render(<JadePageBody guest={false} demo={null} me={me} hadLoadError={false} />);
   fireEvent.click(screen.getByRole("button", { name: "subscribe" }));
   expect(await screen.findByRole("alertdialog")).toHaveTextContent('subscriptionJadeCadence{"cadence":"reportScheduleOptions.daily"}');
   expect(getSubscriptionQuote).toHaveBeenCalledExactlyOnceWith("jade");
 });
 it("load failure uses existing Profile error copy", () => {
-  render(<JadePageBody me={null} hadLoadError />);
+  render(<JadePageBody guest={false} demo={null} me={null} hadLoadError />);
   expect(screen.getByRole("alert")).toHaveTextContent("errorLoadFailed");
 });
 it("375px component check keeps schedule full width and subscription controls wrapping", () => {
   vi.stubGlobal("innerWidth", 375);
-  const { container } = render(<div style={{ width: 375 }}><JadePageBody me={active} hadLoadError={false} /></div>);
+  const { container } = render(<div style={{ width: 375 }}><JadePageBody guest={false} demo={null} me={active} hadLoadError={false} /></div>);
   expect(window.innerWidth).toBe(375);
   expect(screen.getByRole("combobox")).toHaveClass("w-full", "min-w-0");
   const cancel = screen.getByRole("button", { name: "subscriptionCancel" });
@@ -82,31 +82,54 @@ it("375px component check keeps schedule full width and subscription controls wr
 });
 
 it.each(["jade", "daily", "weekly"] as const)("A11 replay is Jade-only for %s", (plan) => {
-  render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, type: plan } }} hadLoadError={false} />);
+  render(<JadePageBody guest={false} demo={null} me={{ ...active, subscription: { ...active.subscription, type: plan } }} hadLoadError={false} />);
   expect(screen.queryByTestId("replay-section") !== null).toBe(plan === "jade");
   expect(screen.queryByTestId("tail-risk-section") !== null).toBe(plan === "jade");
 });
 
 it.each(["jade", "daily", "weekly"] as const)("A23 stress is Jade-only for %s", plan => {
-  render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, type: plan } }} hadLoadError={false} />);
+  render(<JadePageBody guest={false} demo={null} me={{ ...active, subscription: { ...active.subscription, type: plan } }} hadLoadError={false} />);
   expect(screen.queryByTestId("stress-section") !== null).toBe(plan === "jade");
 });
 
 it.each(["jade", "daily", "weekly"] as const)("B16 style is Jade-only for active %s", plan => {
-  render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, type: plan } }} hadLoadError={false} />);
+  render(<JadePageBody guest={false} demo={null} me={{ ...active, subscription: { ...active.subscription, type: plan } }} hadLoadError={false} />);
   expect(screen.queryByTestId("style-section") !== null).toBe(plan === "jade");
 });
 it.each(["inactive", "expired"] as const)("B16 style hidden for %s Jade", status => {
-  render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, status } }} hadLoadError={false} />);
+  render(<JadePageBody guest={false} demo={null} me={{ ...active, subscription: { ...active.subscription, status } }} hadLoadError={false} />);
   expect(screen.queryByTestId("style-section")).not.toBeInTheDocument();
 });
 
 vi.mock("./tracking-section", () => ({ TrackingSection: () => <div data-testid="tracking-section" /> }));
 it.each(["jade", "daily", "weekly"] as const)("B17 tracking is Jade-only for active %s", plan => {
-  render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, type: plan } }} hadLoadError={false} />);
+  render(<JadePageBody guest={false} demo={null} me={{ ...active, subscription: { ...active.subscription, type: plan } }} hadLoadError={false} />);
   expect(screen.queryByTestId("tracking-section") !== null).toBe(plan === "jade");
 });
 it.each(["inactive", "expired"] as const)("B17 tracking hidden for %s Jade", status => {
-  render(<JadePageBody me={{ ...active, subscription: { ...active.subscription, status } }} hadLoadError={false} />);
+  render(<JadePageBody guest={false} demo={null} me={{ ...active, subscription: { ...active.subscription, status } }} hadLoadError={false} />);
   expect(screen.queryByTestId("tracking-section")).not.toBeInTheDocument();
+});
+
+it("801 A8 guest and non-Jade see six demo figures while Jade has no demo", async () => {
+ const { calculateExample } = await import("@/app/guides/_lib/example");
+ const { stressExample, styleExample, trackingExample } = await import("@/app/guides/_lib/example-batch2");
+ const { whatIfExample } = await import("@/app/guides/_lib/example-what-if");
+ const demo = { example: calculateExample(), stress: stressExample(), style: styleExample(), tracking: trackingExample(), whatIf: whatIfExample() };
+ for (const user of [null, me, active]) {
+  const { container } = render(<JadePageBody me={user} guest={!user} demo={demo} hadLoadError={false} />);
+  if (user === active) expect(screen.queryByText("demo.notice")).not.toBeInTheDocument();
+  else {
+   expect(screen.getByText("demo.notice")).toBeInTheDocument();
+   expect(container.querySelectorAll("figure")).toHaveLength(6);
+   expect(container.querySelectorAll("[data-guide-chart]")).toHaveLength(6);
+  }
+  expect(screen.queryByRole("button", { name: "subscribe" }) !== null).toBe(user === me);
+  if (!user) {
+   expect(screen.getByRole("link", { name: "guest.waitlist" })).toHaveAttribute("href", "/waitlist");
+   expect(screen.getByRole("link", { name: "guest.login" })).toHaveAttribute("href", "/login");
+   expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  }
+  cleanup();
+ }
 });

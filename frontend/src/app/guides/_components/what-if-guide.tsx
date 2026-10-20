@@ -18,7 +18,7 @@ const metricRows = [
   ["max_drawdown", "drawdown"],
 ] as const;
 
-export function WhatIfGuide({ example }: { example: WhatIfExample }) {
+export function WhatIfGuide({ example, figureOnly = false }: { example: WhatIfExample; figureOnly?: boolean }) {
   const t = useTranslations("guides.whatIf");
   const common = useTranslations("guides.common");
   const replay = useTranslations("jade.replay");
@@ -76,6 +76,7 @@ export function WhatIfGuide({ example }: { example: WhatIfExample }) {
     </>;
   }
 
+  if (figureOnly) return figures();
   const sections = t.raw("sections") as Record<string, Record<string, string>>;
   return <main className="mx-auto w-full max-w-2xl px-6 py-12">
     <h1 className="font-serif text-3xl">{t("title")}</h1>

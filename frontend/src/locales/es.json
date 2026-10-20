@@ -1825,7 +1825,20 @@
     "homeLink": "Volver al inicio"
   },
   "jade": {
+    "demo": {
+      "heading": "Explore Jade con datos de ejemplo",
+      "notice": "Datos de ejemplo: todos los gráficos a continuación usan una cartera fija de SPY y AGG de las guías públicas. No son sus posiciones."
+    },
+    "guest": {
+      "waitlist": "Unirse a la lista de espera",
+      "login": "Iniciar sesión"
+    },
     "whatIf": {
+      "errors": {
+        "invalidAmount": "Ingrese cada importe como un número, por ejemplo 1250.50. Las comas se ignoran.",
+        "emptyVersion": "Cada versión necesita un total mayor que cero.",
+        "stale": "Sus posiciones cambiaron desde que se cargó esta página. Vuelva a cargarla e inténtelo de nuevo."
+      },
       "listSeparator": "; ",
       "title": "Simulación de rebalanceo de posiciones",
       "intro": "Compare sus posiciones actuales con dos versiones de importes definidos por usted y reglas de rebalanceo periódico, usando precios históricos.",
@@ -2233,7 +2246,7 @@
         },
         "s2": {
           "heading": "Las tres columnas",
-          "p1": "Actual es fija y coincide con las tarjetas de simulación histórica, riesgo de cola y estrés histórico de Jade para la misma moneda y período. Las versiones A y B comienzan como copias independientes. Edite el importe de cada fila en la moneda de visualización; su proporción se actualiza con el total de la versión. Un importe de cero omite la fila del cálculo. El pie muestra el total, su proporción respecto al total actual y la diferencia con signo, para distinguir un cambio de tamaño de uno de composición.",
+          "p1": "Actual es fija y coincide con las tarjetas de simulación histórica, riesgo de cola y estrés histórico de Jade para la misma moneda y período. Las versiones A y B comienzan como copias independientes. Edite el importe de cada fila en la moneda de visualización; su proporción se actualiza con el total de la versión. Un importe de cero omite la fila del cálculo. Un importe vacío cuenta como cero, se ignoran las comas usadas como separadores de miles y se descartan los dígitos después del segundo decimal. El pie muestra el total, su proporción respecto al total actual y la diferencia con signo, para distinguir un cambio de tamaño de uno de composición.",
           "p2": "La lista adicional de ETF es fija: SPY, QQQ, EFA, EEM, 2800.HK, 510300.SS, ISF.L, EXSA.DE, 1306.T, 069500.KS, AGG y GLD. También puede agregar una fila de efectivo. El efectivo agregado está denominado en la moneda de visualización y el importe ingresado es su valor actual en esa moneda base. Se calcula como efectivo y no como una serie de precios de ETF; no se modelan intereses para esa fila en la misma moneda.",
           "p3": "El diálogo de confirmación aparece únicamente cuando la proporción mostrada de una versión queda fuera de la banda inclusiva del noventa y nueve al ciento uno por ciento del total actual. Antes de comprobar la banda, se redondea a un decimal, con los empates hacia arriba. El diálogo identifica las versiones afectadas y sus proporciones; Confirmar calcula con esos importes y Cancelar regresa a la edición.",
           "p4": "Cambiar el período no calcula. Cambiar la moneda recarga los importes actuales y restablece ambas versiones como copias, sin calcular. Calcular envía las dos versiones; los resultados anteriores conservan el período y la moneda de su cálculo hasta que otra solicitud finaliza. Cada usuario puede enviar una solicitud cada dos minutos; un intento anticipado muestra una cuenta regresiva. Los datos quedan para otra ronda de edición, pero no se guardan al recargar. Sin posiciones actuales con valor disponible, la página enlaza a posiciones en lugar de mostrar el editor."
