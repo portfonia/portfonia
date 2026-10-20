@@ -36,7 +36,7 @@ it("A2 English cards preserve order, exact prices, leads and feature counts", ()
   cards.forEach((card, i) => {
     const plan = catalogs.en.pricingPlans.plans[i];
     expect(within(card).getAllByRole("listitem").map(li => li.textContent)).toEqual(plan.features.map(s => s.replace(/<\/?[a-z]+>/g, "")));
-    expect(within(card).getAllByRole("listitem")).toHaveLength([6, 3, 10][i]);
+    expect(within(card).getAllByRole("listitem")).toHaveLength([6, 3, 11][i]);
     expect(Array.from(card.querySelectorAll("p")).map(p => p.textContent)).toEqual([...plan.prices, ...(plan.lead ? [plan.lead] : [])]);
   });
 });
@@ -63,14 +63,14 @@ it("A5 comparison renders the credit footnote", () => {
   expect(within(comparison()).getByText(catalogs.en.pricingPlans.footnote)).toBeInTheDocument();
 });
 
-it.each(["en", "es", "zh-Hans", "zh-Hant"] as const)("A6 %s comparison contains no buttons and exactly six Jade links", locale => {
+it.each(["en", "es", "zh-Hans", "zh-Hant"] as const)("A6 %s comparison contains no buttons and exactly seven Jade links", locale => {
   renderPricing(locale);
   const formerBuyCreditsLabel = { en: "Buy credits", es: "Comprar cr\u00e9ditos", "zh-Hans": "\u8d2d\u4e70 credits", "zh-Hant": "\u8cfc\u8cb7 credits" }[locale];
   expect(screen.queryByRole("link", { name: formerBuyCreditsLabel })).not.toBeInTheDocument();
   const block = screen.getByRole("region", { name: catalogs[locale].pricingPlans.heading });
   expect(block.querySelectorAll("button")).toHaveLength(0);
   const links = Array.from(block.querySelectorAll("a"));
-  expect(links).toHaveLength(6);
+  expect(links).toHaveLength(7);
   const advanced = block.querySelector('[data-plan="advanced"]');
   expect(advanced?.querySelectorAll("a")).toHaveLength(0);
   const jade = block.querySelector('[data-plan="jade"]');
@@ -81,11 +81,12 @@ it.each(["en", "es", "zh-Hans", "zh-Hant"] as const)("A6 %s comparison contains 
     localizedPath("/guides/jade-stress", locale),
     localizedPath("/guides/jade-style", locale),
     localizedPath("/guides/jade-tracking", locale),
+    localizedPath("/guides/jade-what-if", locale),
     localizedPath("/agent/guide", locale),
   ]);
   const guidePhrase = {"en": "Programmatic holdings writes", "es": "Escritura program\u00e1tica de posiciones", "zh-Hans": "\u7a0b\u5e8f\u5316\u6301\u4ed3\u5199\u5165", "zh-Hant": "\u7a0b\u5f0f\u5316\u6301\u5009\u5beb\u5165"}[locale];
-  expect(links[5].textContent).toBe(guidePhrase);
-  expect(links[5].closest("li")?.textContent?.length).toBeGreaterThan(guidePhrase.length);
+  expect(links[6].textContent).toBe(guidePhrase);
+  expect(links[6].closest("li")?.textContent?.length).toBeGreaterThan(guidePhrase.length);
 });
 
 it("A7 cards stack below the three-column medium breakpoint", () => {

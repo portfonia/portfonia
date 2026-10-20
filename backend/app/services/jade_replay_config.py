@@ -122,6 +122,34 @@ TRACKING_HORIZON_DAYS = 5
 TRACKING_MIN_SAMPLES = 10
 
 
+RebalanceRule = Literal["none", "monthly", "quarterly"]
+
+
+@dataclass(frozen=True)
+class WhatIfEtf:
+    spec: EtfSpec
+    asset_class: str
+    market: str
+
+
+WHAT_IF_ETFS: tuple[WhatIfEtf, ...] = (
+    WhatIfEtf(SPY, "EQUITY_US_BROAD", "US"),
+    WhatIfEtf(CLASS_PROXY["EQUITY_US_TECH"], "EQUITY_US_TECH", "US"),
+    WhatIfEtf(CLASS_PROXY["EQUITY_DM"], "EQUITY_DM", "Other"),
+    WhatIfEtf(CLASS_PROXY["EQUITY_EM"], "EQUITY_EM", "Other"),
+    WhatIfEtf(STOCK_PROXY_BY_MARKET["HK"], "STOCK", "HK"),
+    WhatIfEtf(CSI, "EQUITY_CN", "A-Share"),
+    WhatIfEtf(STOCK_PROXY_BY_MARKET["UK"], "STOCK", "UK"),
+    WhatIfEtf(STOCK_PROXY_BY_MARKET["Europe"], "STOCK", "Europe"),
+    WhatIfEtf(STOCK_PROXY_BY_MARKET["Japan"], "STOCK", "Japan"),
+    WhatIfEtf(STOCK_PROXY_BY_MARKET["Korea"], "STOCK", "Korea"),
+    WhatIfEtf(CLASS_PROXY["BOND_FUND"], "BOND_FUND", "US"),
+    WhatIfEtf(CLASS_PROXY["PRECIOUS_METALS"], "PRECIOUS_METALS", "US"),
+)
+WHAT_IF_SYMBOLS = tuple(e.spec.symbol for e in WHAT_IF_ETFS)
+WHAT_IF_COOLDOWN_SECONDS = 120
+
+
 def years_before(day: date, years: int) -> date:
     try:
         return day.replace(year=day.year - years)

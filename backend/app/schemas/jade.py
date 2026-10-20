@@ -1,6 +1,7 @@
 """Jade holdings replay response; numeric ratios have explicit precision."""
 
 from datetime import date
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
@@ -9,6 +10,7 @@ from pydantic import BaseModel, model_validator
 from app.services.jade_replay_config import (
     TRACKING_MAX_COMPONENTS,
     TRACKING_SYMBOLS,
+    RebalanceRule,
     ReplayRange,
     ScenarioId,
 )
@@ -302,3 +304,52 @@ class JadeTrackingOut(BaseModel):
     points: list[TrackingPoint]
     coverage: Coverage
     proxy_note: bool
+
+
+class WhatIfRowIn(BaseModel):
+    kind: Literal["holding", "etf", "cash"]
+    holding_id: UUID | None = None
+    symbol: str | None = None
+    amount: Decimal
+
+
+class WhatIfVersionIn(BaseModel):
+    rule: RebalanceRule = "none"
+    rows: list[WhatIfRowIn]
+
+
+class JadeWhatIfIn(BaseModel):
+    base_currency: Literal[
+        "USD",
+        "CNY",
+        "CNH",
+        "HKD",
+        "GBP",
+        "EUR",
+        "JPY",
+        "SGD",
+        "AUD",
+        "CAD",
+        "CHF",
+        "KRW",
+        "TWD",
+        "MOP",
+        "NZD",
+    ]
+    range: ReplayRange = "1Y"
+    versions: list[WhatIfVersionIn]
+
+
+class WhatIfColumn(BaseModel):
+    key: Literal["current", "a", "b"]
+    rule: RebalanceRule
+    total: str
+    replay: JadeReplayOut
+    tail_risk: JadeTailRiskOut
+    stress: JadeStressOut
+
+
+class JadeWhatIfOut(BaseModel):
+    base_currency: str
+    range: ReplayRange
+    columns: list[WhatIfColumn]

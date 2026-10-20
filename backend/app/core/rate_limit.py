@@ -653,3 +653,18 @@ def rate_limit_referral(user_id: str) -> None:
     key = f"referral:{user_id}:{today_et()}"
     if _protecting_incr(key, 86400) > get_settings().REFERRAL_DAILY_LIMIT:
         raise HTTPException(status_code=429, detail=RATE_LIMIT_DETAIL)
+
+
+def check_jade_what_if_cooldown(user_id: str) -> int | None:
+    """Atomically claim the transient Jade calculation slot, failing closed."""
+    from app.services.jade_replay_config import WHAT_IF_COOLDOWN_SECONDS
+
+    key = f"rl:jade_what_if:{user_id}"
+    try:
+        if get_backend().set_nx(key, WHAT_IF_COOLDOWN_SECONDS):
+            return None
+        remaining = get_backend().ttl(key)
+    except RateLimitUnavailable:
+        logger.exception("rate_limit: Jade what-if cooldown store unavailable")
+        raise HTTPException(status_code=503, detail=UNAVAILABLE_DETAIL) from None
+    return remaining if remaining > 0 else WHAT_IF_COOLDOWN_SECONDS

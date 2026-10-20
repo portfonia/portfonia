@@ -5,6 +5,7 @@ export const NOINDEX_METADATA: Metadata = { robots: { index: false, follow: true
 
 export const SITE_URL = "https://portfonia.com";
 export const SEO_PAGES = {
+  guideWhatIf: "/guides/jade-what-if",
   agentGuide: "/agent/guide",
   home: "/", about: "/about", pricing: "/pricing", waitlist: "/waitlist",
   privacy: "/privacy", terms: "/terms", refund: "/refund",

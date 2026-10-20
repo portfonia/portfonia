@@ -26,7 +26,7 @@ it("739 A4 anonymous access and locale rewrites", async () => {
   expect((await proxy(new NextRequest("https://portfonia.com/guides/jade-tracking"))).headers.get("location")).toBeNull();
 });
 it("739 A5 sixteen new sitemap URLs and fourteen alternates", () => {
-  const entries = sitemap(); expect(entries).toHaveLength(56);
+  const entries = sitemap(); expect(entries).toHaveLength(60);
   for (const locale of locales) for (const path of routes) {
     const e = entries.find(e => e.url === `https://portfonia.com${localizedPath(path, locale)}`);
     expect(e).toBeDefined(); expect(Object.keys(e?.alternates?.languages ?? {})).toHaveLength(14);
@@ -87,7 +87,7 @@ it.each(locales)("739 A8 %s index card order and Pricing", async locale => {
   const { GuidesIndex } = await import("./_components/guides-index");
   window.history.replaceState(null, "", localizedPath("/guides", locale));
   const { container } = render(<LocaleProvider routeLocale={locale}><GuidesIndex /></LocaleProvider>);
-  expect([...container.querySelectorAll('[data-guide-card] a')].map(e => e.getAttribute("href"))).toEqual(["replay", "var", "stress", "style", "tracking"].map(k => localizedPath(`/guides/jade-${k}`, locale)));
+  expect([...container.querySelectorAll('[data-guide-card] a')].map(e => e.getAttribute("href"))).toEqual(["replay", "var", "stress", "style", "tracking", "what-if"].map(k => localizedPath(`/guides/jade-${k}`, locale)));
   expect(within(container.querySelector('main') as HTMLElement).getByRole('link', { name: catalogs[locale].guides.common.pricingLink })).toHaveAttribute('href', localizedPath('/pricing', locale));
 });
 function strings(v: unknown, p = ""): [string, string][] {

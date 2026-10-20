@@ -36,6 +36,7 @@ from app.services.jade_replay_config import (
     MIN_RETURNS,
     STOCK_PROXY_BY_MARKET,
     EtfSpec,
+    RebalanceRule,
     ReplayRange,
     months_before,
     years_before,
@@ -159,7 +160,14 @@ def compute_replay(
 
 
 def build_replay(
-    session: Session, user_id: UUID, base_currency: str, benchmark: str, range_key: ReplayRange
+    session: Session,
+    user_id: UUID,
+    base_currency: str,
+    benchmark: str,
+    range_key: ReplayRange,
+    *,
+    holdings: list[HoldingValue] | None = None,
+    rule: RebalanceRule = "none",
 ) -> ReplayBuild:
     end = cast(
         date,
@@ -179,11 +187,12 @@ def build_replay(
             .order_by(BenchmarkPrice.price_date)
         )
     )
-    snap = compute_portfolio(session, user_id, base_currency)
+    if holdings is None:
+        holdings = compute_portfolio(session, user_id, base_currency).holdings
     spec = BENCHMARK_ETF[benchmark]
     keys = {"yf:" + spec.symbol}
     currencies = {base_currency, spec.currency}
-    for h in snap.holdings:
+    for h in holdings:
         if h.pricing_mode == "auto" and (h.ticker or h.fund_code):
             keys.add(own_key(h))
         currencies.add(h.currency)
@@ -248,7 +257,7 @@ def build_replay(
 
     holding_rows = []
     included: list[tuple[HoldingValue, ReplayHolding, dict[date, Decimal]]] = []
-    for h in snap.holdings:
+    for h in holdings:
         row = ReplayHolding(holding_id=h.holding_id, name=h.name, method="excluded")
         own = own_key(h)
         proxy: EtfSpec | None = None
@@ -371,7 +380,7 @@ def build_replay(
     pending_value = sum(
         (
             h.market_value_base or Decimal(0)
-            for h, row in zip(snap.holdings, holding_rows, strict=True)
+            for h, row in zip(holdings, holding_rows, strict=True)
             if row.excluded_reason == "pending"
         ),
         Decimal(0),
@@ -391,12 +400,18 @@ def build_replay(
         for d in days
         if rolled and all(d in values for values in rolled)
     ]
+    if rule != "none":
+        from app.services.jade_stress import rebalanced_path
+
+        portfolio = rebalanced_path(
+            days,
+            [(values, cast(Decimal, h.market_value_base) / total) for h, _, values in included],
+            rule,
+        )
     count = max(len(portfolio) - 1, 0)
     status = (
         "no_holdings"
-        if not any(
-            h.market_value_base is not None and h.market_value_base > 0 for h in snap.holdings
-        )
+        if not any(h.market_value_base is not None and h.market_value_base > 0 for h in holdings)
         else "pending"
         if not included
         else "insufficient"

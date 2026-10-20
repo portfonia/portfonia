@@ -26,9 +26,10 @@ Discovery includes this file, agent.md and the Agent-only OpenAPI schema: https:
 
 ## Guides
 
-- [Jade guides index](https://portfonia.com/guides): Public explanations of all five Jade portfolio tools.
+- [Jade guides index](https://portfonia.com/guides): Public explanations of all six Jade portfolio tools.
 - [Historical stress scenarios guide](https://portfonia.com/guides/jade-stress): A historical shock, peak-relative paths and asset-class contributions.
 - [Style exposure guide](https://portfonia.com/guides/jade-style): Returns-based style weights, fit and their interpretation.
+- [Rebalance and what-if guide](https://portfonia.com/guides/jade-what-if): Current holdings, two user-edited versions and calendar rebalancing over historical prices; separate replay and stress anchoring, hindsight and cost limitations.
 - [Tracking error guide](https://portfonia.com/guides/jade-tracking): Excess return and variability against daily constant reference weights.
 
 - [Holdings replay guide](https://portfonia.com/guides/jade-replay): Unchanged quantities, total return, metrics, proxies and historical currency conversion through a fixed example.

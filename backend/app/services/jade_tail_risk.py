@@ -18,7 +18,9 @@ from app.services.jade_replay_config import (
     MONTH_DAYS,
     TAIL_LEVELS,
     TRADING_DAYS,
+    RebalanceRule,
 )
+from app.services.portfolio_calculator import HoldingValue
 from app.services.portfolio_risk import risk_answers_valid, risk_thresholds
 
 
@@ -75,9 +77,15 @@ def cell(values: tuple[float, float], amount: Decimal | None = None) -> TailCell
 
 
 def compute_tail_risk(
-    session: Session, user_id: UUID, base_currency: str, benchmark: str
+    session: Session,
+    user_id: UUID,
+    base_currency: str,
+    benchmark: str,
+    *,
+    holdings: list[HoldingValue] | None = None,
+    rule: RebalanceRule = "none",
 ) -> JadeTailRiskOut:
-    b = build_replay(session, user_id, base_currency, benchmark, "5Y")
+    b = build_replay(session, user_id, base_currency, benchmark, "5Y", holdings=holdings, rule=rule)
     context = session.get(UserInvestmentContext, user_id)
     answers = context.questionnaire if context is not None else None
     exceeds = None
