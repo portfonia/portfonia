@@ -641,6 +641,7 @@ It contains no domain imports or catalog lookups. Its relative, min-width-zero
 wrapper marks active work with `aria-busy`; the child wrapper is inert while
 active. An absolute full-region pointer layer shows a spinner and polite status
 label over a translucent dark-theme surface. Inactive children remain interactive.
+The optional `slow` (default false) and caller-translated `slowNotice` props replace the spinner with a stationary hourglass and add a second notice line inside the badge; requests with timeouts above 30 seconds use this mode for the whole wait, without a timer (#804).
 
 Jade replay uses it around the complete settings/results/method region, which
 renders immediately even without a response. The intro and error alert sit

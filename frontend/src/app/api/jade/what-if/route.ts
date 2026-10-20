@@ -4,7 +4,7 @@ import { currentAccessToken } from "@/lib/supabase/server";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
-const WHAT_IF_TIMEOUT_MS = 45_000;
+const WHAT_IF_TIMEOUT_MS = 90_000;
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const body = await req.text();

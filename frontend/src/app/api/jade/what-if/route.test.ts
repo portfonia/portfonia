@@ -37,10 +37,10 @@ it("804 A3 maps an upstream timeout to 504 and passes an AbortSignal", async () 
   expect(response.status).toBe(504);
   expect(await response.json()).toEqual({ detail: "Backend timeout" });
   expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
-  expect(timeout).toHaveBeenCalledWith(45_000);
+  expect(timeout).toHaveBeenCalledWith(90_000);
 });
 
-it("804 A4 configures the shared rewrite timeout to 45 seconds", async () => {
+it("804 A4 configures the shared rewrite timeout to 90 seconds", async () => {
   const { default: config } = await import("../../../../../next.config");
-  expect(config.experimental?.proxyTimeout).toBe(45_000);
+  expect(config.experimental?.proxyTimeout).toBe(90_000);
 });
