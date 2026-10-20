@@ -69,3 +69,13 @@ it("English confirmation separates two out-of-range versions with the locale sep
  expect(description.textContent).toContain("; ");
  expect(description.textContent).not.toContain("\uFF1B");
 });
+
+it("non-finite exponent amount does not crash the editor", async () => {
+ await editor();
+ const input = screen.getByRole("spinbutton", { name: "One" });
+ // Preserve the number-input string so browser sanitization cannot hide the render failure.
+ Object.defineProperty(input, "value", { configurable: true, get: () => "1e309", set: () => {} });
+ fireEvent.change(input);
+ expect(screen.getByTestId("editor-total")).toHaveTextContent("596,532.10");
+ expect(screen.getByRole("spinbutton", { name: "One" })).toBeInTheDocument();
+});

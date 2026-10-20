@@ -592,14 +592,14 @@ after deployment.
 
 ## Guide pages (issues #737 and #739)
 
-`/guides` indexes five public guides in card order: `/guides/jade-replay`,
-`/guides/jade-var`, `/guides/jade-stress`, `/guides/jade-style` and
-`/guides/jade-tracking`. They are outside login and
+`/guides` indexes six public guides in card order: `/guides/jade-replay`,
+`/guides/jade-var`, `/guides/jade-stress`, `/guides/jade-style`,
+`/guides/jade-tracking` and `/guides/jade-what-if`. They are outside login and
 subscription access, in English, Spanish, Simplified Chinese and Traditional
 Chinese. The locale prefixes, canonical URLs, fourteen language alternates,
-existing OG images and LanguageLinks use the shared SEO registry. All six English
-URLs are listed in `frontend/public/llms.txt`; all 24 localized guide/index URLs
-are in the 52-entry sitemap.
+existing OG images and LanguageLinks use the shared SEO registry. All seven English
+guide/index URLs are listed in `frontend/public/llms.txt`; all 28 localized guide/index
+URLs are in the 60-entry sitemap.
 
 The fixed example starts at 60% SPY and 40% AGG, with unchanged quantities and
 no rebalancing, alongside SPY. Its 1255 paired adjusted-close rows cover
@@ -720,10 +720,12 @@ in accessible ordinary text. No column is ranked. Tables scroll within their own
 containers at narrow widths. There are no downloads, Agent access or saved versions.
 
 The public `/guides/jade-what-if` is the sixth guide, in four locales. Its committed
-SPY/AGG adjusted-close example covers 2021-10-11 through 2026-10-09. Both example
-paths start at 60% SPY / 40% AGG; one drifts and the other resets quarterly, unlike
-the current-quantity anchoring of a no-rebalancing Jade replay. Pricing links to
-the guide and names the new feature; homepage and guides copy describe six tools.
+SPY/AGG adjusted-close example covers 2021-10-11 through 2026-10-09. All three example
+paths start at 60% SPY / 40% AGG; the no-rebalancing line drifts, while the monthly
+and quarterly lines reset at the close of the first valid trading day of each new
+month or quarter. This differs from the current-quantity anchoring of a
+no-rebalancing Jade replay. Pricing links to the guide and names the new feature;
+the homepage describes six tools and the guides index lists six guides.
 
 ### Adding an ETF
 

@@ -2415,7 +2415,7 @@
     },
     "index": {
       "title": "Cómo funcionan las herramientas de cartera de Jade",
-      "intro": "Las explicaciones de los métodos de Jade son públicas. Cada guía utiliza una cartera fija para ilustrar un cálculo, con precios históricos reales y tablas legibles junto a los gráficos. {exampleLabel}. Los ejemplos describen movimientos pasados sin evaluar decisiones personales. Los resultados calculados con sus propias posiciones están disponibles con Jade. Estas seis guías cubren las herramientas de Jade y la página separada simulación de rebalanceo de posiciones.",
+      "intro": "Las explicaciones de los métodos de Jade son públicas. Cada guía utiliza una cartera fija para ilustrar un cálculo, con precios históricos reales y tablas legibles junto a los gráficos. {exampleLabel}. Los ejemplos describen movimientos pasados sin evaluar decisiones personales. Los resultados calculados con sus propias posiciones están disponibles con Jade. Estas seis guías cubren las herramientas de Jade y la página separada de simulación de rebalanceo de posiciones.",
       "summaries": {
         "whatIf": "Un cálculo histórico de las posiciones actuales y hasta dos versiones editadas por usted, con reglas de rebalanceo independientes.",
         "replay": "Conozca cómo se simulan sus posiciones actuales sin cambiar las cantidades y qué miden el rendimiento acumulado, la volatilidad y la caída máxima.",

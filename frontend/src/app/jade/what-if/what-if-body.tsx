@@ -18,6 +18,7 @@ const symbols = ["SPY", "QQQ", "EFA", "EEM", "2800.HK", "510300.SS", "ISF.L", "E
 type Row = WhatIfRow & { name: string; id: string };
 type Version = { rule: RebalanceRule; rows: Row[] };
 function cents(value: string): bigint {
+  if (/e/i.test(value) && !Number.isFinite(Number(value))) return BigInt(0);
   const plain = /e/i.test(value) ? Number(value).toLocaleString("en", { useGrouping: false, maximumFractionDigits: 2 }) : value;
   const [whole, fraction = ""] = (plain || "0").split(".");
   return BigInt(whole || "0") * BigInt(100) + BigInt(fraction.padEnd(2, "0").slice(0, 2)) * (value.startsWith("-") ? -BigInt(1) : BigInt(1));

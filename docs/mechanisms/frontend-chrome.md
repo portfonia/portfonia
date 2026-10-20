@@ -521,7 +521,7 @@ Unprefixed SEO pages always display English without reading or overwriting
 a stored Chinese preference. Prefixed route mounts persist their locale.
 App/auth pages retain #209's English-first storage restore.
 Public-page links preserve locale. A visible, server-rendered `LanguageLinks`
-row ends all thirteen SEO pages; its current locale is unlinked and marked
+row ends all fifteen SEO pages; its current locale is unlinked and marked
 `aria-current="page"`. Cross-locale links use native anchors. The header
 switcher also uses native anchors on SEO pages, preserving query and hash,
 and retains buttons on other pages. Anchor clicks persist the selected locale
