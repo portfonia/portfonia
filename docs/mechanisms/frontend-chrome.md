@@ -593,7 +593,7 @@ not see it. `/jade` joins the protected app paths, inherits the shared header,
 and is absent from public SEO pages and the sitemap. The server page loads
 `getMeServer`, preserves redirect errors and displays the existing Profile load
 error on other failures. All authenticated users can open the introduction and
-subscription entry; future risk tools are absent.
+subscription entry; future risk tools are absent. Since #801, `/jade` is public with a guest menu entry and six guide-based sample demos for guests and non-Jade users.
 
 The Jade client reuses Profile's `useSubscription` and `SubscriptionDialog`.
 Inactive/cancelled/Expired or briefing-plan users see Subscribe to Jade; no

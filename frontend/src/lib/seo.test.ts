@@ -47,7 +47,7 @@ describe("issue #702 SEO helpers", () => {
     expect(await getRouteLocale()).toBeNull();
   });
   it("classifies every app route directory explicitly", () => {
-    const publicPaths = ["/guides/jade-what-if", "/agent/guide", "/guides/jade-stress", "/guides/jade-style", "/guides/jade-tracking", "/guides", "/guides/jade-replay", "/guides/jade-var", "/about", "/agent", "/agent/revoke", "/forgot-password", "/login", "/pricing", "/privacy", "/refund", "/reset-password", "/signup", "/terms", "/unsubscribe", "/verify-email", "/waitlist"];
+    const publicPaths = ["/jade", "/guides/jade-what-if", "/agent/guide", "/guides/jade-stress", "/guides/jade-style", "/guides/jade-tracking", "/guides", "/guides/jade-replay", "/guides/jade-var", "/about", "/agent", "/agent/revoke", "/forgot-password", "/login", "/pricing", "/privacy", "/refund", "/reset-password", "/signup", "/terms", "/unsubscribe", "/verify-email", "/waitlist"];
     for (const path of routeDirectories("src/app")) {
       expect(PROTECTED_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`)) || publicPaths.includes(path), path).toBe(true);
     }
@@ -75,4 +75,9 @@ it("acceptance_06 Spanish prefix respects segment boundaries", () => {
   expect(splitLocalePrefix("/es/pricing")).toEqual({ locale: "es", path: "/pricing" });
   expect(splitLocalePrefix("/es")).toEqual({ locale: "es", path: "/" });
   expect(splitLocalePrefix("/estate")).toEqual({ locale: null, path: "/estate" });
+});
+
+it("801 A7 Jade is public while what-if remains protected", () => {
+ const protectedPath = (path: string) => PROTECTED_PATH_PREFIXES.some(prefix => path === prefix || path.startsWith(`${prefix}/`));
+ expect(protectedPath("/jade")).toBe(false); expect(protectedPath("/jade/what-if")).toBe(true);
 });

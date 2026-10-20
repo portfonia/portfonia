@@ -1825,7 +1825,20 @@
     "homeLink": "Return home"
   },
   "jade": {
+    "demo": {
+      "heading": "See Jade with sample data",
+      "notice": "Sample data: every chart below uses a fixed SPY and AGG example portfolio from the public guides. It is not your holdings."
+    },
+    "guest": {
+      "waitlist": "Join the waitlist",
+      "login": "Log in"
+    },
     "whatIf": {
+      "errors": {
+        "invalidAmount": "Enter each amount as a number, for example 1250.50. Commas are ignored.",
+        "emptyVersion": "Each version needs a total above zero.",
+        "stale": "Your holdings have changed since this page loaded. Reload the page and try again."
+      },
       "listSeparator": "; ",
       "title": "Holdings rebalancing what-if",
       "intro": "Compare current holdings with two versions of your own amounts and calendar rebalancing rules over past prices.",
@@ -2233,7 +2246,7 @@
         },
         "s2": {
           "heading": "The three columns",
-          "p1": "Current is fixed and matches the Jade replay, tail-risk and historical-stress cards for the same currency and replay span. Version A and Version B begin as independent copies. Edit each row’s amount in the display currency; its share updates with the version’s total. A zero amount omits that row from the calculation. The footer shows the total, its ratio to the current total and the signed difference, so a change in portfolio size is visible alongside a change in composition.",
+          "p1": "Current is fixed and matches the Jade replay, tail-risk and historical-stress cards for the same currency and replay span. Version A and Version B begin as independent copies. Edit each row’s amount in the display currency; its share updates with the version’s total. A zero amount omits that row from the calculation. An empty amount counts as zero, commas used as thousands separators are ignored, and digits beyond two decimal places are dropped. The footer shows the total, its ratio to the current total and the signed difference, so a change in portfolio size is visible alongside a change in composition.",
           "p2": "The additional ETF list is fixed: SPY, QQQ, EFA, EEM, 2800.HK, 510300.SS, ISF.L, EXSA.DE, 1306.T, 069500.KS, AGG and GLD. Cash is another available row. Added cash is denominated in the display currency, with the entered amount as its current base-currency value. It enters the calculation as cash rather than an ETF price series; there is no modelled interest return for that same-currency cash row.",
           "p3": "The confirmation dialog appears only when a version’s displayed ratio falls outside the inclusive band from ninety-nine percent to one hundred and one percent of the current total. That displayed ratio is rounded half-up to a decimal place before the band is checked. The dialog identifies the affected versions and their ratios; Confirm calculates with those amounts, while Cancel returns to editing.",
           "p4": "Changing the replay span does not calculate. Changing currency reloads current amounts and resets both versions to copies, without calculating. Calculate submits both versions; earlier results retain the span and currency used for that calculation until another submission succeeds. Each user can submit once every two minutes; an early attempt shows a countdown. Inputs remain for another editing round but nothing is saved after the page reloads. With no valued current holdings, the page links to holdings instead of showing the editor."

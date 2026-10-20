@@ -1,3 +1,4 @@
+import { catalogs } from "@/locales";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -133,6 +134,12 @@ describe("GetStartedMenu", () => {
     const { container } = renderMenu();
 
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("801 A9 guest menu links to Jade", async () => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    const user = userEvent.setup(); renderMenu(); await openMenu(user);
+    expect(screen.getByRole("menuitem", { name: catalogs.en.menu.jade })).toHaveAttribute("href", "/jade");
   });
 
   it("starts closed and opens on click", async () => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { JadeDemo, type JadeDemoData } from "./jade-demo";
 import { TrackingSection } from "./tracking-section";
 import { StyleSection } from "./style-section";
 import { StressSection } from "./stress-section";
@@ -18,7 +19,7 @@ import { setJadeCadence, type BenchmarkCode, type BriefingPlan, type Me, type Re
 import { useSubscription } from "@/app/profile/_components/use-subscription";
 import { SubscriptionDialog } from "@/app/profile/_components/subscription-dialog";
 
-export function JadePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError: boolean }) {
+export function JadePageBody({ me, hadLoadError, guest, demo }: { me: Me | null; hadLoadError: boolean; guest: boolean; demo: JadeDemoData | null }) {
   const [replaySettings, setReplaySettings] = useState<{ currency: BaseCurrency; benchmark: BenchmarkCode; range: ReplayRange } | null>(null);
   const t = useTranslations("jade");
   const href = useLocalizedHref();
@@ -30,11 +31,11 @@ export function JadePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError
   const [cadencePending, setCadencePending] = useState(false);
   const [cadenceError, setCadenceError] = useState(false);
   const [savedCadence, setSavedCadence] = useState<{ source: string; value: BriefingPlan } | null>(null);
-  if (hadLoadError || !me) return <p className="text-sm text-destructive" role="alert">{profile("errorLoadFailed")}</p>;
+  if (!guest && (hadLoadError || !me)) return <p className="text-sm text-destructive" role="alert">{profile("errorLoadFailed")}</p>;
 
-  const isJade = me.subscription.status === "active" && me.subscription.type === "jade";
-  const unverified = me.email_verified_at == null && me.delivery_email_verified_at == null;
-  const cadence = savedCadence?.source === me.subscription.cadence ? savedCadence.value : me.subscription.cadence;
+  const isJade = me?.subscription.status === "active" && me.subscription.type === "jade";
+  const unverified = me?.email_verified_at == null && me?.delivery_email_verified_at == null;
+  const cadence = savedCadence && savedCadence.source === me?.subscription.cadence ? savedCadence.value : me?.subscription.cadence;
   async function changeCadence(value: BriefingPlan) {
     if (cadencePending || !me) return;
     setCadencePending(true);
@@ -50,12 +51,13 @@ export function JadePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError
     }
   }
   return <div className="flex min-w-0 flex-col gap-6">
-    <SubscriptionDialog state={subscription} />
+    {!guest && <SubscriptionDialog state={subscription} />}
     <Card><CardHeader><h1 className="font-heading text-2xl font-medium">{t("title")}</h1></CardHeader>
       <CardContent className="flex flex-col gap-3 px-4 text-sm"><p>{t("intro")}</p><p>{t("price")}</p>
         <p>{t("guidesLead")}{separator}<Link className="underline" href={href("/guides")}>{t("guideLinks.index")}</Link></p></CardContent>
     </Card>
-    <Card><CardHeader><CardTitle>{profile("subscriptionLabel")}</CardTitle></CardHeader>
+    {guest && <Card><CardContent className="flex flex-wrap gap-4 pt-6 text-sm"><Link className="underline" href={href("/waitlist")}>{t("guest.waitlist")}</Link><Link className="underline" href={href("/login")}>{t("guest.login")}</Link></CardContent></Card>}
+    {!guest && me && <Card><CardHeader><CardTitle>{profile("subscriptionLabel")}</CardTitle></CardHeader>
       <CardContent className="flex flex-wrap items-center gap-3 px-4 text-sm">
         {isJade ? <>
           <p>{profile(me.subscription.cancel_pending ? "subscriptionEnds" : "subscriptionRenews", { plan: profile("subscriptionTitle.jade"), expires_on: me.subscription.expires_on ?? "" })}</p>
@@ -67,7 +69,7 @@ export function JadePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError
         </>}
         {subscription.error && !subscription.dialog && <p role="alert" className="w-full text-destructive">{subscription.error}</p>}
       </CardContent>
-    </Card>
+    </Card>}
     {isJade && <Card><CardHeader><CardTitle>{profile("reportScheduleHeading")}</CardTitle></CardHeader>
       <CardContent className="flex min-w-0 flex-col gap-3 px-4 text-sm">
         <select aria-label={profile("reportScheduleHeading")} className="w-full min-w-0 rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm" disabled={cadencePending} value={cadence} onChange={(event) => void changeCadence(event.target.value as BriefingPlan)}>
@@ -81,5 +83,6 @@ export function JadePageBody({ me, hadLoadError }: { me: Me | null; hadLoadError
     {isJade && <><ReplaySection onSettled={(currency, benchmark, range) => setReplaySettings({ currency, benchmark, range })} /><TailRiskSection settings={replaySettings} /><StressSection settings={replaySettings} /><StyleSection settings={replaySettings} /><TrackingSection settings={replaySettings} />
       <section data-testid="what-if-cta" className="rounded-lg border border-foreground/10 px-6 py-8"><h2 className="font-serif text-2xl">{t("whatIf.ctaHeading")}</h2><p className="mt-4 text-sm leading-relaxed text-foreground/70">{t("whatIf.ctaText")}</p><div className="mt-9 flex flex-wrap items-center gap-4"><Link className="rounded-md bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground" href={href("/jade/what-if")}>{t("whatIf.open")}</Link><Link className="rounded-md border border-white/10 px-6 py-3 text-sm font-semibold" href={href("/guides/jade-what-if")}>{t("whatIf.guideLink")}</Link></div></section>
     </>}
+    {!isJade && demo && <JadeDemo data={demo} />}
   </div>;
 }

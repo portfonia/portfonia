@@ -683,7 +683,7 @@ version total. The footer shows total, its ratio to the current total, and signe
 difference. Ratios are rounded half-up to one decimal percent before comparing
 with the inclusive 99.0%-101.0% confirmation-free band. Both versions submit only
 on Calculate, with confirmation outside that band. Inputs persist only for the
-current page load.
+current page load. #801 normalizes empty, comma-separated and overprecision amounts and distinguishes invalid, zero-total and stale-page errors.
 
 `POST /jade/what-if` requires a web Jade session, a `BaseCurrency`, a replay span
 (default 1Y), and one or two versions with nonempty rows. It values current
