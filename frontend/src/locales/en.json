@@ -2224,7 +2224,6 @@
     "whatIf": {
       "title": "Holdings rebalancing what-if: reading the comparison",
       "intro": "A historical calculation of current holdings and up to two user-edited versions, with separate rebalancing rules.",
-      "window": "Example window: {start} to {end}.",
       "chartCaption": "{portfolio}. {start} to {end}. {exampleLabel}. Cumulative returns under no rebalancing, monthly and quarterly rules; the shared starting mixture and dates are the same for all three lines.",
       "sections": {
         "s1": {
@@ -2416,7 +2415,7 @@
     },
     "index": {
       "title": "How Jade's portfolio tools work",
-      "intro": "Jade's method explanations are public. Every guide uses a fixed example portfolio to illustrate a calculation, with real price history and readable tables beside the charts. {exampleLabel}. The examples describe past movement, without assessing a person's choices. Results computed from your own holdings are available with Jade. These six guides cover the Jade tools and the separate Holdings rebalancing what-if page.",
+      "intro": "Jade's method explanations are public. Every guide uses a fixed example portfolio to illustrate a calculation, with real price history and readable tables beside the charts. {exampleLabel}. The examples describe past movement, without assessing a person's choices. Results computed from your own holdings are available with Jade. These six guides cover the Jade tools and the separate holdings rebalancing what-if page.",
       "summaries": {
         "whatIf": "A historical calculation of current holdings and up to two user-edited versions, with separate rebalancing rules.",
         "replay": "See how today's unchanged holdings are replayed through past prices, and what cumulative return, volatility and maximum drawdown measure.",
