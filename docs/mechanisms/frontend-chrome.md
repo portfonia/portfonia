@@ -104,7 +104,7 @@ for the full before/after and decision rationale.
 - **`AUTHED_ENTRIES`'s first entry is `profile` → `/profile`, not `home` →
   `/`.** The #214-follow-up placeholder "Home" entry is gone; the way back
   to `/` is the brand-link click only (product confirmation, Obsidian `Ring
-  1-Profile Page.md` §三: "Home was always a placeholder"). `menu.home` was
+  1-Profile Page.md` section 3: "Home was always a placeholder"). `menu.home` was
   renamed to `menu.profile` in all three locale catalogs — not added
   alongside it — since nothing else read the old key.
 - **Every `GetStartedMenu` entry now carries a `lucide-react` icon**
@@ -172,7 +172,7 @@ for the full before/after and decision rationale.
   thread).
 - **Change-password Server Action** (`app/profile/change-password/actions.ts`,
   issue #393) still follows the same `signInWithPassword`-then-`updateUser`
-  pattern as `Ring 1-Profile Page.md` §三 decision 2 — verifies against
+  pattern as `Ring 1-Profile Page.md` section 3 decision 2 — verifies against
   the caller's own session email (`supabase.auth.getUser()`), never a
   client-submitted `email` form field, so a forged field can't steer whose
   password gets checked. Altcha PoW is verified against
@@ -264,7 +264,7 @@ Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
   Skip (a plain `Link`, never a submit — writes no row) follows the same
   table: onboarding → `/holdings?onboarding=1`, edit → `/profile`. Holdings
   onboarding mode additionally gains a "Skip for now" link to `/welcome`
-  (§9.1's "持仓页保存/跳过" — a plain `Link`, no rows written), hides the
+  (§9.1's "holdings page save/skip" item — a plain `Link`, no rows written), hides the
   Current holdings card (which is also where Export lives, so hiding the
   card hides Export too) and the Download-template button.
 - **`/welcome` is a new route**, not public (absent from `proxy.ts`'s
