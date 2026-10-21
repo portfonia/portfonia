@@ -419,3 +419,36 @@ def test_14_email(db_session: Session) -> None:
     assert all(
         n in numbers for n in ["19", "11", "3", "2", "1", "0.017", "7", "9", "1.23", "5.00", "25"]
     )
+
+
+def test_15_undated_hit_preserves_accepted_article(db_session: Session) -> None:
+    previous = slot(db_session)
+    previous.run_date = NOW.date() - timedelta(days=1)
+    previous.started_at = NOW - timedelta(days=1)
+    record = build_article_record("Factory agreement", NOW, NOW - timedelta(days=1), BODY)
+    article = IntelArticle(
+        slot_run_id=previous.id,
+        provider="exa",
+        url_key=url_key("https://cnbc.com/preserved"),
+        status="accepted",
+        record=record,
+        fetched_at=NOW - timedelta(days=1),
+    )
+    db_session.add(article)
+    db_session.flush()
+    original_slot_id = previous.id
+    with worker(db_session, [hit("Factory agreement", "preserved", stamp=None)]) as (w, _):
+        w.run_exa()
+        assert cast(Any, w.details())["exa"]["queries"][0]["rejected"]["undated"] == 1
+    db_session.expire_all()
+    assert article.status == "accepted"
+    assert article.record == record
+    assert article.slot_run_id == original_slot_id
+
+
+def test_16_disabled_provider_query_is_error(db_session: Session) -> None:
+    with worker(db_session, []) as (w, post):
+        post.side_effect = [httpx.Response(401, json={"error": "invalid key"})]
+        w.run_exa()
+        assert cast(Any, w.details())["exa"]["queries"][1]["outcome"] == "error"
+        assert post.call_count == 1

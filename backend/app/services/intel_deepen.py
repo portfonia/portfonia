@@ -838,6 +838,9 @@ class DeepenRun:
             if not self.settings.EXA_API_KEY:
                 outcome["outcome"] = "not_configured"
                 continue
+            if "exa" in self.usage.disabled:
+                outcome["outcome"] = "error"
+                continue
             estimate = Decimal("0.007") + Decimal("0.001") * max(0, rules.num_results - 10)
             reservation = self.usage.reserve("exa", estimate)
             if reservation is None:
@@ -990,7 +993,7 @@ class DeepenRun:
         record: dict[str, object] | None,
         reason: str | None,
         body_chars: int | None,
-    ) -> uuid.UUID:
+    ) -> uuid.UUID | None:
         stmt = insert(IntelArticle).values(
             slot_run_id=self.run_id,
             provider="exa",
@@ -1017,8 +1020,9 @@ class DeepenRun:
                         "body_chars",
                     )
                 },
+                where=IntelArticle.status != "accepted" if record is None else None,
             ).returning(IntelArticle.id)
-        ).scalar_one()
+        ).scalar()
 
     def finish(
         self, session: Session, signals: dict[str, Signal], pool_items: list[NewsItem]
