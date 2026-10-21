@@ -26,7 +26,7 @@ import {
   LogOut,
   User,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import type { ComponentType } from "react";
 import { useTranslations } from "next-intl";
 
 import {
@@ -34,7 +34,7 @@ import {
   markOptimisticLogout,
   revalidateSession,
 } from "@/hooks/use-session";
-import { JadeDisc } from "@/components/icons/jade-disc";
+import { JadeBi } from "@/components/icons/jade-bi";
 import { useIdleLogout } from "@/hooks/use-idle-logout";
 import { isNextRedirectError } from "@/lib/next-redirect-error";
 import { logout } from "@/lib/auth-actions";
@@ -65,11 +65,11 @@ const AUTHED_ENTRIES = [
   // stays discoverable from any authed page — same "one row per shipped
   // route" convention as the rest of this registry.
   { id: "portfolioPerformance", href: "/portfolio/performance", Icon: ChartLine },
-  { id: "jade", href: "/jade", Icon: JadeDisc },
+  { id: "jade", href: "/jade", Icon: JadeBi },
   { id: "reports", href: "/reports", Icon: FileText },
   { id: "questionnaire", href: "/questionnaire", Icon: ClipboardList },
   { id: "agent", href: "/agent", Icon: Bot },
-] as const satisfies { id: string; href: string; Icon: LucideIcon }[];
+] as const satisfies { id: string; href: string; Icon: ComponentType<{ className?: string }> }[];
 
 export function GetStartedMenu() {
   const t = useTranslations("menu");
@@ -139,7 +139,7 @@ export function GetStartedMenu() {
         )}
 
         {session.status === "guest" && <MenuItemLink href="/agent"><Bot aria-hidden="true" className="size-4" />{t("agent")}</MenuItemLink>}
-        {session.status === "guest" && <MenuItemLink href="/jade"><JadeDisc aria-hidden="true" className="size-4" />{t("jade")}</MenuItemLink>}
+        {session.status === "guest" && <MenuItemLink href="/jade"><JadeBi className="size-4" />{t("jade")}</MenuItemLink>}
 
         {session.status === "authed" && (
           <>

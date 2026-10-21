@@ -1,3 +1,4 @@
+import { JADE_BI_DATA_URI } from "@/components/icons/jade-bi";
 import { catalogs } from "@/locales";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -140,6 +141,12 @@ describe("GetStartedMenu", () => {
     getUser.mockResolvedValue({ data: { user: null } });
     const user = userEvent.setup(); renderMenu(); await openMenu(user);
     expect(screen.getByRole("menuitem", { name: catalogs.en.menu.jade })).toHaveAttribute("href", "/jade");
+  });
+
+  it("818 guest Jade row holds the jade bi image", async () => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    const user = userEvent.setup(); renderMenu(); await openMenu(user);
+    expect(screen.getByRole("menuitem", { name: catalogs.en.menu.jade }).querySelector("img")).toHaveAttribute("src", JADE_BI_DATA_URI);
   });
 
   it("starts closed and opens on click", async () => {

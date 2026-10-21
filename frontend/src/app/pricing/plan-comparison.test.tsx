@@ -50,9 +50,11 @@ it.each(["zh-Hans", "zh-Hant"] as const)("A3 %s renders catalog names and Jade f
   expect(within(jade).getAllByRole("listitem").map(li => li.textContent)).toEqual(catalogs[locale].pricingPlans.plans[2].features.map(s => s.replace(/<\/?[a-z]+>/g, "")));
 });
 
-it("A4 only the Jade name header has jade-surface", () => {
+it("A4 plan headers carry their own surface: Briefing gray, Advanced gold, Jade texture", () => {
   renderPricing();
   const headings = within(comparison()).getAllByRole("heading", { level: 3 });
+  expect(headings[0]).toHaveClass("bg-[#2b3236]");
+  expect(headings[1]).toHaveClass("bg-advanced");
   expect(headings[2]).toHaveClass("jade-surface");
   expect(headings[0]).not.toHaveClass("jade-surface");
   expect(headings[1]).not.toHaveClass("jade-surface");

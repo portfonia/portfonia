@@ -36,7 +36,7 @@ export function PlanComparison() {
             data-plan={["briefing", "advanced", "jade"][i]}
             className="flex flex-col overflow-hidden rounded-lg border border-foreground/10"
           >
-            <h3 id={`plan-${i}`} className={i === 2 ? "jade-surface px-4 py-3 font-serif text-lg" : "px-4 py-3 font-serif text-lg"}>{plan.name}</h3>
+            <h3 id={`plan-${i}`} className={`px-4 py-3 font-serif text-lg ${["bg-[#2b3236] text-[#eef3f1]", "bg-advanced text-advanced-foreground", "jade-surface"][i]}`}>{plan.name}</h3>
             <div className="flex flex-col gap-3 px-4 pb-4 pt-3">
               {plan.prices.map(price => <p key={price} className="text-sm font-medium">{price}</p>)}
               {plan.lead !== "" && <p className="text-sm text-foreground/70">{plan.lead}</p>}

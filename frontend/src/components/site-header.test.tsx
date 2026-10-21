@@ -3,6 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
+import { catalogs } from "@/locales";
+import { JADE_BI_DATA_URI } from "@/components/icons/jade-bi";
 import { SiteHeader } from "./site-header";
 
 const { usePathname, getUser } = vi.hoisted(() => ({
@@ -146,4 +148,11 @@ describe("SiteHeader", () => {
     expect(screen.getByRole("link", { name: /portfonia/i })).toHaveAttribute("href", "/zh-Hans");
   });
 
+  it("818 brand link holds the decorative jade bi image and keeps its accessible name", () => {
+    usePathname.mockReturnValue("/holdings");
+    renderHeader();
+    const link = screen.getByRole("link", { name: /portfonia/i });
+    expect(link.querySelector("img")).toHaveAttribute("src", JADE_BI_DATA_URI);
+    expect(link).toHaveAccessibleName(catalogs.en.common.brandName);
+  });
 });
