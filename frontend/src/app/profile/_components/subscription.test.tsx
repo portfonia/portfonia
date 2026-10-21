@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const { refresh, getSubscriptionQuote, setSubscription, cancelSubscription, revalidateSession } = vi.hoisted(() => ({ refresh: vi.fn(), getSubscriptionQuote: vi.fn(), setSubscription: vi.fn(), cancelSubscription: vi.fn(), revalidateSession: vi.fn() }));
 vi.mock("@/hooks/use-session", () => ({ revalidateSession }));
@@ -82,6 +82,19 @@ describe("subscription dialogs and writes", () => {
     expect(within(dialog).getByText("subscriptionTopUp")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "subscriptionConfirm" }));
     expect(setSubscription).not.toHaveBeenCalled();
+  });
+  it("labels a discounted Jade fee as a limited-time offer, but not other quotes", async () => {
+    const jade = await choose({ type: "jade", fee: "6.99" });
+    expect(within(jade).getByText("subscriptionLimitedOffer")).toBeInTheDocument();
+    cleanup();
+    const other = await choose();
+    expect(within(other).queryByText("subscriptionLimitedOffer")).not.toBeInTheDocument();
+  });
+  it("explains why an insufficient free Jade upgrade is blocked", async () => {
+    const dialog = await choose({ type: "jade", action: "change", fee: "0.00", sufficient: false });
+    expect(within(dialog).getByText("subscriptionFreeUpgradeTopUp")).toBeInTheDocument();
+    expect(within(dialog).queryByText("subscriptionTopUp")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "subscriptionConfirm" })).toBeDisabled();
   });
   it("confirms once, disables while pending, closes and refreshes on success", async () => {
     let resolve: (value: Subscription) => void = () => {};

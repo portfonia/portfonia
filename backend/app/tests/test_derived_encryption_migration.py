@@ -15,7 +15,7 @@ from app.models.macro_coverage import MacroCoverage
 from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.models.report import Report
 from app.models.upload_job import UploadJob
-from app.tests.conftest import TEST_USER_ID, seed_user
+from app.tests.conftest import TEST_USER_ID
 
 
 def test_derived_encryption_migration(alembic_cfg: Config) -> None:
@@ -28,10 +28,19 @@ def test_derived_encryption_migration(alembic_cfg: Config) -> None:
     inputs = {"holdings": [{"ticker": "AAA"}], "label": "café"}
     preview = {"rows": ["AAA"]}
     try:
-        with Session(engine) as session:
-            seed_user(session, TEST_USER_ID)
-            session.commit()
         with engine.begin() as conn:
+            # Raw insert: the ORM User maps columns newer than this revision.
+            conn.execute(
+                text("""INSERT INTO users
+                (id, auth_provider, auth_subject, email, status, locale, base_currency,
+                 report_cadence)
+                VALUES (:id, 'supabase', :sub, :email, 'active', 'zh', 'USD', 'mwf')"""),
+                {
+                    "id": TEST_USER_ID,
+                    "sub": f"sub-{TEST_USER_ID}",
+                    "email": f"{TEST_USER_ID}@example.com",
+                },
+            )
             for i in range(2):
                 conn.execute(
                     text("""INSERT INTO reports

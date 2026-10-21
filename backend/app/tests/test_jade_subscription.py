@@ -45,9 +45,11 @@ def test_a1_resulting_cadence(
 def test_d10_1_weekly_change(db_session: Session) -> None:
     u = funded_user(db_session, "20.99")
     s.set_plan(db_session, u.id, date(2026, 10, 1), "weekly")
+    u.jade_free_upgrade_used = True
+    db_session.flush()
     assert u.credit_gift_balance == Decimal("20.00")
     q = s.quote(db_session, u.id, DAY, "jade")
-    assert (q.cadence, q.returned, q.fee) == ("weekly", "0.53", "9.99")
+    assert (q.cadence, q.returned, q.fee) == ("weekly", "0.53", "6.99")
     assert u.subscription_expires_on is not None and u.subscription_period_start is not None
     assert (u.subscription_expires_on - u.subscription_period_start).days + 1 == 32
     assert (u.subscription_expires_on - DAY).days + 1 == 17
@@ -55,7 +57,7 @@ def test_d10_1_weekly_change(db_session: Session) -> None:
     old = f"subscription:{u.id}:2026-10-01:weekly"
     assert subscription_rows(db_session, u)[1:] == [
         ("gift", Decimal("0.53"), "subscription_return", f"subscription_return:{old}"),
-        ("gift", Decimal("-9.99"), "subscription", f"subscription:{u.id}:2026-10-16:jade"),
+        ("gift", Decimal("-6.99"), "subscription", f"subscription:{u.id}:2026-10-16:jade"),
     ]
     assert (
         u.subscription_type,
@@ -65,15 +67,15 @@ def test_d10_1_weekly_change(db_session: Session) -> None:
         u.subscription_anchor_day,
         u.subscription_adjusted_on,
     ) == ("jade", "weekly", DAY, date(2026, 11, 16), 16, DAY)
-    assert u.credit_gift_balance == Decimal("10.54")
+    assert u.credit_gift_balance == Decimal("13.54")
 
 
 def test_d10_2_inactive_and_notice(db_session: Session) -> None:
     u = funded_user(db_session, "10.00")
     s.set_plan(db_session, u.id, DAY, "jade")
-    assert u.report_cadence == "daily" and u.credit_gift_balance == Decimal("0.01")
+    assert u.report_cadence == "daily" and u.credit_gift_balance == Decimal("3.01")
     assert subscription_rows(db_session, u) == [
-        ("gift", Decimal("-9.99"), "subscription", f"subscription:{u.id}:2026-10-16:jade")
+        ("gift", Decimal("-6.99"), "subscription", f"subscription:{u.id}:2026-10-16:jade")
     ]
     with patch.object(s, "send_subscription_notice") as notice:
         s.maybe_send_low_balance_reminder(db_session, u.id)
@@ -83,8 +85,8 @@ def test_d10_2_inactive_and_notice(db_session: Session) -> None:
             locale=u.locale,
             plan="jade",
             expires_on=date(2026, 11, 16),
-            fee=Decimal("9.99"),
-            balance=Decimal("0.01"),
+            fee=Decimal("6.99"),
+            balance=Decimal("3.01"),
         )
 
 
@@ -185,14 +187,14 @@ def test_d10_6_renewal(db_session: Session) -> None:
         s.CheckOutcome(u.id, "renewed")
     ]
     assert subscription_rows(db_session, u) == [
-        ("gift", Decimal("-9.99"), "subscription", f"subscription:{u.id}:2026-11-16:jade")
+        ("gift", Decimal("-6.99"), "subscription", f"subscription:{u.id}:2026-11-16:jade")
     ]
     assert (
         u.subscription_period_start,
         u.subscription_expires_on,
         u.report_cadence,
         u.credit_gift_balance,
-    ) == (date(2026, 11, 16), date(2026, 12, 16), "mwf", Decimal("2.01"))
+    ) == (date(2026, 11, 16), date(2026, 12, 16), "mwf", Decimal("5.01"))
 
 
 def test_d10_7_expired_and_same_batch_recovery(
@@ -219,7 +221,7 @@ def test_d10_7_expired_and_same_batch_recovery(
             locale=u.locale,
             plan="jade",
             expires_on=date(2026, 11, 16),
-            fee=Decimal("9.99"),
+            fee=Decimal("6.99"),
             balance=Decimal("3.00"),
         )
     adjust_by_admin(
@@ -253,9 +255,9 @@ def test_d10_7_expired_and_same_batch_recovery(
         u.subscription_type,
         u.report_cadence,
         u.credit_gift_balance,
-    ) == ("active", "jade", "mwf", Decimal("5.01"))
+    ) == ("active", "jade", "mwf", Decimal("8.01"))
     assert subscription_rows(db_session, u) == [
-        ("gift", Decimal("-9.99"), "subscription", f"subscription:{u.id}:2026-11-20:jade")
+        ("gift", Decimal("-6.99"), "subscription", f"subscription:{u.id}:2026-11-20:jade")
     ]
 
 
@@ -274,10 +276,10 @@ def test_d10_8_cancel_to_expiry(db_session: Session) -> None:
 def test_a2_jade_quotes(db_session: Session) -> None:
     u = funded_user(db_session, "20.00")
     q = s.quote(db_session, u.id, DAY, "jade")
-    assert (q.cadence, q.needs_holdings, q.fee) == ("daily", True, "9.99")
+    assert (q.cadence, q.needs_holdings, q.fee) == ("daily", True, "6.99")
     s.set_plan(db_session, u.id, date(2026, 10, 1), "daily")
     q = s.quote(db_session, u.id, DAY, "jade")
-    assert (q.action, q.fee, q.cadence) == ("change", "9.99", "daily")
+    assert (q.action, q.fee, q.cadence) == ("change", "0.00", "daily")
 
 
 def test_a4_check_population(db_session: Session) -> None:
@@ -294,3 +296,69 @@ def test_overdue_same_plan_is_no_change(db_session: Session) -> None:
     with pytest.raises(s.SubscriptionError, match="no_change"):
         s.set_plan(db_session, u.id, date(2026, 11, 18), "jade")
     assert subscription_rows(db_session, u) == []
+
+
+def renew_fees(db: Session, u: User, cadence: str, days: list[date]) -> list[Decimal]:
+    fees = []
+    for day in days:
+        before = u.credit_gift_balance
+        assert s.run_cadence_checks(db, cadence, day) == [s.CheckOutcome(u.id, "renewed")]
+        fees.append(before - u.credit_gift_balance)
+    return fees
+
+
+def test_816_free_upgrade_then_three_discounted_periods(db_session: Session) -> None:
+    u = funded_user(db_session, "40.00")
+    s.set_plan(db_session, u.id, date(2026, 10, 1), "weekly")
+    q = s.quote(db_session, u.id, DAY, "jade")
+    assert (q.action, q.fee, q.returned, q.balance_after) == ("change", "0.00", "0.00", "39.01")
+    s.set_plan(db_session, u.id, DAY, "jade")
+    assert subscription_rows(db_session, u) == [
+        ("gift", Decimal("-0.99"), "subscription", f"subscription:{u.id}:2026-10-01:weekly")
+    ]
+    assert (
+        u.subscription_type,
+        u.subscription_period_start,
+        u.subscription_expires_on,
+        u.credit_gift_balance,
+    ) == ("jade", DAY, date(2026, 11, 16), Decimal("39.01"))
+    days = [date(2026, 11, 18), date(2026, 12, 18), date(2027, 1, 18), date(2027, 2, 18)]
+    assert renew_fees(db_session, u, "weekly", days) == [Decimal("6.99")] * 3 + [Decimal("9.99")]
+
+
+def test_816_prior_jade_user_has_no_free_upgrade(db_session: Session) -> None:
+    u = funded_user(db_session, "40.00")
+    s.set_plan(db_session, u.id, date(2026, 10, 1), "jade")
+    s.cancel(db_session, u.id, date(2026, 10, 2))
+    assert s.run_cadence_checks(db_session, "daily", date(2026, 11, 3)) == [
+        s.CheckOutcome(u.id, "cancelled")
+    ]
+    s.set_plan(db_session, u.id, date(2026, 11, 3), "weekly")
+    q = s.quote(db_session, u.id, date(2026, 11, 10), "jade")
+    assert (q.action, q.fee, q.returned) == ("change", "6.99", "0.77")
+    before = u.credit_gift_balance
+    s.set_plan(db_session, u.id, date(2026, 11, 10), "jade")
+    assert (
+        u.credit_gift_balance
+        == Decimal(q.balance_after)
+        == before + Decimal("0.77") - Decimal("6.99")
+    )
+
+
+def test_816_expired_plan_has_no_free_upgrade(db_session: Session) -> None:
+    u = funded_user(db_session, "40.00")
+    s.set_plan(db_session, u.id, date(2026, 10, 1), "weekly")
+    q = s.quote(db_session, u.id, date(2026, 11, 5), "jade")
+    assert (q.action, q.fee, q.returned) == ("subscribe", "6.99", "0.00")
+
+
+def test_816_interruption_keeps_unused_discounted_periods(db_session: Session) -> None:
+    u = funded_user(db_session, "40.00")
+    s.set_plan(db_session, u.id, date(2026, 10, 1), "jade")
+    s.cancel(db_session, u.id, date(2026, 10, 2))
+    assert s.run_cadence_checks(db_session, "daily", date(2026, 11, 3)) == [
+        s.CheckOutcome(u.id, "cancelled")
+    ]
+    s.set_plan(db_session, u.id, date(2026, 11, 4), "jade")
+    days = [date(2026, 12, 6), date(2027, 1, 6)]
+    assert renew_fees(db_session, u, "daily", days) == [Decimal("6.99"), Decimal("9.99")]

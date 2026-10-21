@@ -488,6 +488,8 @@
     "subscriptionDailyRule": "You can adjust your subscription once per day.",
     "subscriptionContinues": "Your subscription continues with no charge. Paid through {expires_on}.",
     "subscriptionTopUp": "Your balance is not enough. Top up credits in the Account section first.",
+    "subscriptionLimitedOffer": "Limited-time offer.",
+    "subscriptionFreeUpgradeTopUp": "The free Jade upgrade month needs a credit balance of at least zero. Top up credits in the Account section first.",
     "subscriptionDismiss": "Cancel",
     "subscriptionConfirm": "Confirm",
     "subscriptionKeep": "Keep subscription",
@@ -1270,7 +1272,7 @@
           "heading": "4. Payments and Credits",
           "body": [
             "Paid plans are billed in prepaid service credits. Credits are sold in packs priced in US dollars (1 credit = US$1 at purchase); current plans and packs are listed on the Pricing page.",
-            "Your plan fee is deducted from your credit balance at the start of each monthly billing period, complimentary credits first. If you change your plan, the unused part of the current month's fee is returned to your credit balance pro rata and the new plan starts that day. If you cancel, your plan stays active until the end of the period already paid and nothing is returned.",
+            "Your plan fee is deducted from your credit balance at the start of each monthly billing period, complimentary credits first. If you change your plan, the unused part of the current month's fee is returned to your credit balance pro rata and the new plan starts that day. The one exception is the one-time free Jade upgrade period described on the Pricing page: that upgrade does not return the unused part of the previous plan's fee. If you cancel, your plan stays active until the end of the period already paid and nothing is returned.",
             "You can adjust your subscription (subscribe, change plan, cancel, or resume) once per day, Eastern Time.",
             "Changing the briefing schedule of a Jade subscription on the Jade page is not a subscription adjustment and is not limited. A Jade subscription is subscribed to, cancelled and resumed on the Jade page; to move to another plan, cancel Jade and subscribe to the new plan after the Jade period ends.",
             "If you unsubscribe an address from report email and no verified address remains on your account, your subscription is treated as cancelled: it stays active until the end of the period already paid, nothing is returned, and it does not resume when you verify an address again.",
@@ -1444,6 +1446,7 @@
             "Mon / Wed / Fri briefing — 1.99 credits per month. Three personalized briefing emails per week (Monday, Wednesday, Friday).",
             "Daily briefing (Advanced) — 2.49 credits per month. One personalized briefing email every weekday (Monday to Friday), including market holidays.",
             "Jade — 9.99 credits per month. Includes everything in the Advanced plan. You choose the Weekly, Mon / Wed / Fri, or Daily briefing schedule and can change it at any time on the Jade page. Jade includes five portfolio risk tools: holdings replay, tail risk (VaR / CVaR), historical stress scenarios, style exposure, and tracking against your reference. It also includes holdings rebalancing what-if: compare holdings with up to two edited versions and rebalancing rules over past prices.",
+            "Jade offers. Free upgrade period: if you change from another plan that is still within its paid period to Jade and have never subscribed to Jade, your first Jade period is free and the unused part of the previous plan's fee is not returned. Each user can receive this free period once; cancelling, letting a plan expire or subscribing again does not restore it, and users who have already subscribed to Jade are not eligible. Discounted periods: every user, including current Jade subscribers, receives three Jade billing periods at 6.99 credits each instead of 9.99, available until we end the offer. The three periods are counted one by one, not as three consecutive months, so cancelling or changing plans keeps any you have not used. A free upgrade period does not use up a discounted period: your next three charged Jade periods are the discounted ones. After that, Jade is 9.99 credits per period. Current Jade subscribers receive the discount from their next renewal.",
             "Weekly and Mon / Wed / Fri differ only in how often briefings are sent. Daily is the Advanced plan. Advanced and Jade subscriptions both let your AI agent read your daily holding snapshots and intelligence headlines related to your holdings and macro themes; Jade additionally provides headline summaries and included article text for holdings and macro themes. Report history is available to AI agents on every plan. Saved holding rows, including cash and watched rows, are limited to 30 on Weekly and Mon / Wed / Fri, 50 while Advanced is active, and 100 while Jade is active. Active Jade also supports reading and managing current holdings through your own agent; changes require a holdings-write token."
           ]
         },
@@ -1468,7 +1471,7 @@
           "body": [
             "Your plan fee is deducted from your credit balance at the start of each monthly billing period. Complimentary credits are used first, then purchased credits.",
             "If your balance will not cover the next month's fee, we email you a reminder in advance. If the balance is still not enough at renewal, your plan stops and its features become unavailable — currently, your scheduled briefings stop.",
-            "If you change your plan, the unused part of the current month's fee is returned to your credit balance pro rata and the new plan starts that day. If you cancel, your plan stays active until the end of the period already paid and nothing is returned.",
+            "If you change your plan, the unused part of the current month's fee is returned to your credit balance pro rata and the new plan starts that day. The one exception is the one-time free Jade upgrade period described under Plans: that upgrade does not return the unused part of the previous plan's fee. If you cancel, your plan stays active until the end of the period already paid and nothing is returned.",
             "Credits do not expire."
           ]
         },
@@ -1507,7 +1510,7 @@
           "heading": "2. Non-refundable credits",
           "body": [
             "Complimentary, promotional, and referral credits are not refundable.",
-            "Credits already applied to a billing period are not refunded to your payment method. When you change a plan, the unused part of the current month's fee is returned to your credit balance pro rata. When you cancel, nothing is returned for the remaining days.",
+            "Credits already applied to a billing period are not refunded to your payment method. When you change a plan, the unused part of the current month's fee is returned to your credit balance pro rata. The one exception is the one-time free Jade upgrade period described on the Pricing page: that upgrade does not return the unused part of the previous plan's fee. When you cancel, nothing is returned for the remaining days.",
             "After 120 days from a purchase, credits from that purchase can no longer be refunded. They do not expire and remain usable for your subscription."
           ]
         },

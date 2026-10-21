@@ -69,6 +69,9 @@ class User(Base):
             name="subscription_type",
         ),
         CheckConstraint("subscription_anchor_day BETWEEN 1 AND 31", name="subscription_anchor_day"),
+        CheckConstraint(
+            "jade_discount_periods_used BETWEEN 0 AND 3", name="jade_discount_periods_used"
+        ),
         CheckConstraint("credit_gift_balance >= 0", name="credit_gift_balance"),
         CheckConstraint("holdings_version >= 0", name="holdings_version"),
     )
@@ -105,6 +108,13 @@ class User(Base):
         Boolean, nullable=False, server_default=text("false")
     )
     subscription_adjusted_on: Mapped[date | None] = mapped_column(Date)
+    # Issue #816: set once the user has had any Jade period (free or paid).
+    jade_free_upgrade_used: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    jade_discount_periods_used: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default=text("0")
+    )
     delivery_email: Mapped[str | None] = mapped_column(Text)
     # Denormalized hot-path fields (issue #260, Ring 1-Email Validation design
     # doc §3.2) — set when the corresponding EmailVerification transitions to
