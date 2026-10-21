@@ -1270,7 +1270,7 @@
           "heading": "4. Pagos y créditos",
           "body": [
             "Los planes de pago se facturan en créditos de servicio prepagados. Los créditos se venden en paquetes en dólares estadounidenses (1 crédito = US$1 al comprar); los planes y paquetes actuales figuran en Precios.",
-            "La tarifa de su plan se descuenta de su saldo al inicio de cada período mensual, primero de los créditos de cortesía. Si cambia de plan, la parte no utilizada de la tarifa del mes actual se devuelve proporcionalmente a su saldo y el nuevo plan comienza ese día. Si cancela, el plan permanece activo hasta el final del período ya pagado y no se devuelve nada.",
+            "La tarifa de su plan se descuenta de su saldo al inicio de cada período mensual, primero de los créditos de cortesía. Si cambia de plan, la parte no utilizada de la tarifa del mes actual se devuelve proporcionalmente a su saldo y el nuevo plan comienza ese día. La única excepción es el período gratuito único de Jade descrito en la página de precios: esa mejora no devuelve la parte no utilizada de la tarifa del plan anterior. Si cancela, el plan permanece activo hasta el final del período ya pagado y no se devuelve nada.",
             "Puede ajustar su suscripción (suscribirse, cambiar de plan, cancelar o reanudar) una vez al día, hora del Este.",
             "Cambiar el calendario de resúmenes de Jade en la página de Jade no es un ajuste de suscripción y no tiene límite. La suscripción, cancelación y reanudación de Jade se realizan en la página de Jade; para pasar a otro plan, cancele Jade y suscríbase al nuevo después de finalizar el período de Jade.",
             "Si cancela la entrega de informes a una dirección y no queda ninguna dirección verificada, su suscripción se considera cancelada: sigue activa hasta el final del período pagado, no se devuelve nada y no se reanuda al verificar otra vez una dirección.",
@@ -1444,6 +1444,7 @@
             "Resumen Lun / Mié / Vie: 1.99 créditos al mes. Tres correos personalizados por semana (lunes, miércoles y viernes).",
             "Resumen diario (Advanced): 2.49 créditos al mes. Un correo personalizado cada día de lunes a viernes, incluidos festivos bursátiles.",
             "Jade: 9.99 créditos al mes. Incluye todo el plan Advanced. Elija resúmenes semanales, Lun / Mié / Vie o diarios y cambie el calendario cuando quiera en Jade. Incluye cinco herramientas de riesgo: simulación histórica de posiciones, riesgo de cola (VaR / CVaR), escenarios de estrés histórico, exposición por estilo y seguimiento frente a su referencia. También incluye la simulación de rebalanceo de posiciones: compare sus posiciones con hasta dos versiones editadas y reglas de rebalanceo sobre precios históricos.",
+            "Ofertas de Jade. Período gratuito al mejorar: si pasa a Jade desde otro plan que aún está dentro de su período pagado y nunca ha estado suscrito a Jade, su primer período de Jade es gratuito y no se devuelve la parte no utilizada de la tarifa del plan anterior. Cada usuario puede recibir este período gratuito una sola vez; cancelar, dejar que un plan venza o volver a suscribirse no lo restablece, y los usuarios que ya se hayan suscrito a Jade no son elegibles. Períodos con descuento: todos los usuarios, incluidos los suscriptores actuales de Jade, reciben tres períodos de facturación de Jade a 6.99 créditos cada uno en lugar de 9.99, hasta que terminemos la oferta. Los tres períodos se cuentan uno a uno, no como tres meses seguidos, por lo que cancelar o cambiar de plan conserva los que no haya usado. El período gratuito no consume un período con descuento: los tres siguientes períodos de Jade que se cobren son los que tienen descuento. Después, Jade cuesta 9.99 créditos por período. Los suscriptores actuales de Jade reciben el descuento desde su próxima renovación.",
             "Semanal y Lun / Mié / Vie solo difieren en frecuencia. Diario es el plan Advanced. Las suscripciones Advanced y Jade permiten que su agente de IA lea instantáneas diarias de posiciones y titulares relacionados con sus posiciones y las temáticas macroeconómicas; Jade también proporciona resúmenes de titulares y texto de artículos incluidos sobre sus posiciones y las temáticas macroeconómicas. El historial de informes está disponible para agentes en todos los planes. Las posiciones guardadas, incluido el efectivo y las posiciones en observación, se limitan a 30 en Semanal y Lun / Mié / Vie, 50 mientras Advanced está activo y 100 mientras Jade está activo. Jade activo también permite leer y gestionar posiciones actuales mediante su propio agente; los cambios requieren un token de escritura."
           ]
         },
@@ -1468,7 +1469,7 @@
           "body": [
             "La tarifa de su plan se descuenta de su saldo al inicio de cada período mensual. Se usan primero créditos de cortesía y después los comprados.",
             "Si su saldo no cubre la tarifa del próximo mes, enviamos un recordatorio anticipado. Si sigue siendo insuficiente al renovar, el plan se detiene y sus funciones dejan de estar disponibles; actualmente se detienen los resúmenes programados.",
-            "Si cambia de plan, la parte no utilizada de la tarifa del mes actual se devuelve proporcionalmente a su saldo y el nuevo plan comienza ese día. Si cancela, el plan permanece activo hasta el final del período pagado y no se devuelve nada.",
+            "Si cambia de plan, la parte no utilizada de la tarifa del mes actual se devuelve proporcionalmente a su saldo y el nuevo plan comienza ese día. La única excepción es el período gratuito único de Jade descrito en Planes: esa mejora no devuelve la parte no utilizada de la tarifa del plan anterior. Si cancela, el plan permanece activo hasta el final del período pagado y no se devuelve nada.",
             "Los créditos no vencen."
           ]
         },
@@ -1507,7 +1508,7 @@
           "heading": "2. Créditos no reembolsables",
           "body": [
             "Los créditos de cortesía, promocionales y por referidos no son reembolsables.",
-            "Los créditos ya aplicados a un período de facturación no se reembolsan a su método de pago. Al cambiar de plan, la parte no utilizada de la tarifa del mes actual se devuelve proporcionalmente a su saldo. Al cancelar, no se devuelve nada por los días restantes.",
+            "Los créditos ya aplicados a un período de facturación no se reembolsan a su método de pago. Al cambiar de plan, la parte no utilizada de la tarifa del mes actual se devuelve proporcionalmente a su saldo. La única excepción es el período gratuito único de Jade descrito en la página de precios: esa mejora no devuelve la parte no utilizada de la tarifa del plan anterior. Al cancelar, no se devuelve nada por los días restantes.",
             "Después de 120 días desde una compra, los créditos de esa compra ya no pueden reembolsarse. No vencen y siguen utilizables para su suscripción."
           ]
         },

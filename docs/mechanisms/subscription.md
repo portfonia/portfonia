@@ -1,4 +1,4 @@
-# Subscription core and lifecycle (issues #595, #596, #600, #610, #650, #660 and #710)
+# Subscription core and lifecycle (issues #595, #596, #600, #610, #650, #660, #710 and #816)
 
 This backend implements user subscription operations and the scheduled
 lifecycle. Profile provides quote-backed plan, cancel and resume controls in #597,
@@ -353,12 +353,14 @@ period, then subscribe in Profile; Expired Jade may also choose a briefing plan.
 Quotes and summaries include cadence; quote times and holdings warnings use
 that cadence, rather than type.
 
-Example: Weekly paid 0.99 gift credits for 2026-10-01 through 2026-11-01;
+Example (user who already used the #816 free upgrade, so the normal return
+applies): Weekly paid 0.99 gift credits for 2026-10-01 through 2026-11-01;
 change on 2026-10-16 with balance 20.00 returns 0.53 gift credits (17/32 days),
-then charges 9.99 under `subscription:{id}:2026-10-16:jade`. Jade keeps Weekly,
-starts 2026-10-16 through 2026-11-16 with anchor 16, and leaves 10.54. An inactive
-user starting with 10.00 gets Daily, balance 0.01 and a low-balance reminder.
-Changing cadence repeatedly that day succeeds without another charge.
+then charges 6.99 (discounted period) under `subscription:{id}:2026-10-16:jade`.
+Jade keeps Weekly, starts 2026-10-16 through 2026-11-16 with anchor 16, and leaves
+13.54. An inactive user starting with 10.00 gets Daily, balance 3.01 and a
+low-balance reminder. Changing cadence repeatedly that day succeeds without
+another charge.
 
 Migration `d71000000001`, after `d68100000001`, only widens the subscription-type
 CHECK. Downgrade restores the previous CHECK and fails while Jade rows exist;
@@ -367,3 +369,35 @@ and hand-authored Chinese in each locale; low-balance and expiry notices still
 link to Profile for top-up. No dependency, Settings or Beat change is required.
 Real-Postgres tests cover D10 and A1-A7. Merge, review, deployment and production
 migration each require separate owner authorization.
+
+## Jade offers (issue #816)
+
+Two owner-confirmed offers, both per user and never replenished. Constants
+`JADE_DISCOUNT_FEE` (6.99) and `JADE_DISCOUNT_PERIODS` (3) live in
+`services/subscription.py`; state is two `users` columns added by migration
+`j81600000001` (after `d81200000001`): `jade_free_upgrade_used` (boolean) and
+`jade_discount_periods_used` (smallint, CHECK 0-3). The migration sets
+`jade_free_upgrade_used` for every user who is currently Jade or has a Jade
+subscription charge in the ledger; nobody's discounted periods are pre-used, so
+current Jade subscribers are discounted from their next renewal and paid periods
+are not repriced.
+
+- Free upgrade period: `_plan_change` returns action `change` with return 0 for an
+  active, unexpired non-Jade plan changing to Jade when `jade_free_upgrade_used`
+  is false. `_fresh_subscribe(free=True)` starts Jade today under the usual
+  calendar-month rule, writes no ledger row (`consume_credits` rejects zero) and
+  sets the flag; it does not call `referral_subscription_bonus`. It uses no
+  discounted period. Any later Jade period, free or charged, keeps the flag set.
+- Discounted periods: `plan_fee(user, plan)` returns 6.99 for Jade while fewer
+  than three discounted periods are used, else the regular fee. `_charge_period`
+  is the single charge path for fresh subscribe, recovery and scheduled renewal;
+  it increments the counter after a successful 6.99 charge only. Cancellation,
+  expiry and plan changes leave both fields untouched.
+- Quote `fee` is the charge for the period being started (0.00 for the free
+  period); `returned`, `balance_after` and `sufficient` use the same figure as the
+  write. Low-balance, expiry notices and recovery balance checks use `plan_fee`.
+- Outside the free exception, plan-change returns stay based on the original
+  actual payment. Terms, Refund and Pricing carry the exception in four locales.
+- Out of scope: ending the campaign (a separate owner-requested PR), other plans,
+  credit packs, and `scripts/activate_existing_subscriptions.py`, which still
+  reports regular fees for its one-off launch run.

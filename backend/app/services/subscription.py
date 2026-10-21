@@ -34,6 +34,8 @@ PLAN_FEES: dict[str, Decimal] = {
     "daily": Decimal("2.49"),
     "jade": Decimal("9.99"),
 }
+JADE_DISCOUNT_FEE = Decimal("6.99")
+JADE_DISCOUNT_PERIODS = 3
 BRIEFING_PLANS: tuple[str, ...] = ("weekly", "mwf", "daily")
 ADVANCED_SUBSCRIPTION_TYPES: tuple[str, ...] = ("daily", "jade")
 
@@ -57,6 +59,17 @@ def resulting_cadence(user: User, plan: str) -> str:
     ):
         return user.report_cadence
     return "daily"
+
+
+def plan_fee(user: User, plan: str) -> Decimal:
+    """Price of the user's next charged period (issue #816 discounted Jade periods)."""
+    if plan == "jade" and user.jade_discount_periods_used < JADE_DISCOUNT_PERIODS:
+        return JADE_DISCOUNT_FEE
+    return PLAN_FEES[plan]
+
+
+def _free_upgrade(user: User, action: str, plan: str) -> bool:
+    return action == "change" and plan == "jade" and not user.jade_free_upgrade_used
 
 
 def set_jade_cadence(session: Session, user_id: uuid.UUID, cadence: str) -> User:
@@ -118,6 +131,8 @@ def _plan_change(
         return "subscribe", Decimal("0.00"), Decimal("0.00"), None
     if plan == user.subscription_type:
         return "resume", Decimal("0.00"), Decimal("0.00"), None
+    if _free_upgrade(user, "change", plan):
+        return "change", Decimal("0.00"), Decimal("0.00"), None
     assert user.subscription_period_start is not None and user.subscription_type is not None
     key = charge_key(user.id, user.subscription_period_start, user.subscription_type)
     rows = session.scalars(
@@ -142,12 +157,14 @@ def set_plan(session: Session, user_id: uuid.UUID, today: date, plan: str) -> Us
     if not has_verified_email(user):
         raise SubscriptionError("email_unverified")
     action, cash, gift, old_key = _plan_change(session, user, today, plan)
+    free = _free_upgrade(user, action, plan)
     if action == "none":
         raise SubscriptionError("no_change")
     if action == "resume":
         user.subscription_cancel_pending = False
     else:
-        if user.credit_cash_balance + user.credit_gift_balance + cash + gift < PLAN_FEES[plan]:
+        fee = Decimal("0.00") if free else plan_fee(user, plan)
+        if user.credit_cash_balance + user.credit_gift_balance + cash + gift < fee:
             raise SubscriptionError("insufficient_credits")
         if old_key is not None:
             return_subscription_credits(
@@ -159,7 +176,7 @@ def set_plan(session: Session, user_id: uuid.UUID, today: date, plan: str) -> Us
                 reference=old_key,
             )
         try:
-            _fresh_subscribe(session, user, today, plan)
+            _fresh_subscribe(session, user, today, plan, free=free)
         except InsufficientCredits:
             raise SubscriptionError("insufficient_credits") from None
     user.subscription_adjusted_on = today
@@ -222,7 +239,9 @@ def quote(session: Session, user_id: uuid.UUID, today: date, plan: str) -> Subsc
     action, cash, gift, _ = _plan_change(session, user, today, plan)
     balance = user.credit_cash_balance + user.credit_gift_balance
     returned = cash + gift
-    charged = PLAN_FEES[plan] if action in ("subscribe", "change") else Decimal("0.00")
+    free = _free_upgrade(user, action, plan)
+    fee = Decimal("0.00") if free else plan_fee(user, plan)
+    charged = fee if action in ("subscribe", "change") else Decimal("0.00")
     blocked = (
         "daily_limit"
         if user.subscription_adjusted_on == today
@@ -234,7 +253,7 @@ def quote(session: Session, user_id: uuid.UUID, today: date, plan: str) -> Subsc
         cadence=cadence,
         action=action,
         type=plan,
-        fee=f"{PLAN_FEES[plan]:.2f}",
+        fee=f"{fee:.2f}",
         returned=f"{returned:.2f}",
         balance=f"{balance:.2f}",
         balance_after=f"{balance + returned - charged:.2f}",
@@ -249,17 +268,32 @@ def quote(session: Session, user_id: uuid.UUID, today: date, plan: str) -> Subsc
     )
 
 
-def _fresh_subscribe(session: Session, user: User, today: date, plan: str) -> None:
-    """Charge before editing the row refreshed by the ledger lock."""
+def _charge_period(session: Session, user: User, plan: str, period_start: date) -> None:
+    """Charge one period at the applicable price and use a discounted Jade period."""
+    fee = plan_fee(user, plan)
     consume_credits(
         session,
         user_id=user.id,
-        amount=PLAN_FEES[plan],
+        amount=fee,
         reason="subscription",
-        idempotency_key=charge_key(user.id, today, plan),
+        idempotency_key=charge_key(user.id, period_start, plan),
         reference=plan,
     )
-    referral_subscription_bonus(session, user)
+    if plan == "jade":
+        user.jade_free_upgrade_used = True
+        if fee == JADE_DISCOUNT_FEE:
+            user.jade_discount_periods_used += 1
+
+
+def _fresh_subscribe(
+    session: Session, user: User, today: date, plan: str, *, free: bool = False
+) -> None:
+    """Charge before editing the row refreshed by the ledger lock."""
+    if free:
+        user.jade_free_upgrade_used = True
+    else:
+        _charge_period(session, user, plan, today)
+        referral_subscription_bonus(session, user)
     cadence = resulting_cadence(user, plan)
     user.subscription_status = "active"
     user.subscription_type = plan
@@ -280,7 +314,7 @@ def _send_notice(session: Session, user: User, kind: str) -> None:
             locale=user.locale,
             plan=user.subscription_type,
             expires_on=user.subscription_expires_on,
-            fee=PLAN_FEES[user.subscription_type],
+            fee=plan_fee(user, user.subscription_type),
             balance=user.credit_cash_balance + user.credit_gift_balance,
         )
 
@@ -292,7 +326,8 @@ def maybe_send_low_balance_reminder(session: Session, user_id: uuid.UUID) -> Non
         and user.subscription_status == "active"
         and not user.subscription_cancel_pending
         and user.subscription_type is not None
-        and user.credit_cash_balance + user.credit_gift_balance < PLAN_FEES[user.subscription_type]
+        and user.credit_cash_balance + user.credit_gift_balance
+        < plan_fee(user, user.subscription_type)
     ):
         _send_notice(session, user, "low_balance")
 
@@ -318,7 +353,9 @@ def _check_user(session: Session, user: User, today: date) -> str:
         if not has_verified_email(user):
             return "unchanged"
         assert user.subscription_type is not None
-        if user.credit_cash_balance + user.credit_gift_balance < PLAN_FEES[user.subscription_type]:
+        if user.credit_cash_balance + user.credit_gift_balance < plan_fee(
+            user, user.subscription_type
+        ):
             return "unchanged"
     else:
         return "unchanged"
@@ -333,14 +370,7 @@ def _check_user(session: Session, user: User, today: date) -> str:
             old_expiry = user.subscription_expires_on
             expiry = next_expiry(old_expiry, user.subscription_anchor_day)
             if expiry >= today:
-                consume_credits(
-                    session,
-                    user_id=user.id,
-                    amount=PLAN_FEES[plan],
-                    reason="subscription",
-                    idempotency_key=charge_key(user.id, old_expiry, plan),
-                    reference=plan,
-                )
+                _charge_period(session, user, plan, old_expiry)
                 user.subscription_period_start = old_expiry
                 user.subscription_expires_on = expiry
             else:
