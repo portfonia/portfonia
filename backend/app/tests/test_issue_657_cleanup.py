@@ -20,7 +20,7 @@ from app.services import intel_deepen as deepen
 from app.services.instrument_news_sources import CollectedItem
 from app.services.instrument_universe import UniverseEntry
 from app.services.intel_deepen_config import load_intel_deepen_config
-from app.services.intel_digest import SOURCE_LINES, problem_lines
+from app.services.intel_digest import problem_lines
 from app.services.intel_leads import Lead, select_headlines, select_leads
 from app.services.intel_selection import WorkUnit
 from app.services.intel_signals import compute_signals
@@ -95,11 +95,10 @@ def test_657_a3_report_omits_idle_google(db_session: Session) -> None:
     run = slot(db_session)
     collection(db_session, run, {})
     _, body, _ = report(db_session, run)
-    assert "Google News ......." not in body
-    for source in ("finnhub", "yahoo", "sec", "eastmoney"):
-        assert f"  {SOURCE_LINES[source]} 0 (0 requests)" in body
+    # #814: the Headlines fetched list is temporarily hidden.
+    assert "Google News" not in body and "Finnhub" not in body
     collection(db_session, run, {"google_news": {"calls": 1, "items": 2}})
-    assert "Google News ....... 2 (1 requests)" in report(db_session, run)[1]
+    assert "Google News" not in report(db_session, run)[1]
 
 
 @pytest.mark.parametrize(("seconds", "count"), [(-1, 0), (0, 1), (5, 1)])

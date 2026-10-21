@@ -678,6 +678,16 @@ joined by `; `, and a unit with no recorded outcome has no suffix. Blank lines
 precede the totals and Part 2 `Problems:`.
 The provider-less `nothing usable` outcome is omitted for a unit that kept
 articles through another provider.
+Issue #814 temporarily hides (commented out in `intel_digest.py`) the
+`Headlines fetched` and `Headlines dropped` lists, `Picked`, the macro-ranking
+fallback line and the `AI review in deepening` line. The macro pool review
+statistics sentence is replaced by `Macro pool review:` and one
+`label:<type> - <title>` line per headline labeled in this batch, read from the
+RSS run's `stats.macro_labeled` list (the only new stored field; `type` is
+`development`, `commentary` or `off_topic`). Part 2 adds `Kept Articles:` with
+the titles of this batch's accepted Tavily and Parallel articles, matching the
+`Articles kept` count; Exa lines are unchanged. Underlying statistics and costs
+are still collected.
 Macro display names come from each theme's `name_en`; matching keywords remain
 unchanged. Problems are rendered as URL-free plain reasons. Run records expire
 after 90 days; news and cascading links expire after 30 days.

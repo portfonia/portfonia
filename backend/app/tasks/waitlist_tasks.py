@@ -155,8 +155,6 @@ def auto_invite_waitlist() -> str:
                 reasons.append("unsubscribed from invitation letters")
             if entry.status == "invited" and entry.link_sent_at is None:
                 reasons.append("link generated but not recorded as sent")
-            if entry.status == "invited" and state["link_expired"] is True:
-                reasons.append("link expired without signup")
             newest = latest.get(entry.id)
             event = newest.letter_delivery_event if newest is not None else None
             if entry.status == "invited" and event in UNDELIVERABLE_EVENTS:

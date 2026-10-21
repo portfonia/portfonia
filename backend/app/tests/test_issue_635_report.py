@@ -71,7 +71,7 @@ def test_635_10_only_current_attempt_runs(db_session: Session) -> None:
         errors=["finnhub: HTTPStatusError HTTP 503"],
     )
     _, body, severity = report(db_session, run)
-    assert "Finnhub ........... 3 (1 requests)" in body
+    assert "Finnhub" not in body
     assert "API key is not configured" not in body and "503" not in body
     assert "Problems: none" in body and severity == "INFO"
 
@@ -109,37 +109,17 @@ def test_635_11_plain_names_and_merged_counts(db_session: Session) -> None:
         "classifier",
     ]:
         assert internal not in subject + body
-    assert "Do not name the company ................ 5" in body
-    assert "Same story as another headline, reworded . 9" in body
-    assert "Stock picks, promotion, routine price recaps 13" in body
-    assert body.count('"Sample one"') == 1
+    assert "Headlines dropped" not in body
+    assert '"Sample one"' not in body
 
 
-def test_635_12_all_macro_names_ascii_and_displayed(db_session: Session) -> None:
+def test_635_12_all_macro_names_ascii(db_session: Session) -> None:
     themes = yaml.safe_load(_get_keywords_path().read_text())["themes"]
     assert len(themes) == 20
     assert all(
         isinstance(t.get("name_en"), str) and t["name_en"] and t["name_en"].isascii()
         for t in themes
     )
-    run = slot(db_session)
-    run.details = {
-        "deepening": {
-            "selections": [
-                {"kind": "macro", "theme": themes[0]["name"], "reason": "theme 11 items"}
-            ],
-            "outcomes": [
-                {
-                    "kind": "macro",
-                    "theme": themes[0]["name"],
-                    "provider": "tavily",
-                    "via": "direct",
-                    "accepted": 3,
-                }
-            ],
-        }
-    }
-    assert "Monetary policy (11 matching headlines)" in report(db_session, run)[1]
 
 
 def test_635_13_stale_and_rerun_send_distinct_attempt_keys(db_session: Session) -> None:
@@ -235,7 +215,7 @@ def example_report(session: Session) -> str:
 def test_635_report_fixture_example(db_session: Session) -> None:
     sample = example_report(db_session)
     assert "Kept: 2 headlines and 0 company filings (2 of them new to the database)." in sample
-    assert "  AAA (new company filing): Tavily  1 articles kept (headline search)" in sample
+    assert "Picked" not in sample
     print(sample)
 
 
@@ -280,14 +260,9 @@ def test_638_picked_lists_units_in_selection_order(db_session: Session) -> None:
             ]
         }
     }
-    lines = report(db_session, run)[1].splitlines()
-    start = lines.index("Picked:")
-    # Issue #670: one line per picked unit, in selection order.
-    assert lines[start + 1 : start + 4] == [
-        "  0700.HK (new company filing)",
-        "  Monetary policy (11 matching headlines)",
-        "  2333.HK (new company filing)",
-    ]
+    body = report(db_session, run)[1]
+    # #814: the Picked section is temporarily hidden.
+    assert "Picked" not in body and "0700.HK" not in body
 
 
 def test_638_fallback_sibling_does_not_print_nothing_usable(db_session: Session) -> None:
@@ -307,6 +282,5 @@ def test_638_fallback_sibling_does_not_print_nothing_usable(db_session: Session)
         }
     }
     lines = [line.strip() for line in report(db_session, run)[1].splitlines()]
-    assert "AAA (new company filing): Parallel  2 articles kept (headline search)" in lines
-    assert not any(line.startswith("AAA") and "nothing usable" in line for line in lines)
-    assert "BBB (new company filing): nothing usable (no usable article found)" in lines
+    # #814: the Picked section is temporarily hidden.
+    assert not any("nothing usable" in line for line in lines)

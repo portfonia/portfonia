@@ -98,18 +98,11 @@ def test_acceptance_13_24_digest(db_session: Session) -> None:
         )
     db_session.flush()
     _, body, severity = build_batch_report(db_session, slot)
-    assert (
-        "Instruments covered: 1 of 3" in body
-        and "INTC,AMKR" in body
-        and "RSS feeds (2) ...... 4, no errors" in body
-    )
+    assert "Instruments covered: 1 of 3" in body and "INTC,AMKR" in body
+    assert "RSS feeds" not in body
     assert body.index("PART 1 - FREE NEWS COLLECTION") < body.index("PART 2 - PAID DEEPENING")
     assert "ET" in build_batch_report(db_session, slot)[0] and severity == "INFO"
-    assert (
-        "Not an article page ...................... 5" in body
-        and "four" not in body
-        and "0.002" in body
-    )
+    assert "Not an article page" not in body and "four" not in body and "0.002" in body
     slot.status = "failed"
     assert build_batch_report(db_session, slot)[2] == "WARNING"
 

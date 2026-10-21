@@ -1128,12 +1128,13 @@ creation follows the same task handling. No Celery retry mechanism is added.
 
 The attention list includes pending entries whose emails belong to users
 or have unsubscribed; invited entries whose link was generated but not
-recorded as sent, whose latest link expired without signup, or whose latest
-letter bounced, complained, failed, or was suppressed. Reasons are merged
-in that order. Registered, activated, and rejected entries are excluded.
-The latest letter is selected by `created_at`. Reasons about unsent,
-expired, or undeliverable links never apply to pending entries; a manual
-reset with a revoked old link is eligible for a fresh letter.
+recorded as sent, or whose latest letter bounced, complained, failed, or was
+suppressed. Reasons are merged in that order. Registered, activated, and
+rejected entries are excluded. The latest letter is selected by `created_at`.
+Reasons about unsent or undeliverable links never apply to pending entries; a
+manual reset with a revoked old link is eligible for a fresh letter. Since
+issue #814 an expired or revoked link is no longer an attention reason, so it
+alone never triggers the digest; invitation status is not changed.
 
 The digest is sent when at least one attempt occurred or the attention
 list is non-empty. It contains the ET date, sent count, earlier-today count,

@@ -10,6 +10,7 @@ from pydantic import SecretStr
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.paid_intel import IntelArticle
 from app.models.price_snapshot import PriceSnapshot
 from app.services.instrument_universe import UniverseEntry
 from app.services.intel_body import body_verdict, clean_body
@@ -237,17 +238,32 @@ def test_670_09_batch_report_layout(db_session: Session) -> None:
             "errors": ["parallel extract: error HTTP 422 fixture"],
         }
     }
-    lines = intel_digest.build_batch_report(db_session, run)[1].splitlines()
-    index = lines.index("  Do not name the company ................ 2")
-    assert lines[index + 1] == '      e.g. "Title one"; "Title two"'
-    assert lines[index + 2] == "  Already collected in an earlier batch .... 1"
-    start = lines.index("Picked:")
-    assert lines[start + 1 : start + 6] == [
-        "  COHR (price move (d3 +15.3%)): no news to follow up, no paid call",
-        "  AAOI (price move (d1 +7.7%)): Tavily  1 articles kept (direct links)",
-        "  LRCX (close to the multi-day move threshold)",
-        "",
-        "Articles kept: 1. Rejected: 0. Failed: 0.",
-    ]
+    db_session.add_all(
+        [
+            IntelArticle(
+                slot_run_id=run.id,
+                provider=provider,
+                url_key=f"key-{status}",
+                status=status,
+                record={"title": title} if status == "accepted" else None,
+                reject_reason=None if status == "accepted" else "paywall",
+                fetched_at=NOW,
+            )
+            for provider, status, title in [
+                ("tavily", "accepted", "Kept paid title"),
+                ("parallel", "rejected", "Rejected paid title"),
+            ]
+        ]
+    )
+    db_session.flush()
+    body = intel_digest.build_batch_report(db_session, run)[1]
+    lines = body.splitlines()
+    for hidden in ("Headlines fetched", "Headlines dropped", "Picked", "Macro ranking fallback"):
+        assert hidden not in body
+    start = lines.index("Articles kept: 1. Rejected: 0. Failed: 0.")
+    assert lines[start + 1].startswith("Spend this batch:")
+    titles = lines.index("Kept Articles:")
+    assert lines[titles + 1] == "Kept paid title"
+    assert "Rejected paid title" not in body
     problems = max(i for i, line in enumerate(lines) if line == "Problems:")
     assert lines[problems - 1] == ""

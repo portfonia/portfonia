@@ -140,7 +140,7 @@ def test_16_weekend_no_conditions(db_session: Session) -> None:
         worker.finish(db_session, {}, [])
     assert not db_session.scalars(select(PaidApiUsage)).all()
     run.details = {"deepening": worker.details()}
-    assert "Picked: none" in intel_digest.build_batch_report(db_session, run)[1]
+    assert "Picked" not in intel_digest.build_batch_report(db_session, run)[1]
     assert worker.usage.caps["tavily"] == 8
 
 
@@ -186,7 +186,7 @@ def test_18_usage_and_ab_digest(db_session: Session) -> None:
         }
     }
     body = intel_digest.build_batch_report(db_session, run)[1]
-    assert "Tavily 4 credits" in body and "41%" in body and "d1 -6.2%" in body
+    assert "Tavily 4 credits" in body and "41%" in body
     assert "Rejected: 1" in body and "cost per kept article $0.0160" in body
 
 
@@ -609,11 +609,7 @@ def test_18_worked_example_paid_waves(db_session: Session) -> None:
     run.details = {"deepening": worker.details()}
     body = intel_digest.build_batch_report(db_session, run)[1]
     assert "Tavily 5 credits" in body and "Parallel $0.018" in body
-    assert (
-        "new company filing" in body
-        and "close to the multi-day move threshold" in body
-        and "Rejected: 2" in body
-    )
+    assert "Rejected: 2" in body and "Picked" not in body
     assert "cost per kept article" in body and "Spend this month:" in body
 
 

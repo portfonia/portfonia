@@ -682,8 +682,5 @@ def test_digest_shows_deepening_and_macro_stage_costs(db_session: Session) -> No
     }
     db_session.flush()
     body = build_batch_report(db_session, slot_row)[1]
-    assert "screen $0.000800, review $0.000400, 0 retries" in body
-    assert (
-        "AI review in deepening (paid search and macro ranking): screen $0.123000, "
-        "review $0.456000, 7 retries, 0 screen and 2 review stages failed open." in body
-    )
+    assert "screen $0.000800" not in body
+    assert "screen $0.123000" not in body
