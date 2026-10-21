@@ -2116,6 +2116,9 @@
       "whatItSays": "Qué indica: qué mezcla de estilos amplios se habría movido de forma más parecida a su cartera en los últimos tres meses. Es semejanza estadística, no sus posiciones reales. Ayuda a ver si posiciones que parecen distintas se movían según los mismos pocos estilos.",
       "readBars": "Cómo leer las barras: cada una es el peso de ese estilo en la mezcla. Los pesos son no negativos y suman 100%. Por ejemplo, «Gran capitalización de crecimiento de EE. UU. 60%» significa que los movimientos de su cartera se parecieron más a una mezcla con 60% de esas acciones. Un estilo aparece si la cartera o el índice le dan un peso mayor que 0%, por lo que una columna puede mostrar 0%. La columna del índice presenta el mismo desglose. R² (coeficiente de determinación) es la proporción del movimiento de cartera explicada: 1.00 es todo, 0.50 es la mitad. La volatilidad no explicada es el tamaño del movimiento restante a escala anual, derivado de lo específico de sus posiciones. Los REIT (fideicomisos de inversión inmobiliaria) son empresas cotizadas propietarias de inmuebles que generan ingresos."
     },
+    "trackingCta": {
+      "text": "Dé a la comparación su propio punto de partida: defina una mezcla de referencia, por ejemplo de acciones y bonos, y explore su recorrido histórico junto al de sus posiciones actuales. Elija un período para ver cuánto se alejan sus posiciones de esa referencia y cómo varía la diferencia a lo largo del tiempo. Usted define la referencia; Jade hace los cálculos."
+    },
     "tracking": {
       "title": "Seguimiento frente a su referencia",
       "intro": "Compara las posiciones actuales, simuladas en el período anterior, con una cartera de referencia definida por usted: cuánto se separaron y con qué irregularidad.",

@@ -471,10 +471,13 @@ authorized. Until nightly fill attempts the five new series the card is pending.
 
 ## Custom reference and tracking error (issue #729)
 
-The Jade-only card below style compares today's unchanged holdings replay with
-one reference portfolio chosen by the user. It uses the replay's currency and
-span (1M, 3M, 6M, YTD, 1Y, 3Y, 5Y; default 1Y), independently of the replay's
-index benchmark and the questionnaire. The reference does not affect replay,
+Since #808, the Jade-only `/jade/tracking` page requires login and compares
+today's unchanged holdings replay with one reference portfolio chosen by the user.
+Its own currency and span controls default to the user's report currency (USD
+fallback) and 1Y, with spans 1M, 3M, 6M, YTD, 1Y, 3Y and 5Y. A promotional
+CTA after style and before the what-if CTA on `/jade` links to the page and
+`/guides/jade-tracking` for active Jade subscribers. The controls are independent
+of the replay card and the questionnaire. The reference does not affect replay,
 tail risk, stress, style, Overview, Performance or reports.
 
 ### Components, storage and APIs
@@ -549,10 +552,11 @@ handled states.
 
 ### Editor, requests and layout
 
-Replay `onSettled(currency, benchmark, range)` reports the successful response's
-span. Tracking follows currency/range, ignores index benchmark, and starts with
-an unparameterized request. Tail risk, stress and style remain dependent only
-on currency/benchmark and do not request on a span change. Tracking permits one
+Tracking follows the dedicated page's currency/range controls and starts with
+an unparameterized request. A matching report-currency/1Y response needs no
+second request. The controls stay enabled during calculation. Tail risk, stress
+and style still follow the replay card's currency/benchmark and do not request
+on a span change. Tracking permits one
 flight, queues latest settings only, retains previous data on failure and shows
 an alert without automatic retry. Successful saves reload latest settings; a
 save during a request queues that reload before the normal settings check.
@@ -669,8 +673,8 @@ No reference read/write endpoint, export or computation change is added.
 ## Rebalance & what-if (issue #799)
 
 Active Jade subscribers can open `/jade/what-if` from the CTA at the bottom of
-`/jade`. The page compares a fixed current column with two independent edited
-versions. `GET /portfolio/summary` prefills positive valued holdings in the report
+`/jade`, following the custom-reference tracking CTA (#808). The page compares
+a fixed current column with two independent edited versions. `GET /portfolio/summary` prefills positive valued holdings in the report
 currency; unvalued rows are listed without inputs. A zero current total shows a
 notice linking to `/holdings`, without an editor or Calculate button. Changing
 currency reloads current values and resets both versions. Changing currency or

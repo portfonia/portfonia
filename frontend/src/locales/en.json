@@ -2116,6 +2116,9 @@
       "whatItSays": "What it says: which mix of broad market styles would have moved most like your portfolio over the last three months. It is a statistical resemblance, not what you actually own. It helps you see whether holdings that look different were in fact moving to the same few styles.",
       "readBars": "Reading the bars: each bar is that style's weight in the mix. Weights are zero or more and add up to 100%. For example, \"US large-cap growth 60%\" means your portfolio's ups and downs looked most like a mix holding 60% in US large-cap growth stocks. A style is listed when your portfolio or the benchmark gives it a weight above 0%, so a row can show 0% in one column. The benchmark column shows the same breakdown for the selected index. R² (R-squared) is the share of your portfolio's movement that the mix explains: 1.00 is all of it, 0.50 is half. Unexplained volatility is the size of the remaining movement on a yearly scale, which comes from what is specific to your holdings. REITs (real estate investment trusts) are listed companies that own income-producing property."
     },
+    "trackingCta": {
+      "text": "Make the comparison your own: define a reference mix, such as a stock/bond split, and open a window onto its history alongside today’s holdings. Choose a span to see how far your holdings drift from that reference and how unevenly the gap moves along the way. The reference is yours; Jade does the arithmetic."
+    },
     "tracking": {
       "title": "Tracking against your reference",
       "intro": "Compares today's holdings, replayed over the span selected above, with a reference portfolio you define: how far the two drifted apart, and how unevenly.",

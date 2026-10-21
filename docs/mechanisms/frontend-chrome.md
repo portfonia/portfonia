@@ -591,8 +591,11 @@ also preserves locale; the closing CTA uses the shared Get started label and
 Every authenticated menu includes Jade directly after Performance; since #801
 the guest menu also lists Jade after Agent. `/jade` inherits the shared header
 and is absent from public SEO pages and the sitemap. #710 made it a protected
-app path; #801 makes it public and keeps only `/jade/what-if` in
-`PROTECTED_PATH_PREFIXES`. The server page calls `getMeServer` only when
+app path; #801 makes it public. `/jade/what-if` and, since #808,
+`/jade/tracking` remain in `PROTECTED_PATH_PREFIXES`. The tracking page is
+Jade-only, with independent currency and span controls defaulting to report
+currency (USD fallback) and 1Y; active Jade users reach it through the CTA after
+style on `/jade`. The server page calls `getMeServer` only when
 `currentAccessToken` returns a token, preserves redirect errors and displays
 the existing Profile load error on other failures; without a token it renders
 the guest view (introduction, price, guides link, waitlist and login links).

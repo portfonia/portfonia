@@ -1,7 +1,6 @@
 "use client";
 
 import { JadeDemo, type JadeDemoData } from "./jade-demo";
-import { TrackingSection } from "./tracking-section";
 import { StyleSection } from "./style-section";
 import { StressSection } from "./stress-section";
 import { TailRiskSection } from "./tail-risk-section";
@@ -80,7 +79,8 @@ export function JadePageBody({ me, hadLoadError, guest, demo }: { me: Me | null;
         {cadenceError && <p role="alert" className="text-destructive">{t("cadenceError")}</p>}
       </CardContent>
     </Card>}
-    {isJade && <><ReplaySection onSettled={(currency, benchmark, range) => setReplaySettings({ currency, benchmark, range })} /><TailRiskSection settings={replaySettings} /><StressSection settings={replaySettings} /><StyleSection settings={replaySettings} /><TrackingSection settings={replaySettings} />
+    {isJade && <><ReplaySection onSettled={(currency, benchmark, range) => setReplaySettings({ currency, benchmark, range })} /><TailRiskSection settings={replaySettings} /><StressSection settings={replaySettings} /><StyleSection settings={replaySettings} />
+      <section data-testid="tracking-cta" className="rounded-lg border border-foreground/10 px-6 py-8"><h2 className="font-serif text-2xl">{t("tracking.title")}</h2><p className="mt-4 text-sm leading-relaxed text-foreground/70">{t("trackingCta.text")}</p><div className="mt-9 flex flex-wrap items-center gap-4"><Link className="rounded-md bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground" href={href("/jade/tracking")}>{t("whatIf.open")}</Link><Link className="rounded-md border border-white/10 px-6 py-3 text-sm font-semibold" href={href("/guides/jade-tracking")}>{t("whatIf.guideLink")}</Link></div></section>
       <section data-testid="what-if-cta" className="rounded-lg border border-foreground/10 px-6 py-8"><h2 className="font-serif text-2xl">{t("whatIf.ctaHeading")}</h2><p className="mt-4 text-sm leading-relaxed text-foreground/70">{t("whatIf.ctaText")}</p><div className="mt-9 flex flex-wrap items-center gap-4"><Link className="rounded-md bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground" href={href("/jade/what-if")}>{t("whatIf.open")}</Link><Link className="rounded-md border border-white/10 px-6 py-3 text-sm font-semibold" href={href("/guides/jade-what-if")}>{t("whatIf.guideLink")}</Link></div></section>
     </>}
     {!isJade && demo && <JadeDemo data={demo} />}
