@@ -688,8 +688,10 @@ RSS run's `stats.macro_labeled` list (the only new stored field; `type` is
 the titles of this attempt's accepted Tavily and Parallel article rows (one row
 per `(url_key, provider)`, fetched at or after the slot's current `started_at`);
 Exa lines are unchanged. `Articles kept` still sums the per-unit/provider
-acceptance metrics, so a lead shared by units or an A/B pair of providers can make
-the count and the number of listed titles differ. Underlying statistics and costs
+acceptance metrics, so units sharing a lead under the same provider can make the
+count and the number of listed titles differ. An A/B provider pair adds to both
+the count and the stored rows, so it can repeat a title without changing that
+balance. Underlying statistics and costs
 are still collected.
 Macro display names come from each theme's `name_en`; matching keywords remain
 unchanged. Problems are rendered as URL-free plain reasons. Run records expire
