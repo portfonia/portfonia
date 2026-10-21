@@ -678,6 +678,21 @@ joined by `; `, and a unit with no recorded outcome has no suffix. Blank lines
 precede the totals and Part 2 `Problems:`.
 The provider-less `nothing usable` outcome is omitted for a unit that kept
 articles through another provider.
+Issue #814 temporarily hides (commented out in `intel_digest.py`) the
+`Headlines fetched` and `Headlines dropped` lists, `Picked`, the macro-ranking
+fallback line and the `AI review in deepening` line. The macro pool review
+statistics sentence is replaced by `Macro pool review:` and one
+`label:<type> - <title>` line per headline labeled in this batch, read from the
+RSS run's `stats.macro_labeled` list (the only new stored field; `type` is
+`development`, `commentary` or `off_topic`). Part 2 adds `Kept Articles:` with
+the titles of this attempt's accepted Tavily and Parallel article rows (one row
+per `(url_key, provider)`, fetched at or after the slot's current `started_at`);
+Exa lines are unchanged. `Articles kept` still sums the per-unit/provider
+acceptance metrics, so units sharing a lead under the same provider can make the
+count and the number of listed titles differ. An A/B provider pair adds to both
+the count and the stored rows, so it can repeat a title without changing that
+balance. Underlying statistics and costs
+are still collected.
 Macro display names come from each theme's `name_en`; matching keywords remain
 unchanged. Problems are rendered as URL-free plain reasons. Run records expire
 after 90 days; news and cascading links expire after 30 days.
@@ -1023,10 +1038,12 @@ exception and counted. Callers pass a `stats` dict that receives
 and in deepening applies labels whenever any were returned and records the
 error. Any `classifier:` error raises the batch email to WARNING; a fail-open
 error renders as "AI review stage failed, other stage applied". Per email
-section, the collection AI review line, the macro pool review line and a PART 2
-line "AI review in deepening (paid search and macro ranking)" (from
-`classifier_stages`) show screen and review cost, retries and failed stages. A run
-with a classifier error is `partial`, which reports still read.
+section, the collection AI review line shows screen and review cost, retries and
+failed stages. The macro pool review line (label/title pairs) and the PART 2 line
+"AI review in deepening (paid search and macro ranking)" no longer show them: the
+latter is temporarily hidden (issue #814), though `macro_classification` and
+`classifier_stages` still record the values. A run with a classifier error is
+`partial`, which reports still read.
 
 All model JSON is parsed by `app/services/llm_json.py`, a port of the Homepage
 `llm_json_utils.py`: the longest balanced JSON value is extracted (fences and

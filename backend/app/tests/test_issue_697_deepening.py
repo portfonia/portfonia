@@ -168,7 +168,7 @@ def test_697_06_digest_counts_undated_without_earnings_rows(db_session: Session)
         }
     }
     body = build_batch_report(db_session, run)[1]
-    assert "Search results with no publication date .. 4" in body
+    assert "Search results with no publication date" not in body
     assert "Old news" not in body
     assert "Earnings-date" not in body
     assert "Old earnings sample" not in body

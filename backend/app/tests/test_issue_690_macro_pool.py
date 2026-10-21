@@ -144,8 +144,16 @@ def test_01_02_slot_labels_once_and_keeps_holding_link(db_session: Session) -> N
         "screen_failed": 0.0,
         "review_failed": 0.0,
     }
+    pool_labeled = stats[0].stats["macro_labeled"]
+    assert isinstance(pool_labeled, list) and len(pool_labeled) == 3
+    assert {entry["type"] for entry in pool_labeled} == {"development", "commentary", "off_topic"}
+    assert {entry["title"] for entry in pool_labeled} <= {h.title for h in headlines}
     body = build_batch_report(db_session, run)[1]
-    assert "Macro pool review:" in body.split("PART 2")[0]
+    review = body.split("PART 2")[0].split("Macro pool review:")[1].splitlines()
+    assert sorted(line for line in review[1:4]) == sorted(
+        f"label:{entry['type']} - {entry['title']}" for entry in pool_labeled
+    )
+    assert "labeled in" not in body
 
 
 def test_03_capture_node_never_classifies(db_session: Session) -> None:

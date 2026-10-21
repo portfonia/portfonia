@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.models.holding import Holding
 from app.models.intel import InstrumentProfile, IntelCollectionRun, IntelSlotRun, NewsInstrument
 from app.models.news import News
+from app.models.paid_intel import IntelArticle
 from app.services.intel_digest import build_batch_report
 from app.services.news_capture import PoolCaptureResult
 from app.services.news_fetcher import FetchNewsResult
@@ -98,18 +99,11 @@ def test_acceptance_13_24_digest(db_session: Session) -> None:
         )
     db_session.flush()
     _, body, severity = build_batch_report(db_session, slot)
-    assert (
-        "Instruments covered: 1 of 3" in body
-        and "INTC,AMKR" in body
-        and "RSS feeds (2) ...... 4, no errors" in body
-    )
+    assert "Instruments covered: 1 of 3" in body and "INTC,AMKR" in body
+    assert "RSS feeds" not in body
     assert body.index("PART 1 - FREE NEWS COLLECTION") < body.index("PART 2 - PAID DEEPENING")
     assert "ET" in build_batch_report(db_session, slot)[0] and severity == "INFO"
-    assert (
-        "Not an article page ...................... 5" in body
-        and "four" not in body
-        and "0.002" in body
-    )
+    assert "Not an article page" not in body and "four" not in body and "0.002" in body
     slot.status = "failed"
     assert build_batch_report(db_session, slot)[2] == "WARNING"
 
@@ -331,3 +325,28 @@ def no_live_pool_classifier() -> Iterator[None]:
         side_effect=AssertionError("pool classifier must be mocked"),
     ):
         yield
+
+
+def test_kept_articles_exclude_earlier_attempt_of_reused_slot(db_session: Session) -> None:
+    slot = run(db_session, status="failed")
+    earlier = slot.started_at
+    for key, title, fetched_at in [
+        ("earlier-attempt", "OLD ATTEMPT ONLY", earlier + timedelta(seconds=10)),
+        ("current-attempt", "CURRENT ATTEMPT", earlier + timedelta(minutes=10, seconds=10)),
+    ]:
+        db_session.add(
+            IntelArticle(
+                slot_run_id=slot.id,
+                provider="tavily",
+                url_key=key,
+                status="accepted",
+                record={"title": title},
+                fetched_at=fetched_at,
+            )
+        )
+    slot.started_at = earlier + timedelta(minutes=10)  # the slot retry resets started_at
+    slot.status = "ok"
+    slot.details = {"deepening": {"metrics": {"tavily": {"accepted": 1}}}}
+    db_session.flush()
+    body = build_batch_report(db_session, slot)[1]
+    assert "CURRENT ATTEMPT" in body and "OLD ATTEMPT ONLY" not in body

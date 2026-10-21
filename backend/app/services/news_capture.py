@@ -105,6 +105,7 @@ def capture_news(
             "off_topic": 0,
         }
         stage_stats: dict[str, float] = dict.fromkeys(STAGE_STATS, 0.0)
+        labeled_items: list[dict[str, str]] = []
         seen: set[str] = set()
         for hit in detect_macro_signals(kept, max_articles_per_theme=len(kept) or 1).hits:
             candidates = []
@@ -140,7 +141,14 @@ def capture_news(
                         row.record = {**row.record, **label, "label_call": label_call}
                         stats["labeled"] += 1
                         stats[label["type"]] += 1
-        run.stats = {**run.stats, "macro_classification": {**stats, **stage_stats}}
+                        labeled_items.append(
+                            {"type": label["type"], "title": str(row.record["title"])}
+                        )
+        run.stats = {
+            **run.stats,
+            "macro_classification": {**stats, **stage_stats},
+            "macro_labeled": labeled_items,
+        }
     run.errors = errors[:50]
     run.finished_at = datetime.now(UTC)
     run.status = "partial" if errors else "ok"

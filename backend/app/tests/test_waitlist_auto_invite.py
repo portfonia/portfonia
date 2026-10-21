@@ -315,7 +315,10 @@ def test_nothing_to_report_skips_digest(
     assert _alert().call_count == 0
 
 
-def test_attention_only_expired_link(monkeypatch: pytest.MonkeyPatch, db_session: Session) -> None:
+@pytest.mark.parametrize("revoked", [False, True])
+def test_expired_or_revoked_link_alone_sends_no_digest(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session, revoked: bool
+) -> None:
     _limit(monkeypatch, 10)
     sent_at = datetime.now(tz=ET) - timedelta(days=20)
     entry = _entry(
@@ -330,7 +333,10 @@ def test_attention_only_expired_link(monkeypatch: pytest.MonkeyPatch, db_session
     )
     invite = db_session.get(Invite, issued.id)
     assert invite is not None
-    invite.expires_at = datetime.now(tz=ET) - timedelta(days=1)
+    if revoked:
+        invite.revoked_at = datetime.now(tz=ET) - timedelta(days=1)
+    else:
+        invite.expires_at = datetime.now(tz=ET) - timedelta(days=1)
     invite.letter_sent_at = sent_at
     db_session.commit()
     from unittest.mock import patch
@@ -339,11 +345,9 @@ def test_attention_only_expired_link(monkeypatch: pytest.MonkeyPatch, db_session
         patch("app.services.invitation_letters.send_invitation_letter") as send,
         patch("app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"),
     ):
-        assert _run() == "reported"
+        assert _run() == "nothing_to_report"
     assert send.call_count == 0
-    body = _body()
-    assert "Sent by this run: 0" in body
-    assert "expired@example.com: link expired without signup" in body
+    assert _alert().call_count == 0
 
 
 def test_quota_used_up_with_nothing_to_flag(
@@ -442,6 +446,7 @@ def test_rejected_and_registered_are_excluded(
     assert flagged_row is not None
     flagged_row.expires_at = datetime.now(tz=ET) - timedelta(days=1)
     flagged_row.letter_sent_at = base
+    flagged_row.letter_delivery_event = "bounced"
     db_session.commit()
     from unittest.mock import patch
 
@@ -454,7 +459,8 @@ def test_rejected_and_registered_are_excluded(
     body = _body()
     assert "rejected@example.com" not in body
     assert "registered@example.com" not in body
-    assert "flagged-expired@example.com: link expired without signup" in body
+    assert "flagged-expired@example.com: last invitation letter bounced" in body
+    assert "link expired without signup" not in body
 
 
 def test_status_reset_pending_entry_is_invited_again(

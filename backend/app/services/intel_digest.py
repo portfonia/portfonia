@@ -11,8 +11,11 @@ from sqlalchemy.orm import Session
 
 from app.core.timezones import ET
 from app.models.intel import IntelCollectionRun, IntelSlotRun
-from app.services.intel_body import without_urls
-from app.services.macro_detector import macro_theme_labels
+from app.models.paid_intel import IntelArticle
+
+# #814: temporarily hidden sections below use these imports.
+# from app.services.intel_body import without_urls
+# from app.services.macro_detector import macro_theme_labels
 
 
 def obj(value: object) -> dict[str, object]:
@@ -150,6 +153,7 @@ def build_batch_report(
     cleaning: Counter[str] = Counter()
     classifier: Counter[str] = Counter()
     macro_classifier: Counter[str] = Counter()
+    macro_labeled: list[dict[str, object]] = []
     samples: dict[str, list[str]] = {}
     unreached: dict[str, list[str]] = {}
     free_errors: list[str] = []
@@ -163,6 +167,7 @@ def build_batch_report(
             macro_classifier.update(
                 {k: number(v) for k, v in obj(run.stats.get("macro_classification")).items()}
             )
+            macro_labeled.extend(objects(run.stats.get("macro_labeled")))
             feeds = obj(run.stats.get("feeds"))
             rss_feeds += len(feeds)
             rss_items += int(sum(number(obj(v).get("items")) for v in feeds.values()))
@@ -208,45 +213,41 @@ def build_batch_report(
         lines.append(
             f"Not reached in the time limit: {MARKETS.get(market, market)}: {','.join(dict.fromkeys(identifiers))}."
         )
-    lines += ["", "Headlines fetched (published in the last 48 hours):"]
-    for source, label in SOURCE_LINES.items():
-        values = totals.get(source, Counter())
-        if source == "google_news" and values["calls"] == 0:
-            continue
-        lines.append(f"  {label} {values['items']:,.0f} ({values['calls']:g} requests)")
-        if values["skipped_no_name"]:
-            lines.append(
-                f"  Not queried (no company name on file): {SOURCES[source]} for {values['skipped_no_name']:g} instruments."
-            )
-    lines.append(
-        f"  RSS feeds ({rss_feeds}) ...... {rss_items:,}, "
-        + (f"{rss_errors} errors" if rss_errors else "no errors")
-    )
+    # #814: temporarily hidden.
+    # lines += ["", "Headlines fetched (published in the last 48 hours):"]
+    # for source, label in SOURCE_LINES.items():
+    #     values = totals.get(source, Counter())
+    #     if source == "google_news" and values["calls"] == 0:
+    #         continue
+    #     lines.append(f"  {label} {values['items']:,.0f} ({values['calls']:g} requests)")
+    #     if values["skipped_no_name"]:
+    #         lines.append(
+    #             f"  Not queried (no company name on file): {SOURCES[source]} for {values['skipped_no_name']:g} instruments."
+    #         )
+    # lines.append(
+    #     f"  RSS feeds ({rss_feeds}) ...... {rss_items:,}, "
+    #     + (f"{rss_errors} errors" if rss_errors else "no errors")
+    # )
     if macro_classifier:
-        lines.append(
-            f"Macro pool review: {macro_classifier['candidates']:g} candidates, "
-            f"{macro_classifier['labeled']:g} labeled in {macro_classifier['calls']:g} calls, "
-            f"{macro_classifier['failed_calls']:g} failed calls, cost ${macro_classifier['cost_usd']:.6f}; "
-            f"{macro_classifier['development']:g} development, {macro_classifier['commentary']:g} commentary, "
-            f"{macro_classifier['off_topic']:g} off-topic; screen ${macro_classifier['screen_cost_usd']:.6f}, "
-            f"review ${macro_classifier['review_cost_usd']:.6f}, {stage_text(macro_classifier)}."
-        )
-    deep = obj(slot.details.get("deepening"))
-    for metric in obj(deep.get("metrics")).values():
-        filtered = obj(obj(metric).get("search_filtered"))
-        cleaning["undated"] += int(number(filtered.get("undated")))
-    # Related-company candidates (#681) dropped by a rule count under the same reason.
-    for reason in ("low_value_rule", "duplicate", "duplicate_earlier"):
-        cleaning[reason] += cleaning["related_" + reason]
-    lines += ["", "Headlines dropped:"]
-    for label, reasons in DROPS:
-        count = sum(cleaning[r] for r in reasons)
-        titles = list(dict.fromkeys(without_urls(t) for r in reasons for t in samples.get(r, [])))[
-            :3
-        ]
-        lines.append(f"  {label} {count:,.0f}")
-        if titles:
-            lines.append("      e.g. " + "; ".join(f'"{t}"' for t in titles))
+        lines += ["", "Macro pool review:"]
+        lines += [f"label:{entry.get('type')} - {entry.get('title')}" for entry in macro_labeled]
+    # #814: temporarily hidden.
+    # deep = obj(slot.details.get("deepening"))
+    # for metric in obj(deep.get("metrics")).values():
+    #     filtered = obj(obj(metric).get("search_filtered"))
+    #     cleaning["undated"] += int(number(filtered.get("undated")))
+    # # Related-company candidates (#681) dropped by a rule count under the same reason.
+    # for reason in ("low_value_rule", "duplicate", "duplicate_earlier"):
+    #     cleaning[reason] += cleaning["related_" + reason]
+    # lines += ["", "Headlines dropped:"]
+    # for label, reasons in DROPS:
+    #     count = sum(cleaning[r] for r in reasons)
+    #     titles = list(dict.fromkeys(without_urls(t) for r in reasons for t in samples.get(r, [])))[
+    #         :3
+    #     ]
+    #     lines.append(f"  {label} {count:,.0f}")
+    #     if titles:
+    #         lines.append("      e.g. " + "; ".join(f'"{t}"' for t in titles))
     inserted = sum(t["inserted"] for t in totals.values())
     lines += [
         "",
@@ -258,55 +259,56 @@ def build_batch_report(
         "PART 2 - PAID DEEPENING",
     ]
     deep = obj(slot.details.get("deepening"))
-    labels = macro_theme_labels()
-
-    def unit_name(unit: dict[str, object]) -> str:
-        return str(unit.get("identifier") or labels.get(str(unit.get("theme")), "Macro theme"))
-
-    outcomes = objects(deep.get("outcomes"))
-    kept_units = {unit_name(o) for o in outcomes if number(o.get("accepted"))}
-
-    def outcome_text(outcome: dict[str, object]) -> str | None:
-        if outcome.get("note") == "linked_existing":
-            return "reused an article already extracted this batch, no paid call"
-        accepted = number(outcome.get("accepted"))
-        # The "nothing usable" text names no provider, so skip it for a unit that kept
-        # articles through another provider (search fallback or A/B sibling).
-        if not accepted and outcome.get("note") != "no_news" and unit_name(outcome) in kept_units:
-            return None
-        provider = "Tavily" if outcome.get("provider") == "tavily" else "Parallel"
-        if accepted:
-            via = "headline search" if outcome.get("via") == "search" else "direct links"
-            return f"{provider}  {accepted:g} articles kept ({via})"
-        if outcome.get("note") == "no_news":
-            return "no news to follow up, no paid call"
-        reason = (
-            "batch limit reached"
-            if outcome.get("note") == "cap_reached"
-            else "no usable article found"
-        )
-        return f"nothing usable ({reason})"
-
-    picked: list[str] = []
-    for unit in objects(deep.get("selections")):
-        reason = str(unit.get("reason", ""))
-        if unit.get("kind") == "macro":
-            theme_count = re.search(r"theme (\d+) items", reason)
-            words = f"{theme_count[1] if theme_count else '0'} matching headlines"
-        elif unit.get("kind") == "mover":
-            words = f"price move ({reason})"
-        elif reason == "new_filing":
-            words = "new company filing"
-        elif reason.startswith("news_spike "):
-            words = f"unusual news volume ({reason.split(' ', 1)[1]} usual)"
-        else:
-            words = "close to the multi-day move threshold"
-        name = unit_name(unit)
-        texts = [
-            text for o in outcomes if unit_name(o) == name and (text := outcome_text(o)) is not None
-        ]
-        picked.append(f"  {name} ({words})" + (": " + "; ".join(texts) if texts else ""))
-    lines += ["Picked:", *picked] if picked else ["Picked: none"]
+    # #814: temporarily hidden.
+    # labels = macro_theme_labels()
+    #
+    # def unit_name(unit: dict[str, object]) -> str:
+    #     return str(unit.get("identifier") or labels.get(str(unit.get("theme")), "Macro theme"))
+    #
+    # outcomes = objects(deep.get("outcomes"))
+    # kept_units = {unit_name(o) for o in outcomes if number(o.get("accepted"))}
+    #
+    # def outcome_text(outcome: dict[str, object]) -> str | None:
+    #     if outcome.get("note") == "linked_existing":
+    #         return "reused an article already extracted this batch, no paid call"
+    #     accepted = number(outcome.get("accepted"))
+    #     # The "nothing usable" text names no provider, so skip it for a unit that kept
+    #     # articles through another provider (search fallback or A/B sibling).
+    #     if not accepted and outcome.get("note") != "no_news" and unit_name(outcome) in kept_units:
+    #         return None
+    #     provider = "Tavily" if outcome.get("provider") == "tavily" else "Parallel"
+    #     if accepted:
+    #         via = "headline search" if outcome.get("via") == "search" else "direct links"
+    #         return f"{provider}  {accepted:g} articles kept ({via})"
+    #     if outcome.get("note") == "no_news":
+    #         return "no news to follow up, no paid call"
+    #     reason = (
+    #         "batch limit reached"
+    #         if outcome.get("note") == "cap_reached"
+    #         else "no usable article found"
+    #     )
+    #     return f"nothing usable ({reason})"
+    #
+    # picked: list[str] = []
+    # for unit in objects(deep.get("selections")):
+    #     reason = str(unit.get("reason", ""))
+    #     if unit.get("kind") == "macro":
+    #         theme_count = re.search(r"theme (\d+) items", reason)
+    #         words = f"{theme_count[1] if theme_count else '0'} matching headlines"
+    #     elif unit.get("kind") == "mover":
+    #         words = f"price move ({reason})"
+    #     elif reason == "new_filing":
+    #         words = "new company filing"
+    #     elif reason.startswith("news_spike "):
+    #         words = f"unusual news volume ({reason.split(' ', 1)[1]} usual)"
+    #     else:
+    #         words = "close to the multi-day move threshold"
+    #     name = unit_name(unit)
+    #     texts = [
+    #         text for o in outcomes if unit_name(o) == name and (text := outcome_text(o)) is not None
+    #     ]
+    #     picked.append(f"  {name} ({words})" + (": " + "; ".join(texts) if texts else ""))
+    # lines += ["Picked:", *picked] if picked else ["Picked: none"]
     exa = obj(deep.get("exa"))
     if exa:
         if not exa.get("configured"):
@@ -351,19 +353,20 @@ def build_batch_report(
             lines.append(
                 f"Exa articles linked: {number(links.get('holding')):g} to holdings, {number(links.get('theme')):g} to macro themes, {number(links.get('other')):g} other (API only)"
             )
-    if "macro_rank_failed" in deep:
-        lines.append(
-            f"Macro ranking fallback units (macro_rank_failed: {number(deep.get('macro_rank_failed')):g}); unlabeled candidates (macro_rank_partial: {number(deep.get('macro_rank_partial')):g})."
-        )
-    stages: Counter[str] = Counter(
-        {k: number(v) for k, v in obj(deep.get("classifier_stages")).items()}
-    )
-    if stages:
-        lines.append(
-            "AI review in deepening (paid search and macro ranking): "
-            f"screen ${stages['screen_cost_usd']:.6f}, review ${stages['review_cost_usd']:.6f}, "
-            f"{stage_text(stages)}."
-        )
+    # #814: temporarily hidden.
+    # if "macro_rank_failed" in deep:
+    #     lines.append(
+    #         f"Macro ranking fallback units (macro_rank_failed: {number(deep.get('macro_rank_failed')):g}); unlabeled candidates (macro_rank_partial: {number(deep.get('macro_rank_partial')):g})."
+    #     )
+    # stages: Counter[str] = Counter(
+    #     {k: number(v) for k, v in obj(deep.get("classifier_stages")).items()}
+    # )
+    # if stages:
+    #     lines.append(
+    #         "AI review in deepening (paid search and macro ranking): "
+    #         f"screen ${stages['screen_cost_usd']:.6f}, review ${stages['review_cost_usd']:.6f}, "
+    #         f"{stage_text(stages)}."
+    #     )
     metrics = {p: obj(v) for p, v in obj(deep.get("metrics")).items()}
     kept = sum(number(m.get("accepted")) for m in metrics.values())
     failed = sum(number(obj(m.get("rejected")).get("provider_error")) for m in metrics.values())
@@ -397,6 +400,17 @@ def build_batch_report(
             f"${number(metric.get('cost_usd')) / accepted:.4f}" if accepted else "not available"
         )
     lines.append(f"Tavily vs Parallel: cost per kept article {costs[0]} vs {costs[1]}.")
+    kept_titles = session.scalars(
+        select(IntelArticle.record["title"].astext)
+        .where(
+            IntelArticle.slot_run_id == slot.id,
+            IntelArticle.fetched_at >= slot.started_at,
+            IntelArticle.status == "accepted",
+            IntelArticle.provider.in_(("tavily", "parallel")),
+        )
+        .order_by(IntelArticle.fetched_at, IntelArticle.id)
+    )
+    lines += ["", "Kept Articles:", *kept_titles]
     deep_errors = errors_from(slot.details.get("deepening_errors")) or errors_from(
         deep.get("errors")
     )

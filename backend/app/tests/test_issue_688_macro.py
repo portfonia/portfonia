@@ -205,8 +205,7 @@ def test_fallback_partial_digest(
         assert run is not None
         run.details = {"deepening": details}
         body = build_batch_report(db_session, run)[1]
-        assert f"macro_rank_failed: {failed}" in body
-        assert f"macro_rank_partial: {partial}" in body
+        assert "macro_rank" not in body  # #814: temporarily hidden
         assert run.status == "ok"
 
 
@@ -292,10 +291,9 @@ def test_cross_unit_extra_theme_link(
         run = db_session.get(IntelSlotRun, w.run_id)
         assert run is not None
         run.details = {"deepening": w.details()}
-        assert (
-            "reused an article already extracted this batch"
-            in build_batch_report(db_session, run)[1]
-        )
+        body = build_batch_report(db_session, run)[1]
+        assert "reused an article already extracted" not in body  # #814: Picked hidden
+        assert "Kept Articles:\nOil prices" in body
 
 
 def test_reader_importance_cap_legacy_cross_call_slug(db_session: Session) -> None:
