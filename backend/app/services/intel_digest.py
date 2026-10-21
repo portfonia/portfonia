@@ -404,6 +404,7 @@ def build_batch_report(
         select(IntelArticle.record["title"].astext)
         .where(
             IntelArticle.slot_run_id == slot.id,
+            IntelArticle.fetched_at >= slot.started_at,
             IntelArticle.status == "accepted",
             IntelArticle.provider.in_(("tavily", "parallel")),
         )

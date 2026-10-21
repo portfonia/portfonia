@@ -685,8 +685,11 @@ statistics sentence is replaced by `Macro pool review:` and one
 `label:<type> - <title>` line per headline labeled in this batch, read from the
 RSS run's `stats.macro_labeled` list (the only new stored field; `type` is
 `development`, `commentary` or `off_topic`). Part 2 adds `Kept Articles:` with
-the titles of this batch's accepted Tavily and Parallel articles, matching the
-`Articles kept` count; Exa lines are unchanged. Underlying statistics and costs
+the titles of this attempt's accepted Tavily and Parallel article rows (one row
+per `(url_key, provider)`, fetched at or after the slot's current `started_at`);
+Exa lines are unchanged. `Articles kept` still sums the per-unit/provider
+acceptance metrics, so a lead shared by units or an A/B pair of providers can make
+the count and the number of listed titles differ. Underlying statistics and costs
 are still collected.
 Macro display names come from each theme's `name_en`; matching keywords remain
 unchanged. Problems are rendered as URL-free plain reasons. Run records expire
@@ -1033,10 +1036,12 @@ exception and counted. Callers pass a `stats` dict that receives
 and in deepening applies labels whenever any were returned and records the
 error. Any `classifier:` error raises the batch email to WARNING; a fail-open
 error renders as "AI review stage failed, other stage applied". Per email
-section, the collection AI review line, the macro pool review line and a PART 2
-line "AI review in deepening (paid search and macro ranking)" (from
-`classifier_stages`) show screen and review cost, retries and failed stages. A run
-with a classifier error is `partial`, which reports still read.
+section, the collection AI review line shows screen and review cost, retries and
+failed stages. The macro pool review line (label/title pairs) and the PART 2 line
+"AI review in deepening (paid search and macro ranking)" no longer show them: the
+latter is temporarily hidden (issue #814), though `macro_classification` and
+`classifier_stages` still record the values. A run with a classifier error is
+`partial`, which reports still read.
 
 All model JSON is parsed by `app/services/llm_json.py`, a port of the Homepage
 `llm_json_utils.py`: the longest balanced JSON value is extracted (fences and
