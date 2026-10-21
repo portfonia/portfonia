@@ -160,6 +160,14 @@ reports by setting `end` before the oldest returned report date.
 article arrays, without executing article queries. Jade gets `detail: "full"`
 and retains the existing headline/summary and article projection.
 
+Issue #812 adds `other: list[AgentArticleOut]` (default empty). Jade receives
+accepted Exa articles linked to `theme="other"`, after holdings and macro
+articles, using the same id/URL-key deduplication and date/since filters.
+Articles already returned under a holding or theme are omitted from `other`.
+Non-Jade receives `other: []` without an article query. Theme-linked Exa
+articles use the existing macro grouping. Audit item counts include `other`;
+the public Agent OpenAPI schema includes the new list automatically.
+
 Exactly one of `date` and offset-aware `since` is required (422 otherwise).
 Date mode retains `today_et() - 6 days <= date <= today_et()`. Since mode
 normalizes to ET, rejects values before midnight ET on the oldest date or

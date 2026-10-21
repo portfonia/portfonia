@@ -37,6 +37,7 @@ SOURCES = {
     "classifier": "AI review",
     "tavily": "Tavily",
     "parallel": "Parallel",
+    "exa": "Exa",
     "deepening": "Paid deepening",
     "search_filter": "Headline checks",
     "slot": "Batch",
@@ -306,6 +307,50 @@ def build_batch_report(
         ]
         picked.append(f"  {name} ({words})" + (": " + "; ".join(texts) if texts else ""))
     lines += ["Picked:", *picked] if picked else ["Picked: none"]
+    exa = obj(deep.get("exa"))
+    if exa:
+        if not exa.get("configured"):
+            lines.append("Exa: not configured")
+        else:
+            exa_reasons = {
+                "too_short": "too short",
+                "off_topic": "off topic",
+                "paywall": "paywall",
+                "empty": "empty",
+                "boilerplate": "boilerplate",
+                "undated": "undated",
+                "commentary": "commentary",
+            }
+            for query in objects(exa.get("queries")):
+                if query.get("outcome") == "limit":
+                    lines.append("Exa: monthly limit reached, search skipped")
+                    continue
+                if query.get("outcome") == "not_configured":
+                    continue
+                drops = obj(query.get("rejected"))
+                rejected_text = (
+                    ", ".join(
+                        f"{number(drops.get(key)):g} {label}"
+                        for key, label in exa_reasons.items()
+                        if number(drops.get(key))
+                    )
+                    or "none"
+                )
+                query_name = (
+                    "market hotspots and macro"
+                    if query.get("name") == "hotspot_macro"
+                    else "sector"
+                )
+                lines.append(
+                    f"Exa news search ({query_name}): {number(query.get('results')):g} results, "
+                    f"{number(query.get('accepted')):g} kept, rejected {rejected_text}; "
+                    f"{number(drops.get('seen_recently')):g} already seen, {number(drops.get('duplicate')):g} duplicate; "
+                    f"cost ${number(query.get('cost_usd')):.3f}"
+                )
+            links = obj(exa.get("links"))
+            lines.append(
+                f"Exa articles linked: {number(links.get('holding')):g} to holdings, {number(links.get('theme')):g} to macro themes, {number(links.get('other')):g} other (API only)"
+            )
     if "macro_rank_failed" in deep:
         lines.append(
             f"Macro ranking fallback units (macro_rank_failed: {number(deep.get('macro_rank_failed')):g}); unlabeled candidates (macro_rank_partial: {number(deep.get('macro_rank_partial')):g})."
@@ -335,8 +380,14 @@ def build_batch_report(
     ]
     tused, tlimit = number(tavily.get("month")), number(tavily.get("month_limit"))
     pused, plimit = number(parallel.get("month")), number(parallel.get("month_limit"))
+    eused, elimit = number(exa.get("month")), number(exa.get("month_limit"))
+    exa_spend = (
+        f", Exa ${eused:.2f} of ${elimit:.2f} ({eused / elimit * 100 if elimit else 0:.0f}%)"
+        if exa
+        else ""
+    )
     lines.append(
-        f"Spend this month: Tavily {tused:g} of {tlimit:,.0f} credits ({tused / tlimit * 100 if tlimit else 0:.0f}%), Parallel ${pused:.2f} of ${plimit:.2f} ({pused / plimit * 100 if plimit else 0:.0f}%)."
+        f"Spend this month: Tavily {tused:g} of {tlimit:,.0f} credits ({tused / tlimit * 100 if tlimit else 0:.0f}%), Parallel ${pused:.2f} of ${plimit:.2f} ({pused / plimit * 100 if plimit else 0:.0f}%){exa_spend}."
     )
     costs = []
     for provider in ("tavily", "parallel"):

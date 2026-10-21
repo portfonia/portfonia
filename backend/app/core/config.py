@@ -174,6 +174,8 @@ class Settings(BaseSettings):
     # Search
     TAVILY_API_KEY: SecretStr
     PARALLEL_API_KEY: SecretStr | None = None
+    EXA_API_KEY: SecretStr | None = None
+    EXA_MONTHLY_USD_LIMIT: Decimal = Decimal("5.00")
     TAVILY_MONTHLY_CREDIT_LIMIT: int = 1000
     TAVILY_RUN_CREDIT_CAP: int = 20
     PARALLEL_MONTHLY_USD_LIMIT: Decimal = Decimal("5.00")

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated
 
 import yaml
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
 
 Positive = Annotated[float, Field(gt=0)]
 Count = Annotated[int, Field(gt=0)]
@@ -29,6 +29,7 @@ class Caps(BaseModel):
     movers: Count
     quiet: Count
     macro_themes: Count
+    sector_macro_themes: Count
     macro_links_per_theme: Count
     leads_per_mover: Count
     leads_per_quiet: Count
@@ -79,7 +80,24 @@ class BodyCleaning(BaseModel):
         return self._headings.match(line) is not None
 
 
+class ExaRules(BaseModel):
+    num_results: Annotated[int, Field(ge=1, le=100)]
+    max_characters: Count
+    window_hours: Positive
+    domains: Annotated[list[str], Field(min_length=1)]
+    queries: dict[str, str]
+
+    @field_validator("queries")
+    @classmethod
+    def validate_queries(cls, value: dict[str, str]) -> dict[str, str]:
+        if set(value) != {"sector", "hotspot_macro"} or any(not q.strip() for q in value.values()):
+            raise ValueError("exa queries must contain non-empty sector and hotspot_macro queries")
+        return value
+
+
 class DeepenConfig(BaseModel):
+    sector_themes: Annotated[list[str], Field(min_length=1)]
+    exa: ExaRules
     body_cleaning: BodyCleaning
     thresholds: Thresholds
     caps: Caps

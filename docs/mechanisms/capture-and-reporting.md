@@ -1036,6 +1036,60 @@ tests; it differs only in type annotations and a module-level `repair_json`
 import, which the upstream tests already assume. Measured on 2026-10-07: about
 one Haiku call in six wrapped valid JSON in a Markdown fence.
 
+### Exa news search (issue #812)
+
+Every weekday and weekend `pre_open` / `post_close` slot runs shared Exa
+Search after the mover wave and before the macro/quiet wave. The two fixed
+queries (`sector`, then `hotspot_macro`) request 20 news results each, from
+the configured full-text outlet list, over the preceding 24 hours, with up
+to 4,000 characters requested per result. Queries contain no holdings or
+user data. `config/intel_deepen.yml` reloads the queries, domains and limits
+per slot; `excluded_domains` does not apply to Exa. No retries or Beat entry
+are added. Missing `EXA_API_KEY` skips both queries without an error.
+
+The three new English-named themes are Semiconductors, AI infrastructure
+and capex, and Magnificent 7. TSMC moves from US-China relations to
+Semiconductors; AI capex, AI infrastructure and AI chip move from Technology
+regulation to AI infrastructure and capex. Bare chip, chip stocks and bare
+capex are excluded. Weekdays retain three general macro slots and add up
+to three sector slots, one per configured sector theme with a positive
+development count. Count-descending/name ordering is unchanged. Weekend
+selection retains the existing two-theme cap and count/development gates.
+No historical counts are backfilled.
+
+Exa dates at exactly midnight UTC are treated as dates at midnight ET.
+Undated hits are rejected and stored; recently accepted URLs (seven days)
+and duplicate URLs/titles are counted without writes. Other bodies pass the
+existing cleaning, 300-character minimum, boilerplate and paywall checks.
+Each query's surviving titles and first 500 body characters use the existing
+macro classifier. Commentary and off-topic items are rejected; development
+and unlabelled fallback items are accepted. Classifier errors make the batch
+WARNING and retain existing model and data-handling rules.
+
+Articles store only URL keys and URL-free records, with provider `exa` and
+no `news` row. Accepted articles receive `exa` links for title-matched
+instrument aliases and title/summary-matched themes. Articles with neither
+receive `theme="other"` for the Jade Agent API only. Reports never select
+this group; report limits are unchanged. Accepted Exa leads enter the same
+slot's macro deduplication, so later eligible RSS macro leads reuse the
+article and add their theme without extraction. RSS excluded-domain filters
+still precede reuse: an excluded RSS lead adds no theme link. Existing Exa
+links remain. Article retention remains 30 days.
+
+`EXA_MONTHLY_USD_LIMIT` defaults to $5.00; monthly/run spend uses recorded
+`costDollars.total`. Each 20-result query reserves $0.017, with the monthly
+limit also acting as the run cap. Existing warning (80%), limit and provider
+disable alerts apply. Tavily/Parallel assignment remains separate. One
+migration widens article/usage provider and link-role checks for `exa`;
+downgrade restores old checks and fails while Exa rows remain.
+
+PART 2 of the batch email shows per-query results, kept/rejected/seen/duplicate
+counts, actual cost, holding/theme/other link counts and Exa monthly spend.
+Missing configuration and budget skips are explicit, and Exa errors use the
+existing problem lines. The optional key must be set in production `.env`
+before deployment; deployment and real-provider validation require separate
+owner authorization. Expected spend is approximately $0.068 per day.
+
 ### Intel deepening and paid usage
 
 Issue #697 removes #639/#653/#657's earnings-date stale steps from paid search

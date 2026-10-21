@@ -117,7 +117,7 @@ def test_635_11_plain_names_and_merged_counts(db_session: Session) -> None:
 
 def test_635_12_all_macro_names_ascii_and_displayed(db_session: Session) -> None:
     themes = yaml.safe_load(_get_keywords_path().read_text())["themes"]
-    assert len(themes) == 17
+    assert len(themes) == 20
     assert all(
         isinstance(t.get("name_en"), str) and t["name_en"] and t["name_en"].isascii()
         for t in themes

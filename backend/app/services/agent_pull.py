@@ -24,6 +24,7 @@ from app.schemas.agent import (
     AgentReportOut,
     AgentReportsOut,
 )
+from app.services.exa_search import OTHER_THEME
 from app.services.instrument_symbols import InstrumentKey, intelligence_identifier
 from app.services.intel_body import without_urls
 from app.services.intel_records import headline_from_row
@@ -251,4 +252,5 @@ def pull_intel(
         has_more=has_more,
         holdings=holdings,
         macro=macro,
+        other=articles(theme=OTHER_THEME) if full else [],
     )

@@ -80,10 +80,16 @@ def select_units(
             )
         ):
             continue
-        if len([u for u in units if u.kind == "macro"]) >= (
-            cfg.caps.weekend_macro_themes if weekend else cfg.caps.macro_themes
-        ):
-            break
+        if weekend:
+            if sum(u.kind == "macro" for u in units) >= cfg.caps.weekend_macro_themes:
+                break
+        else:
+            sector = theme in cfg.sector_themes
+            used = sum(
+                u.kind == "macro" and (u.theme in cfg.sector_themes) == sector for u in units
+            )
+            if used >= (cfg.caps.sector_macro_themes if sector else cfg.caps.macro_themes):
+                continue
         units.append(
             WorkUnit(
                 "macro",
@@ -114,7 +120,7 @@ def assign_providers(
         for provider in wanted:
             chosen = (
                 provider
-                if provider in available
+                if provider in ("tavily", "parallel") and provider in available
                 else "parallel"
                 if "parallel" in available
                 else "tavily"

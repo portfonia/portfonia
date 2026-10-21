@@ -89,3 +89,4 @@ class AgentIntelOut(BaseModel):
     has_more: bool | None
     holdings: list[AgentHoldingIntelOut]
     macro: AgentMacroOut | None
+    other: list[AgentArticleOut] = []
