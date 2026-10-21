@@ -102,13 +102,20 @@ it.each(["inactive", "expired"] as const)("B16 style hidden for %s Jade", status
 });
 
 vi.mock("./tracking-section", () => ({ TrackingSection: () => <div data-testid="tracking-section" /> }));
-it.each(["jade", "daily", "weekly"] as const)("B17 tracking is Jade-only for active %s", plan => {
-  render(<JadePageBody guest={false} demo={null} me={{ ...active, subscription: { ...active.subscription, type: plan } }} hadLoadError={false} />);
-  expect(screen.queryByTestId("tracking-section") !== null).toBe(plan === "jade");
-});
-it.each(["inactive", "expired"] as const)("B17 tracking hidden for %s Jade", status => {
-  render(<JadePageBody guest={false} demo={null} me={{ ...active, subscription: { ...active.subscription, status } }} hadLoadError={false} />);
-  expect(screen.queryByTestId("tracking-section")).not.toBeInTheDocument();
+it("808 A1 tracking CTA replaces the card only for active Jade", () => {
+  const users: Me[] = [active, ...(["daily", "weekly"] as const).map(type => ({ ...active, subscription: { ...active.subscription, type } })), ...(["inactive", "expired"] as const).map(status => ({ ...active, subscription: { ...active.subscription, status } }))];
+  for (const user of users) {
+    render(<JadePageBody guest={false} demo={null} me={user} hadLoadError={false} />);
+    expect(screen.queryByTestId("tracking-section")).not.toBeInTheDocument();
+    if (user === active) {
+      const cta = screen.getByTestId("tracking-cta");
+      expect(cta.querySelector('a[href="/jade/tracking"]')).toBeInTheDocument();
+      expect(cta.querySelector('a[href="/guides/jade-tracking"]')).toBeInTheDocument();
+      expect(screen.getByTestId("style-section").compareDocumentPosition(cta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(cta.compareDocumentPosition(screen.getByTestId("what-if-cta")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    } else expect(screen.queryByTestId("tracking-cta")).not.toBeInTheDocument();
+    cleanup();
+  }
 });
 
 it("801 A8 guest and non-Jade see six demo figures while Jade has no demo", async () => {

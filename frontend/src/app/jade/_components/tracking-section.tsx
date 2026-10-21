@@ -12,9 +12,9 @@ import { useLocale, useLocalizedHref } from "@/app/_components/locale-provider";
 import type { BaseCurrency } from "@/app/portfolio/_components/currencies";
 import { formatAxisDate, formatFullDate, formatTickPct } from "@/app/portfolio/performance/_components/performance-format";
 import { PORTFOLIO_COLOR } from "@/app/portfolio/performance/_components/performance-colors";
-import { getJadeTracking, saveJadeBenchmark, type BenchmarkCode, type JadeBenchmark, type JadeTracking, type ReplayRange, type TrackingComponent } from "@/lib/api";
+import { getJadeTracking, saveJadeBenchmark, type JadeBenchmark, type JadeTracking, type ReplayRange, type TrackingComponent } from "@/lib/api";
 
-type Settings = { currency: BaseCurrency; range: ReplayRange; benchmark: BenchmarkCode };
+type Settings = { currency: BaseCurrency; range: ReplayRange };
 type RequestSettings = Pick<Settings, "currency" | "range">;
 type Row = { symbol: string; weight: string };
 const symbols = ["SPY", "QQQ", "DIA", "ONEQ", "IWF", "IWD", "IWM", "ACWI", "EFA", "EEM", "2800.HK", "510300.SS", "ISF.L", "EXSA.DE", "1306.T", "069500.KS", "AGG", "TLT", "BIL", "GLD", "DBC", "VNQ", "XLE", "CASH"];

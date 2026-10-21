@@ -314,3 +314,11 @@ describe("7i locale headers on returned responses", () => {
     for (const [key, value] of Object.entries(REFRESH_HEADERS)) expect(res.headers.get(key)).toBe(value);
   });
 });
+
+it("808 A4 redirects anonymous tracking requests to login", async () => {
+  getUser.mockResolvedValue({ data: { user: null } });
+  getSession.mockResolvedValue({ data: { session: null } });
+  const res = await proxy(makeRequest("/jade/tracking"));
+  expect(res.status).toBe(307);
+  expect(res.headers.get("location")).toBe("https://portfonia.com/login");
+});
