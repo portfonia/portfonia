@@ -653,3 +653,19 @@ renders immediately even without a response. The intro and error alert sit
 outside. Span buttons wrap at 375px; the overlay follows the region's height.
 The label is `common.calculating` in all three catalogs. The component is intended
 for reuse by Performance later; Performance is unchanged in this issue.
+
+## Jade bi logo (issue #818)
+
+`frontend/src/components/icons/jade-bi.tsx` is the single source of the Jade bi
+mark: `JADE_BI_SVG` (the approved SVG markup), `JADE_BI_DATA_URI` and a
+decorative `JadeBi` image component (`alt=""`, `aria-hidden`). It replaces the
+former `JadeDisc` line icon and has three uses: the logo before the brand text
+in the `SiteHeader` brand link, the Jade rows in `GetStartedMenu` (guest row and
+signed-in registry, whose `Icon` type is now `ComponentType<{ className?: string }>`),
+and the favicon. The favicon is the Next.js icon-file route
+`frontend/src/app/icon.tsx`, which renders the same data URI to a 32x32 PNG with
+`ImageResponse` at build time; `favicon.ico` is deleted and no raster file is
+committed. Pricing plan headers now carry their own surface: Briefing
+`bg-[#2b3236] text-[#eef3f1]`, Advanced `bg-advanced text-advanced-foreground`,
+Jade unchanged (`jade-surface`). OG images, emails and apple-touch/manifest
+icons are unchanged.
