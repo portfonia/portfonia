@@ -24,6 +24,7 @@ export function SubscriptionDialog({ state }: { state: ReturnType<typeof useSubs
               <p>{t(`subscriptionDescription.${quote.type}`)}</p>
               {quote.action === "resume" ? <p>{t("subscriptionContinues", { expires_on: quote.expires_on ?? "" })}</p> : <>
                 <p>{t("subscriptionFee", { fee: quote.fee })}</p>
+                {quote.type === "jade" && quote.fee !== "9.99" && <p>{t("subscriptionLimitedOffer")}</p>}
                 <p>{t("subscriptionBalance", { balance: quote.balance })}</p>
               </>}
               {quote.action === "change" && <>
@@ -38,7 +39,7 @@ export function SubscriptionDialog({ state }: { state: ReturnType<typeof useSubs
               <p>{t("subscriptionFirstReport", { first_report_at: firstReport })}</p>
               {quote.needs_holdings && <p>{t("subscriptionNeedsHoldings")}</p>}
               <p>{t("subscriptionDailyRule")}</p>
-              {!quote.sufficient && <p>{t("subscriptionTopUp")}</p>}
+              {!quote.sufficient && <p>{t(quote.type === "jade" && quote.action === "change" && quote.fee === "0.00" ? "subscriptionFreeUpgradeTopUp" : "subscriptionTopUp")}</p>}
             </> : <>
               <p>{t("subscriptionCancelBody", { expires_on: dialog.kind === "cancel" ? dialog.expires_on ?? "" : "" })}</p>
               <p>{t("subscriptionDailyRule")}</p>

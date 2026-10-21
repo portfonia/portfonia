@@ -488,6 +488,8 @@
     "subscriptionDailyRule": "You can adjust your subscription once per day.",
     "subscriptionContinues": "Your subscription continues with no charge. Paid through {expires_on}.",
     "subscriptionTopUp": "Your balance is not enough. Top up credits in the Account section first.",
+    "subscriptionLimitedOffer": "Limited-time offer.",
+    "subscriptionFreeUpgradeTopUp": "The free Jade upgrade month needs a credit balance of at least zero. Top up credits in the Account section first.",
     "subscriptionDismiss": "Cancel",
     "subscriptionConfirm": "Confirm",
     "subscriptionKeep": "Keep subscription",

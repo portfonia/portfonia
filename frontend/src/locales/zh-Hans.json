@@ -488,6 +488,8 @@
     "subscriptionDailyRule": "您每天可调整一次订阅。",
     "subscriptionContinues": "您的订阅继续生效，不收取费用。已付费至 {expires_on}。",
     "subscriptionTopUp": "您的余额不足。请先在账户区域充值 credits。",
+    "subscriptionLimitedOffer": "限时优惠中。",
+    "subscriptionFreeUpgradeTopUp": "免费升级润玉需要您的 credits 余额不低于零。请先在账户区域充值 credits。",
     "subscriptionDismiss": "取消",
     "subscriptionConfirm": "确认",
     "subscriptionKeep": "保留订阅",

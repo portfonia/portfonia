@@ -488,6 +488,8 @@
     "subscriptionDailyRule": "您每天可調整一次訂閱。",
     "subscriptionContinues": "您的訂閱繼續生效，不收取費用。已付費至 {expires_on}。",
     "subscriptionTopUp": "您的餘額不足。請先在帳戶區域儲值 credits。",
+    "subscriptionLimitedOffer": "限時優惠中。",
+    "subscriptionFreeUpgradeTopUp": "免費升級潤玉需要您的 credits 餘額不低於零。請先在帳戶區域儲值 credits。",
     "subscriptionDismiss": "取消",
     "subscriptionConfirm": "確認",
     "subscriptionKeep": "保留訂閱",

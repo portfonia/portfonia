@@ -398,6 +398,7 @@ are not repriced.
   write. Low-balance, expiry notices and recovery balance checks use `plan_fee`.
 - Outside the free exception, plan-change returns stay based on the original
   actual payment. Terms, Refund and Pricing carry the exception in four locales.
+- A negative total balance still blocks the free upgrade month (the existing balance check is unchanged); the confirmation dialog explains this, and labels the free or discounted Jade fee as a limited-time offer.
 - Out of scope: ending the campaign (a separate owner-requested PR), other plans,
   credit packs, and `scripts/activate_existing_subscriptions.py`, which still
   reports regular fees for its one-off launch run.

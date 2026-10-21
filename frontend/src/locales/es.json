@@ -488,6 +488,8 @@
     "subscriptionDailyRule": "Puede ajustar su suscripción una vez al día.",
     "subscriptionContinues": "Su suscripción continúa sin cargo. Pagada hasta el {expires_on}.",
     "subscriptionTopUp": "Su saldo no es suficiente. Recargue créditos primero en la sección Cuenta.",
+    "subscriptionLimitedOffer": "Oferta por tiempo limitado.",
+    "subscriptionFreeUpgradeTopUp": "El mes gratuito de mejora a Jade requiere un saldo de créditos de al menos cero. Recargue créditos primero en la sección Cuenta.",
     "subscriptionDismiss": "Cancelar",
     "subscriptionConfirm": "Confirmar",
     "subscriptionKeep": "Mantener suscripción",
