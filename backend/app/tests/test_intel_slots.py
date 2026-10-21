@@ -141,6 +141,14 @@ def test_acceptance_33_first_run_pool_link(db_session: Session) -> None:
         patch.object(task, "now_et", return_value=NOW),
         patch.object(task, "today_et", return_value=NOW.date()),
         patch("app.services.news_capture.fetch_news", return_value=FetchNewsResult([item()], [])),
+        patch(
+            "app.services.news_capture.classify_macro",
+            return_value=(
+                {0: {"type": "development", "importance": 2, "event": "nvidia-earnings"}},
+                0,
+                None,
+            ),
+        ),
         patch.object(task, "collect_slot_news", return_value=IntelCollectionRun(status="ok")),
         patch.object(task, "send_ops_alert", return_value=True),
     ):

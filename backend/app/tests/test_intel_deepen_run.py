@@ -590,7 +590,7 @@ def test_18_worked_example_paid_waves(db_session: Session) -> None:
         )
         worker.close()
     assert classifier.call_count == 4
-    assert worker.usage.run_used == {"tavily": Decimal(5), "parallel": Decimal(".018")}
+    assert worker.usage.run_used == {"tavily": Decimal(5), "parallel": Decimal(".018"), "exa": 0}
     assert [len(p["urls"]) for u, p in requests if "tavily" in u and u.endswith("extract")] == [
         4,
         3,

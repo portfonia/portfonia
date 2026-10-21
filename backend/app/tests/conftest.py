@@ -209,6 +209,12 @@ def _no_external_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
         MagicMock(return_value="test-provider-id"),
     )
     # Every paid endpoint must be explicitly mocked by its test.
+    # Existing tests have no Exa fixture; never inherit the developer's live key.
+    monkeypatch.setattr(get_settings(), "EXA_API_KEY", None)
+    monkeypatch.setattr(
+        "app.services.exa_search.post",
+        MagicMock(side_effect=AssertionError("Exa API network is forbidden in tests")),
+    )
     monkeypatch.setattr(
         "app.services.paid_search.post",
         MagicMock(side_effect=AssertionError("paid API network is forbidden in tests")),

@@ -35,6 +35,7 @@ class PaidUsage:
         self.month = self.now.strftime("%Y-%m")
         self.settings = settings
         self.caps = {
+            "exa": settings.EXA_MONTHLY_USD_LIMIT,
             "tavily": Decimal(
                 settings.TAVILY_WEEKEND_RUN_CREDIT_CAP
                 if weekend
@@ -45,10 +46,12 @@ class PaidUsage:
             else settings.PARALLEL_RUN_USD_CAP,
         }
         self.limits = {
+            "exa": settings.EXA_MONTHLY_USD_LIMIT,
             "tavily": Decimal(settings.TAVILY_MONTHLY_CREDIT_LIMIT),
             "parallel": settings.PARALLEL_MONTHLY_USD_LIMIT,
         }
         self.configured = {
+            "exa": bool(settings.EXA_API_KEY),
             "tavily": bool(settings.TAVILY_API_KEY),
             "parallel": bool(settings.PARALLEL_API_KEY),
         }

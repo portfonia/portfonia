@@ -25,7 +25,7 @@ class IntelArticle(Base):
     __tablename__ = "intel_articles"
     __table_args__ = (
         UniqueConstraint("url_key", "provider", name="uq_intel_articles_key_provider"),
-        CheckConstraint("provider IN ('tavily','parallel')", name="provider"),
+        CheckConstraint("provider IN ('tavily','parallel','exa')", name="provider"),
         CheckConstraint("status IN ('accepted','rejected','failed')", name="status"),
         CheckConstraint("(status = 'accepted') = (record IS NOT NULL)", name="record_status"),
         Index("ix_intel_articles_status_fetched_at", "status", "fetched_at"),
@@ -55,7 +55,7 @@ class IntelArticleLink(Base):
             postgresql_nulls_not_distinct=True,
         ),
         CheckConstraint("(identifier IS NOT NULL) <> (theme IS NOT NULL)", name="owner"),
-        CheckConstraint("role IN ('mover','quiet','macro')", name="role"),
+        CheckConstraint("role IN ('mover','quiet','macro','exa')", name="role"),
     )
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
@@ -71,7 +71,7 @@ class IntelArticleLink(Base):
 class PaidApiUsage(Base):
     __tablename__ = "paid_api_usage"
     __table_args__ = (
-        CheckConstraint("provider IN ('tavily','parallel')", name="provider"),
+        CheckConstraint("provider IN ('tavily','parallel','exa')", name="provider"),
         CheckConstraint("operation IN ('search','extract')", name="operation"),
         Index("ix_paid_api_usage_provider_created_at", "provider", "created_at"),
     )

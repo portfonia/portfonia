@@ -21,6 +21,8 @@ from app.core.timezones import ET
 from app.models.intel import InstrumentProfile, IntelSlotRun
 from app.models.news import News
 from app.models.paid_intel import IntelArticle, IntelArticleLink
+from app.services import exa_search
+from app.services.exa_search import OTHER_THEME
 from app.services.headline_cleaning import (
     STAGE_STATS,
     CleaningConfig,
@@ -102,6 +104,15 @@ class UnitOutcome(TypedDict):
     note: str | None
 
 
+class ExaQuery(TypedDict):
+    name: str
+    outcome: str
+    results: int
+    accepted: int
+    rejected: dict[str, int]
+    cost_usd: float
+
+
 class DeepenRun:
     def __init__(
         self,
@@ -173,6 +184,8 @@ class DeepenRun:
         self.macro_rank_partial = 0
         self.macro_classifier_cost_usd = 0.0
         self.classifier_stages: dict[str, float] = dict.fromkeys(STAGE_STATS, 0.0)
+        self.exa_queries: list[ExaQuery] = []
+        self.exa_links = {"holding": 0, "theme": 0, "other": 0}
         self.macro_leads: list[Lead] = []
         self.macro_themes: dict[str, set[str]] = {}
 
@@ -285,7 +298,7 @@ class DeepenRun:
         available = self.usage.available()
         return (
             wanted
-            if wanted in available
+            if wanted in ("tavily", "parallel") and wanted in available
             else next((p for p in ("tavily", "parallel") if p in available), None)
         )
 
@@ -809,6 +822,208 @@ class DeepenRun:
         if result.status_class in ("invalid_key", "quota_or_rate") and not retried:
             self._extract_batch("parallel" if provider == "tavily" else "tavily", batch, True)
 
+    def run_exa(self) -> None:
+        rules = self.cfg.exa
+        kept: list[Lead] = []
+        for name in ("sector", "hotspot_macro"):
+            outcome: ExaQuery = {
+                "name": name,
+                "outcome": "ok",
+                "results": 0,
+                "accepted": 0,
+                "rejected": {},
+                "cost_usd": 0.0,
+            }
+            self.exa_queries.append(outcome)
+            if not self.settings.EXA_API_KEY:
+                outcome["outcome"] = "not_configured"
+                continue
+            if "exa" in self.usage.disabled:
+                outcome["outcome"] = "error"
+                continue
+            estimate = Decimal("0.007") + Decimal("0.001") * max(0, rules.num_results - 10)
+            reservation = self.usage.reserve("exa", estimate)
+            if reservation is None:
+                outcome["outcome"] = "limit"
+                continue
+            try:
+                result = exa_search.search(
+                    self.settings,
+                    rules.queries[name],
+                    rules.domains,
+                    self.now - timedelta(hours=rules.window_hours),
+                    rules.num_results,
+                    rules.max_characters,
+                )
+                if result.http_status not in (None, 401, 403) or result.sent_timeout:
+                    with SessionLocal() as session:
+                        self.usage.complete(
+                            reservation,
+                            "search",
+                            1,
+                            result.cost_usd,
+                            result.http_status,
+                            session=session,
+                            commit=True,
+                        )
+                else:
+                    self.usage.release(reservation)
+            except Exception:
+                self.usage.release(reservation)
+                raise
+            outcome["cost_usd"] = float(result.cost_usd)
+            outcome["results"] = len(result.results)
+            if result.status_class != "success":
+                outcome["outcome"] = "error"
+                error = f"exa search: {result.status_class}"
+                if result.http_status is not None:
+                    error += f" HTTP {result.http_status}"
+                if result.detail:
+                    error += f" {result.detail}"
+                self.errors.append(error)
+                if result.status_class in ("invalid_key", "quota_or_rate"):
+                    self.usage.disable("exa", result.status_class)
+                continue
+            with SessionLocal() as session:
+                survivors: list[tuple[exa_search.ExaHit, str]] = []
+                rejected: list[tuple[exa_search.ExaHit, str]] = []
+                prior = list(kept)
+                for hit in result.results:
+                    reason: str | None = None
+                    text = ""
+                    if hit.published_at is None:
+                        reason = "undated"
+                    elif accepted_recently(session, hit.url, self.cfg, self.now):
+                        reason = "seen_recently"
+                    elif any(
+                        url_key(hit.url) == url_key(p.url)
+                        or (
+                            self.cleaning is not None
+                            and near_duplicate_title(hit.title, p.title, self.cleaning.threshold)
+                        )
+                        for p in prior
+                    ):
+                        reason = "duplicate"
+                    else:
+                        text = clean_body(hit.url, hit.text, self.cfg)
+                        _, reason = body_verdict(text, self.cfg)
+                    if reason is not None:
+                        counts = outcome["rejected"]
+                        counts[reason] = counts.get(reason, 0) + 1
+                        if reason not in ("seen_recently", "duplicate"):
+                            rejected.append((hit, reason))
+                    else:
+                        survivors.append((hit, text))
+                        prior.append(Lead(hit.url, hit.title, hit.published_at))
+                labels: dict[int, MacroLabel] = {}
+                if survivors:
+                    stats: dict[str, float] = {}
+                    items = [
+                        CollectedItem(
+                            h.title, cast(datetime, h.published_at), h.url, summary=t[:500]
+                        )
+                        for h, t in survivors
+                    ]
+                    labels, cost, classifier_error = classify_macro(items, stats=stats)
+                    self.macro_classifier_cost_usd += cost
+                    self._merge_stage_stats(stats)
+                    if classifier_error:
+                        self.errors.append(classifier_error)
+                accepted: list[tuple[exa_search.ExaHit, str, MacroLabel | None]] = []
+                for index, (hit, text) in enumerate(survivors):
+                    label = labels.get(index)
+                    if label and label["type"] in ("commentary", "off_topic"):
+                        reason = label["type"]
+                        outcome["rejected"][reason] = outcome["rejected"].get(reason, 0) + 1
+                        rejected.append((hit, reason))
+                    else:
+                        accepted.append((hit, text, label))
+                for hit, text, label in accepted:
+                    record = build_article_record(hit.title, hit.published_at, self.now, text)
+                    if label:
+                        record.update(label)
+                    article_id = self._store_exa(session, hit, record, None, len(text))
+                    identifiers = match_instruments(hit.title, self.aliases)
+                    themes = {
+                        h.theme
+                        for h in detect_macro_signals(
+                            [
+                                CollectedItem(
+                                    hit.title,
+                                    cast(datetime, hit.published_at),
+                                    hit.url,
+                                    summary=text[:500],
+                                ).headline()
+                            ]
+                        ).hits
+                    }
+                    links: list[tuple[str | None, str | None]] = [
+                        (identifier, None) for identifier in identifiers
+                    ]
+                    links.extend((None, theme) for theme in sorted(themes))
+                    if not links:
+                        links.append((None, OTHER_THEME))
+                        self.exa_links["other"] += 1
+                    self.exa_links["holding"] += bool(identifiers)
+                    self.exa_links["theme"] += bool(themes)
+                    for identifier, theme in links:
+                        session.execute(
+                            insert(IntelArticleLink)
+                            .values(
+                                article_id=article_id,
+                                identifier=identifier,
+                                theme=theme,
+                                role="exa",
+                            )
+                            .on_conflict_do_nothing(constraint="uq_intel_article_links_key")
+                        )
+                    lead = Lead(hit.url, hit.title, hit.published_at)
+                    kept.append(lead)
+                    self.macro_leads.append(lead)
+                    self.macro_themes[url_key(hit.url)] = themes or {OTHER_THEME}
+                    outcome["accepted"] += 1
+                for hit, reason in rejected:
+                    self._store_exa(session, hit, None, reason, None)
+                session.commit()
+
+    def _store_exa(
+        self,
+        session: Session,
+        hit: exa_search.ExaHit,
+        record: dict[str, object] | None,
+        reason: str | None,
+        body_chars: int | None,
+    ) -> uuid.UUID | None:
+        stmt = insert(IntelArticle).values(
+            slot_run_id=self.run_id,
+            provider="exa",
+            url_key=url_key(hit.url),
+            news_id=None,
+            fetched_at=self.now,
+            status="accepted" if record is not None else "rejected",
+            record=record,
+            reject_reason=reason,
+            body_chars=body_chars,
+        )
+        return session.execute(
+            stmt.on_conflict_do_update(
+                constraint="uq_intel_articles_key_provider",
+                set_={
+                    k: getattr(stmt.excluded, k)
+                    for k in (
+                        "slot_run_id",
+                        "news_id",
+                        "fetched_at",
+                        "status",
+                        "record",
+                        "reject_reason",
+                        "body_chars",
+                    )
+                },
+                where=IntelArticle.status != "accepted" if record is None else None,
+            ).returning(IntelArticle.id)
+        ).scalar()
+
     def finish(
         self, session: Session, signals: dict[str, Signal], pool_items: list[NewsItem]
     ) -> None:
@@ -856,6 +1071,7 @@ class DeepenRun:
             )
             if u.kind != "mover"
         ]
+        self.futures.append(self.coordinator.submit(self.run_exa))
         self.futures.append(
             self.coordinator.submit(self.run_wave, units, dict(self.items), self.aliases)
         )
@@ -886,6 +1102,13 @@ class DeepenRun:
                 ),
             }
         return {
+            "exa": {
+                "configured": bool(self.settings.EXA_API_KEY),
+                "month": float(self.usage.month_used["exa"]),
+                "month_limit": float(self.usage.limits["exa"]),
+                "queries": self.exa_queries,
+                "links": self.exa_links,
+            },
             "macro_rank_failed": self.macro_rank_failed,
             "macro_rank_partial": self.macro_rank_partial,
             "macro_classifier_cost_usd": self.macro_classifier_cost_usd,

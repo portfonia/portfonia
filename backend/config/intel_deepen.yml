@@ -14,6 +14,7 @@ caps:
   movers: 20
   quiet: 10
   macro_themes: 3
+  sector_macro_themes: 3
   macro_links_per_theme: 3
   leads_per_mover: 2
   leads_per_quiet: 3
@@ -94,3 +95,15 @@ body_cleaning:
     - 'about benzinga'
     - 'read next'
     - 'featured'
+
+sector_themes: ["Semiconductors", "AI infrastructure and capex", "Magnificent 7"]
+exa:
+  num_results: 20
+  max_characters: 4000
+  window_hours: 24
+  domains: [cnbc.com, marketwatch.com, apnews.com, morningstar.com/news, www.investing.com/news,
+            digitimes.com, tomshardware.com, theregister.com, techcrunch.com, axios.com,
+            cnn.com/business, businessinsider.com, scmp.com, nikkei.com, fortune.com, theverge.com]
+  queries:
+    sector: "most important news on semiconductors, AI infrastructure and capex, and the Magnificent 7 (Apple, Microsoft, Alphabet, Amazon, Meta, Nvidia, Tesla)"
+    hotspot_macro: "dominant market-moving stories for global investors: equity market hotspots and macro developments such as central banks, inflation, bonds, trade and geopolitics"
