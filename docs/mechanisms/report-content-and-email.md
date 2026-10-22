@@ -248,3 +248,7 @@ LLM body in two `_translate_md` calls and splices the already-localized line
 between them, so the wording and URLs stay byte-exact. Because translation
 chunks at `## `/`### ` headings, splitting the call does not change the chunk
 set. The non-`en` compliance re-scan still runs over the spliced output.
+
+### Theme-anomaly holding weights (issue #492)
+
+Issue #492 (PR #500): `window_data._merge_theme_anomalies._val()` weighted holdings sharing a theme by raw `Holding.current_value`, which is never a real valuation for `pricing_mode="auto"` holdings — now `shares × price` for auto, unchanged for manual/cash. Forward-only, no retroactive report regeneration.

@@ -12,7 +12,8 @@ recreated without explicit authorization.
   English. Do not copy Chinese note titles or paths into repository files.
 - Keep engineering rules in [CLAUDE.md](../../CLAUDE.md), focused mechanisms
   in `docs/mechanisms/`, and operational guidance in `docs/playbooks/`.
-  Add or update the relevant AGENTS.md index entry instead of creating a
+  Keep the one-line `CLAUDE.md` mechanism index entry current (subsystems
+  only; per-issue history goes in the mechanism file) instead of creating a
   duplicate instruction document in the vault.
 - Existing Obsidian feature notes may remain the governing product-design
   documents when the user has selected them. That does not authorize a

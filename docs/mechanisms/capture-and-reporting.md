@@ -2037,3 +2037,7 @@ deployment, no container-recreation read-back drill, and no ~1-week
 representative-sample review have been performed — those remain the
 Contract constraints' post-rollout gates, not something a local session can
 satisfy.
+
+### Paid-search headline filtering (issue #628)
+
+Index record moved here on 2026-10-21: paid-search headline filtering and public profile-name consistency (issue #628).
