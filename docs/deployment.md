@@ -265,6 +265,11 @@ Caddy routing changes. Issue #702 uses this step for the `www.portfonia.com`
 301 redirect to `https://portfonia.com`, preserving path and query. The owner
 validates Caddy syntax and verifies the redirect after the authorized deploy.
 
+Caddy publishes host ports 80/443 on `CADDY_BIND_IP` (issue #821; unset means
+`0.0.0.0`). The production `.env` sets it to the host's primary private address
+so another host address can serve 80/443 independently. Changing it requires
+recreating only Caddy: `docker compose up -d caddy`.
+
 ### Env-only sync to production (no code change involved)
 
 **An explicit request to push `.env` changes (secret rotation, config value

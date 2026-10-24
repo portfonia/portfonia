@@ -137,8 +137,8 @@ services:
     container_name: portfonia-caddy
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "${CADDY_BIND_IP:-0.0.0.0}:80:80"
+      - "${CADDY_BIND_IP:-0.0.0.0}:443:443"
     environment:
       TZ: America/New_York
       SUPABASE_PROJECT_HOST: ${SUPABASE_PROJECT_HOST:?required}
