@@ -31,7 +31,7 @@ function BoldText({ text }: { text: string }) {
 
 const TABLE_CLS = "w-full min-w-[36rem] border-collapse text-left text-xs";
 const TH_CLS =
-  "whitespace-nowrap border-b border-white/15 px-2 py-2 font-mono font-medium uppercase tracking-wide text-foreground/50";
+  "whitespace-nowrap border-b border-white/15 px-2 py-2 font-mono font-medium uppercase tracking-wide text-muted-foreground";
 const TD_CLS = "border-b border-white/5 px-2 py-1.5 align-top text-foreground/70";
 
 export function HomeSections() {
@@ -71,7 +71,7 @@ export function HomeSections() {
           <p className="mt-6 max-w-2xl text-lg leading-relaxed text-foreground/70">
             {t.hero.sub}
           </p>
-          <p className="mt-4 max-w-2xl text-sm text-foreground/60">{t.hero.security}</p>
+          <p className="mt-4 max-w-2xl text-sm text-muted-foreground">{t.hero.security}</p>
           <div className="mt-9 flex flex-wrap items-center gap-4">
             <Link
               href="/holdings"
@@ -103,7 +103,7 @@ export function HomeSections() {
         <div className="mx-auto max-w-4xl">
           <div className="mb-10 flex flex-col gap-2 border-b border-white/10 pb-5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
             <h2 className="font-serif text-2xl sm:text-3xl">{t.how.heading}</h2>
-            <span className="font-mono text-xs uppercase tracking-wide text-foreground/45 sm:whitespace-nowrap">
+            <span className="font-mono text-xs uppercase tracking-wide text-muted-foreground sm:whitespace-nowrap">
               {t.how.tag}
             </span>
           </div>
@@ -137,7 +137,7 @@ export function HomeSections() {
                   {card.tags.map((tag) => (
                     <span
                       key={tag}
-                      className="rounded-full bg-secondary px-2.5 py-1 font-mono text-[11px] text-foreground/50"
+                      className="rounded-full bg-secondary px-2.5 py-1 font-mono text-xs text-muted-foreground"
                     >
                       {tag}
                     </span>
@@ -174,13 +174,13 @@ export function HomeSections() {
         <div className="mx-auto max-w-4xl">
           <div className="mb-10 flex flex-col gap-2 border-b border-white/10 pb-5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
             <h2 className="font-serif text-2xl sm:text-3xl">{t.preview.heading}</h2>
-            <span className="font-mono text-xs uppercase tracking-wide text-foreground/45 sm:whitespace-nowrap">
+            <span className="font-mono text-xs uppercase tracking-wide text-muted-foreground sm:whitespace-nowrap">
               {t.preview.tag}
             </span>
           </div>
 
           <div className="rounded-2xl border border-dashed border-white/15 bg-card p-6 sm:p-8">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 font-mono text-[11px] uppercase tracking-wide text-foreground/55">
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 font-mono text-xs uppercase tracking-wide text-muted-foreground">
               <span className="h-1.5 w-1.5 rounded-full bg-foreground/40" />
               {t.preview.badge}
             </div>
@@ -328,12 +328,12 @@ export function HomeSections() {
                   </tbody>
                 </table>
               </div>
-              <div className="text-xs text-foreground/50">
+              <div className="text-xs text-muted-foreground">
                 <BoldText text={t.preview.technicalNote} />
               </div>
             </div>
 
-            <p className="mt-6 border-t border-white/10 pt-5 text-sm text-foreground/60">
+            <p className="mt-6 border-t border-white/10 pt-5 text-sm text-muted-foreground">
               {t.preview.footnote}
             </p>
           </div>
@@ -352,7 +352,7 @@ export function HomeSections() {
           <ul className="grid gap-x-10 sm:grid-cols-2">
             {t.boundary.items.map((item) => (
               <li key={item} className="flex gap-3.5 border-t border-white/10 py-4 text-sm leading-snug text-foreground/70">
-                <span className="shrink-0 font-mono text-foreground/40">—</span>
+                <span className="shrink-0 font-mono text-muted-foreground">—</span>
                 {item}
               </li>
             ))}
@@ -364,7 +364,7 @@ export function HomeSections() {
         <div className="mx-auto max-w-4xl">
           <div className="mb-10 flex flex-col gap-2 border-b border-white/10 pb-5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
             <h2 className="font-serif text-2xl sm:text-3xl">{t.faq.heading}</h2>
-            <span className="font-mono text-xs uppercase tracking-wide text-foreground/45 sm:whitespace-nowrap">
+            <span className="font-mono text-xs uppercase tracking-wide text-muted-foreground sm:whitespace-nowrap">
               {t.faq.tag}
             </span>
           </div>
@@ -380,7 +380,7 @@ export function HomeSections() {
       </section>
 
       <section className="px-6 py-10">
-        <div className="mx-auto flex max-w-4xl items-center gap-3.5 text-sm text-foreground/45">
+        <div className="mx-auto flex max-w-4xl items-center gap-3.5 text-sm text-muted-foreground">
           <span
             className="h-2 w-2 shrink-0 rounded-full bg-brand"
             style={{ boxShadow: "0 0 0 3px rgba(220,170,74,0.14)" }}
@@ -392,13 +392,13 @@ export function HomeSections() {
       <footer className="border-t border-white/10 px-6 py-10">
         <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-5">
           <span className="font-serif text-base text-foreground/70">{tCommon("brandName")}</span>
-          <span className="text-right font-mono text-xs leading-relaxed text-foreground/45">
+          <span className="text-right font-mono text-xs leading-relaxed text-muted-foreground">
             {t.footer.stack1}
             <br />
             {t.footer.stack2}
           </span>
         </div>
-        <div className="mx-auto mt-5 flex max-w-4xl items-center gap-4 text-xs text-foreground/45">
+        <div className="mx-auto mt-5 flex max-w-4xl items-center gap-4 text-xs text-muted-foreground">
           <Link href={href("/pricing")} className="underline underline-offset-2 hover:text-foreground/70">
             {tLegalNav("pricing")}
           </Link>

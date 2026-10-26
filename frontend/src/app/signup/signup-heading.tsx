@@ -8,7 +8,7 @@ export function SignupHeading() {
   return (
     <div className="text-center">
       <h1 className="font-serif text-3xl">{t("signupHeading")}</h1>
-      <p className="mt-2 text-sm text-foreground/60">{t("signupSubtitle")}</p>
+      <p className="mt-2 text-sm text-muted-foreground">{t("signupSubtitle")}</p>
     </div>
   );
 }

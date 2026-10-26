@@ -15,7 +15,7 @@ export function AboutBody() {
       <h2 className="font-serif text-lg">{section.heading}</h2>
       <div className="mt-2 flex flex-col gap-3">{section.body.map((paragraph) => <p key={paragraph} className="text-sm leading-relaxed text-foreground/70">{paragraph}</p>)}</div>
     </section>)}</div>
-    <nav className="mt-12 flex flex-wrap gap-4 border-t border-white/10 pt-6 text-sm text-foreground/60">
+    <nav className="mt-12 flex flex-wrap gap-4 border-t border-white/10 pt-6 text-sm text-muted-foreground">
       <Link href={href("/waitlist")} className="underline">{t("cta.waitlist")}</Link>
       <Link href={href("/pricing")} className="underline">{t("cta.pricing")}</Link>
     </nav>

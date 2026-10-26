@@ -109,7 +109,7 @@ export function GetStartedMenu() {
       return (
         <div className="flex items-center gap-2">
           {errorNotice}
-          <span className="text-sm text-foreground/60">{t("loggingIn")}</span>
+          <span className="text-sm text-muted-foreground">{t("loggingIn")}</span>
         </div>
       );
     }
@@ -151,7 +151,7 @@ export function GetStartedMenu() {
             ))}
             <MenuSeparator />
             <div
-              className="truncate px-3 py-2 text-xs text-foreground/60"
+              className="truncate px-3 py-2 text-xs text-muted-foreground"
               title={session.email}
             >
               {session.email}

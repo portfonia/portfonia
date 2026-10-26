@@ -63,10 +63,10 @@ export function LoginForm() {
       <Button type="submit" disabled={pending}>
         {pending ? t("loggingIn") : t("loginButton")}
       </Button>
-      <Link href="/forgot-password" className="text-center text-xs text-foreground/60 underline">
+      <Link href="/forgot-password" className="text-center text-xs text-muted-foreground underline">
         {t("forgotPasswordLink")}
       </Link>
-      <p className="text-center text-xs text-foreground/60">
+      <p className="text-center text-xs text-muted-foreground">
         {t("waitlistHint")}<Link href="/waitlist" className="underline">{t("waitlistLink")}</Link>
       </p>
     </form>

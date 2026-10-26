@@ -31,7 +31,7 @@ export function LegalDocument({ doc, afterIntro }: { doc: LegalDocKey; afterIntr
   return (
     <main className="mx-auto w-full max-w-2xl px-6 py-12">
       <h1 className="font-serif text-3xl">{content.title}</h1>
-      <p className="mt-2 text-sm text-foreground/45">{content.lastUpdated}</p>
+      <p className="mt-2 text-sm text-muted-foreground">{content.lastUpdated}</p>
       {t.englishPrevailsNotice && (
         <p data-english-prevails className="mt-4 text-sm leading-relaxed text-foreground/70">
           {t.englishPrevailsNotice}{" "}
@@ -57,7 +57,7 @@ export function LegalDocument({ doc, afterIntro }: { doc: LegalDocKey; afterIntr
         ))}
       </div>
 
-      <nav className="mt-12 flex flex-wrap gap-4 border-t border-white/10 pt-6 text-sm text-foreground/60">
+      <nav className="mt-12 flex flex-wrap gap-4 border-t border-white/10 pt-6 text-sm text-muted-foreground">
         {documentOrder.filter((key) => key !== doc).map((key) => (
           <Link key={key} href={href(`/${key}`)} className="underline">
             {t.nav[key]}

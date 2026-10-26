@@ -432,7 +432,7 @@ export function PerformancePageBody({
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-3 px-4 sm:grid-cols-3">
             <div className="flex flex-col gap-1">
-              <span className="text-xs text-foreground/60">
+              <span className="text-xs text-muted-foreground">
                 {t("performance.metricValueLabel")}
               </span>
               <span className="font-heading text-2xl tabular-nums">
@@ -440,7 +440,7 @@ export function PerformancePageBody({
               </span>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-xs text-foreground/60">
+              <span className="text-xs text-muted-foreground">
                 {t("performance.metricChangeLabel")}
               </span>
               <span className={`tabular-nums ${pnlColorClass(response.header.value_change_base)}`}>
@@ -448,7 +448,7 @@ export function PerformancePageBody({
               </span>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-xs text-foreground/60">
+              <span className="text-xs text-muted-foreground">
                 {twr
                   ? t("performance.metricTwrPctLabel", {
                       date: formatFullDate(response.portfolio.start_date ?? "", locale),

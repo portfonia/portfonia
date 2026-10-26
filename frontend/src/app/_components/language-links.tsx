@@ -13,7 +13,7 @@ export function LanguageLinks() {
   if (!isSeoPath(path)) return null;
 
   return (
-    <div className="mt-6 flex flex-wrap justify-center gap-4 text-sm text-foreground/60">
+    <div className="mt-6 flex flex-wrap justify-center gap-4 text-sm text-muted-foreground">
       {LOCALES.map((option, index) => <Fragment key={option.value}>
         {index > 0 && <span aria-hidden="true">·</span>}
         {option.value === locale ? (
