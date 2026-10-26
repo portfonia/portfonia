@@ -718,6 +718,11 @@ pre-push responsibility documented in the CI-First Protocol.
 - **No emojis in CLI output or server logs.** Use ASCII markers (`[OK]`,
   `[!]`, `[ERR]`, `[i]`). Emojis are fine in product UI copy and reports.
 - Respect `NO_COLOR` for any terminal output.
+- **Frontend contrast floor**: text at least 4.5:1 and non-text marks (chart
+  series, focus rings, borders that carry meaning) at least 3:1, measured
+  against the actual dark surface they sit on. Decline a review request that
+  would go below the floor and record the ratio (see the full-context review
+  playbook's "Recording review outcomes in the PR").
 - Boundary validation: validate at system boundaries (HTTP handlers, file
   loaders, external API responses). Do not re-validate inside internal
   function chains — trust your types.

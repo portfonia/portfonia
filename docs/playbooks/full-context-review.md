@@ -44,6 +44,26 @@ file is the source of truth for the standard itself.
 8. Publish the actual review (a real GitHub review or PR comment, not
    only a chat summary) under the correct identity, and report its URL.
 
+## Recording review outcomes in the PR
+
+Adopted 2026-10-26 from the t3code redesign PRs (#24865 and the PRs it
+superseded), where these records stopped later review rounds from
+reopening settled points.
+
+- **Declined findings and owner calls.** The PR body keeps two short
+  lists. "Declined" names each review finding not acted on, with its
+  reason (for example a measured contrast ratio below the CLAUDE.md
+  floor, or a scope limit). "Owner calls" lists decisions the product
+  owner has already made for this change, each with where it is
+  recorded. A later review round reads both lists and does not raise
+  those points again without new evidence.
+- **Reviewed commit.** Every review result cited in the PR names the
+  head SHA it reviewed. If a reviewer has not re-reviewed the current
+  head, the PR says so instead of carrying the earlier result forward.
+- **Supersedes list.** A PR that replaces earlier PRs lists each one with
+  what it carries over and what it drops, so a dropped change is visible
+  rather than silently lost.
+
 ## Hard boundaries
 
 - Review approval never authorizes merge, deployment, or a production
