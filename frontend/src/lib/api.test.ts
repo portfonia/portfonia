@@ -174,6 +174,7 @@ describe("getPortfolioPerformance", () => {
       accounts: [],
       baseCurrency: "USD",
       monthlyBenchmark: "sp500",
+      monthlyRange: "1Y",
     });
     const calledUrl = fetchMock.mock.calls[0][0] as string;
     expect(calledUrl).toContain("range=1M");
@@ -194,6 +195,7 @@ describe("getPortfolioPerformance", () => {
       accounts: [],
       baseCurrency: "USD",
       monthlyBenchmark: "sp500",
+      monthlyRange: "1Y",
     });
     const calledUrl = fetchMock.mock.calls[0][0] as string;
     expect(calledUrl).toContain("/api/portfolio/performance?");
@@ -213,9 +215,11 @@ describe("getPortfolioPerformance", () => {
       accounts: [],
       baseCurrency: "USD",
       monthlyBenchmark: "csi300",
+      monthlyRange: "3Y",
     });
     const calledUrl = fetchMock.mock.calls[0][0] as string;
     expect(calledUrl).toContain("monthly_benchmark=csi300");
+    expect(calledUrl).toContain("monthly_range=3Y");
     expect(calledUrl).toContain("benchmarks=sp500");
     expect(calledUrl).toContain("benchmarks=nasdaq");
   });

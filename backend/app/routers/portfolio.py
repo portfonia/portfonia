@@ -83,6 +83,7 @@ BaseCurrency = Literal[
 ]
 
 
+MonthlyRangeKey = Literal["6M", "1Y", "3Y"]
 RangeKey = Literal["1M", "6M", "YTD", "1Y", "5Y", "ALL"]
 BenchmarkCode = Literal["sp500", "dow30", "nasdaq", "csi300"]
 
@@ -315,6 +316,7 @@ def get_portfolio_performance(
     twr: Annotated[bool, Query()] = True,
     base_currency: Annotated[BaseCurrency | None, Query()] = None,
     monthly_benchmark: Annotated[BenchmarkCode, Query()] = "sp500",
+    monthly_range: Annotated[MonthlyRangeKey, Query()] = "1Y",
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> PortfolioPerformanceResponse:
@@ -332,7 +334,8 @@ def get_portfolio_performance(
     `monthly_benchmark` (issue #433) is independent of the `benchmarks`
     multi-select: it drives only `monthly_performance`, always compares
     exactly one index, and defaults to `sp500`. Monthly portfolio returns
-    are always approximate EOD TWR regardless of `twr`.
+    use their own `monthly_range` window and full calendar months, independent
+    of `range`, and are always approximate EOD TWR regardless of `twr`.
     """
     result = compute_portfolio_performance(
         session,
@@ -346,6 +349,7 @@ def get_portfolio_performance(
         twr=twr,
         base_currency=base_currency,
         monthly_benchmark=monthly_benchmark,
+        monthly_range=monthly_range,
     )
 
     return PortfolioPerformanceResponse(

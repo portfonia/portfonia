@@ -651,6 +651,7 @@
       "rangeSixM": "6 meses",
       "rangeYtd": "Año en curso",
       "rangeOneY": "1 año",
+      "rangeThreeY": "3 años",
       "rangeFiveY": "5 años",
       "rangeAll": "Todo",
       "benchmarkLabel": "Índices de referencia",
@@ -718,7 +719,7 @@
       "monthlyPortfolioLabel": "Cartera (TWR aproximado)",
       "monthlyApproxNote": "Este mes incluye datos aproximados o precios alternativos.",
       "monthlyPartialReason": {
-        "range_start": "Mes parcial: el período elegido empieza a mitad del mes.",
+        "range_start": "Mes parcial: los datos de la selección actual empiezan a mitad de este mes.",
         "tracking_start": "Mes parcial: el registro de la cartera empezó a mitad del mes.",
         "month_to_date": "Mes en curso: hasta la última instantánea registrada, no todo el mes calendario."
       },

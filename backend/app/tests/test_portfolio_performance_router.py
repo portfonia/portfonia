@@ -232,3 +232,28 @@ def test_saturday_carried_mark_is_approximate_on_performance_api(
     points = resp.json()["portfolio"]["points"]
     saturday = next(p for p in points if p["date"] == "2026-09-12")
     assert saturday["is_approximate"] is True
+
+
+def test_monthly_range_default_explicit_and_invalid(
+    app_client: TestClient, db_session: Session
+) -> None:
+    from unittest.mock import patch
+
+    from app.services.portfolio_performance import compute_portfolio_performance
+
+    seed_user(db_session, TEST_USER_ID)
+    with patch(
+        "app.routers.portfolio.compute_portfolio_performance", wraps=compute_portfolio_performance
+    ) as compute:
+        assert app_client.get("/portfolio/performance").status_code == 200
+        assert compute.call_args.kwargs["monthly_range"] == "1Y"
+        assert (
+            app_client.get("/portfolio/performance", params={"monthly_range": "3Y"}).status_code
+            == 200
+        )
+        assert compute.call_args.kwargs["monthly_range"] == "3Y"
+        assert (
+            app_client.get("/portfolio/performance", params={"monthly_range": "1M"}).status_code
+            == 422
+        )
+        assert compute.call_count == 2

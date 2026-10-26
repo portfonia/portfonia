@@ -651,6 +651,7 @@
       "rangeSixM": "6個月",
       "rangeYtd": "年初至今",
       "rangeOneY": "1年",
+      "rangeThreeY": "3年",
       "rangeFiveY": "5年",
       "rangeAll": "全部",
       "benchmarkLabel": "基準",
@@ -718,7 +719,7 @@
       "monthlyPortfolioLabel": "組合（近似 TWR）",
       "monthlyApproxNote": "本月包含近似或後備定價資料。",
       "monthlyPartialReason": {
-        "range_start": "不完整月份——所選區間從本月中途開始。",
+        "range_start": "不完整月份——目前篩選範圍的資料從本月中途開始。",
         "tracking_start": "不完整月份——組合追蹤從本月中途開始。",
         "month_to_date": "月初至今——截至最近一次真實追蹤快照，非完整日曆月。"
       },

@@ -34,8 +34,10 @@ import {
   BENCHMARK_CODES,
   DEFAULT_BENCHMARKS,
   DEFAULT_MONTHLY_BENCHMARK,
+  DEFAULT_MONTHLY_RANGE,
   DEFAULT_PERFORMANCE_RANGE,
   type BenchmarkCode,
+  type MonthlyRange,
   type PerformanceRange,
   type PortfolioPerformanceQuery,
   type PortfolioPerformanceResponse,
@@ -50,6 +52,7 @@ import { ASSET_CLASS_COLORS, DEFAULT_ASSET_CLASS_COLOR, buildAllocationData } fr
 import { BenchmarkSingleSelectMenu } from "./benchmark-single-select-menu";
 import { buildMonthlyRows } from "./monthly-data";
 import { MonthlyPerformanceChart } from "./monthly-performance-chart";
+import { MonthlyRangeTabs } from "./monthly-range-tabs";
 import { MultiSelectMenu } from "./multi-select-menu";
 import { PerformanceChart, type ChartSeriesSpec } from "./performance-chart";
 import { BENCHMARK_COLORS, PORTFOLIO_COLOR } from "./performance-colors";
@@ -132,6 +135,7 @@ export function PerformancePageBody({
   const [range, setRange] = useState<PerformanceRange>(DEFAULT_PERFORMANCE_RANGE);
   const [twr, setTwr] = useState(true);
   const [benchmarks, setBenchmarks] = useState<BenchmarkCode[]>([...DEFAULT_BENCHMARKS]);
+  const [monthlyRange, setMonthlyRange] = useState<MonthlyRange>(DEFAULT_MONTHLY_RANGE);
   // Issue #433: independent single-select, unrelated to the cumulative
   // chart's `benchmarks` multi-select above.
   const [monthlyBenchmark, setMonthlyBenchmark] = useState<BenchmarkCode>(DEFAULT_MONTHLY_BENCHMARK);
@@ -155,6 +159,7 @@ export function PerformancePageBody({
     accounts: filters.accounts,
     baseCurrency: currency,
     monthlyBenchmark,
+    monthlyRange,
     ...overrides,
   });
 
@@ -288,6 +293,10 @@ export function PerformancePageBody({
   const changeBenchmarks = (next: BenchmarkCode[]) => {
     setBenchmarks(next);
     performQuery(paramsFor({ benchmarks: next }));
+  };
+  const changeMonthlyRange = (next: MonthlyRange) => {
+    setMonthlyRange(next);
+    performQuery(paramsFor({ monthlyRange: next }));
   };
   const changeMonthlyBenchmark = (next: BenchmarkCode) => {
     setMonthlyBenchmark(next);
@@ -663,12 +672,15 @@ export function PerformancePageBody({
             <CardTitle>{t("performance.monthlyTitle")}</CardTitle>
             <CardDescription>{t("performance.monthlyDescription")}</CardDescription>
           </div>
-          <BenchmarkSingleSelectMenu
-            label={t("performance.monthlyBenchmarkLabel")}
-            value={monthlyBenchmark}
-            onChange={changeMonthlyBenchmark}
-            disabled={isLoading}
-          />
+          <div className="flex flex-wrap items-center gap-3">
+            <MonthlyRangeTabs value={monthlyRange} onChange={changeMonthlyRange} disabled={isLoading} />
+            <BenchmarkSingleSelectMenu
+              label={t("performance.monthlyBenchmarkLabel")}
+              value={monthlyBenchmark}
+              onChange={changeMonthlyBenchmark}
+              disabled={isLoading}
+            />
+          </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 px-4">
           {monthlyRows.length > 0 ? (
