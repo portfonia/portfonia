@@ -32,8 +32,7 @@
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
-  /* Performance-page-only CSI 300 color (issue #433) — see the `:root`/
-     `.dark` definitions below for why this is not `--chart-5`. */
+  /* Performance-page-only CSI 300 color (issue #433); see the `--chart-csi300` definitions below. */
   --color-chart-csi300: var(--chart-csi300);
   --color-ring: var(--ring);
   --color-input: var(--input);

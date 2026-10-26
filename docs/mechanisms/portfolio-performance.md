@@ -889,7 +889,7 @@ separate from `MultiSelectMenu` since it can never reach "none"/"several".
 `--chart-csi300` token (light `#9c7a2e` / dark `#dcaa4a`) used by BOTH the
 cumulative line and the monthly bar for `csi300`; the shared `--chart-5`
 token (still used by the unrelated `/portfolio` breakdown charts) is
-untouched.
+untouched. Issue #824 later retuned the dark `--chart-5` to `#dcaa4a` for contrast, and CSI 300 still uses its own `--chart-csi300` token.
 
 ## Gap connector across missing snapshot dates (issue #486)
 
