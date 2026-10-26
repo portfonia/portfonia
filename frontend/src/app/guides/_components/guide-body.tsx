@@ -293,7 +293,7 @@ export function GuideBody({ kind, example, figureOnly = false }: {
         {kind === 'var' && key === 's8' && normalTable()}
       </section>)}
     </div>
-    <nav className="mt-12 flex flex-wrap gap-4 border-t border-foreground/10 pt-6 text-sm text-foreground/60">
+    <nav className="mt-12 flex flex-wrap gap-4 border-t border-foreground/10 pt-6 text-sm text-muted-foreground">
       <Link href={href('/pricing')} className="underline">{t('common.pricingLink')}</Link>
       <Link href={href("/guides")} className="underline">{t("common.guidesLink")}</Link>
     </nav>

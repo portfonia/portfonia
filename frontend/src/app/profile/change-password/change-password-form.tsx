@@ -22,7 +22,7 @@ export function ChangePasswordForm() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <Link href="/profile" className="text-sm text-foreground/60 underline underline-offset-2">
+        <Link href="/profile" className="text-sm text-muted-foreground underline underline-offset-2">
           {t("backToProfile")}
         </Link>
         <h1 className="text-xl font-medium">{t("changePasswordPageTitle")}</h1>

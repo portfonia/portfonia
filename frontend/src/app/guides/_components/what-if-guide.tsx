@@ -89,7 +89,7 @@ export function WhatIfGuide({ example, figureOnly = false }: { example: WhatIfEx
         {key === "s5" && paragraph === "p2" && figures()}
       </Fragment>)}</div>
     </section>)}</div>
-    <nav className="mt-12 flex flex-wrap gap-4 border-t border-foreground/10 pt-6 text-sm text-foreground/60">
+    <nav className="mt-12 flex flex-wrap gap-4 border-t border-foreground/10 pt-6 text-sm text-muted-foreground">
       <Link className="underline" href={href("/pricing")}>{common("pricingLink")}</Link>
       <Link className="underline" href={href("/guides")}>{common("guidesLink")}</Link>
     </nav>

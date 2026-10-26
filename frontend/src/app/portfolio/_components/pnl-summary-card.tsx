@@ -32,13 +32,13 @@ export function PnlSummaryCard({ summary }: { summary: PortfolioSummary }) {
       </CardHeader>
       <CardContent className="grid grid-cols-1 gap-3 px-4 sm:grid-cols-3">
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-foreground/60">{t("pnlTotalCostBasis")}</span>
+          <span className="text-xs text-muted-foreground">{t("pnlTotalCostBasis")}</span>
           <span className="tabular-nums">
             {hasCostBasis ? formatMoney(summary.total_cost_basis_base, summary.base_currency) : "—"}
           </span>
         </div>
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-foreground/60">{t("pnlTotalUnrealized")}</span>
+          <span className="text-xs text-muted-foreground">{t("pnlTotalUnrealized")}</span>
           <span className={`tabular-nums ${pnlClass}`}>
             {hasCostBasis
               ? formatMoney(summary.total_unrealized_pnl_base, summary.base_currency)
@@ -46,7 +46,7 @@ export function PnlSummaryCard({ summary }: { summary: PortfolioSummary }) {
           </span>
         </div>
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-foreground/60">{t("pnlTotalUnrealizedPct")}</span>
+          <span className="text-xs text-muted-foreground">{t("pnlTotalUnrealizedPct")}</span>
           <span className={`tabular-nums ${pnlClass}`}>
             {formatPercent(summary.total_unrealized_pnl_pct)}
           </span>

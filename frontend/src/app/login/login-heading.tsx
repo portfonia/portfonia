@@ -12,7 +12,7 @@ export function LoginHeading() {
   return (
     <div className="text-center">
       <h1 className="font-serif text-3xl">{t("loginHeading")}</h1>
-      <p className="mt-2 text-sm text-foreground/60">{t("loginSubtitle")}</p>
+      <p className="mt-2 text-sm text-muted-foreground">{t("loginSubtitle")}</p>
     </div>
   );
 }

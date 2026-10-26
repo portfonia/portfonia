@@ -173,8 +173,8 @@ export function SegmentedBar({ segments, activeIndex, endLabels, middleLabel }: 
           <div className="h-2.5 rounded-full" style={{ backgroundColor: segment.color }} />
         </div>)}
       </div>
-      {endLabels ? <div className="mt-3 grid text-[10px] text-muted-foreground" style={{ gridTemplateColumns: `repeat(${segments.length}, minmax(0, 1fr))` }}><span>{endLabels[0]}</span>{middleLabel && <span className="text-center" style={{ gridColumn: Math.ceil(segments.length / 2) }}>{middleLabel}</span>}<span className="text-right" style={{ gridColumn: segments.length }}>{endLabels[1]}</span></div> :
-        <div className="mt-3 flex justify-between gap-1 text-[10px] text-muted-foreground">{segments.map((segment, index) => <span key={index}>{segment.label}</span>)}</div>}
+      {endLabels ? <div className="mt-3 grid text-xs text-muted-foreground" style={{ gridTemplateColumns: `repeat(${segments.length}, minmax(0, 1fr))` }}><span>{endLabels[0]}</span>{middleLabel && <span className="text-center" style={{ gridColumn: Math.ceil(segments.length / 2) }}>{middleLabel}</span>}<span className="text-right" style={{ gridColumn: segments.length }}>{endLabels[1]}</span></div> :
+        <div className="mt-3 flex justify-between gap-1 text-xs text-muted-foreground">{segments.map((segment, index) => <span key={index}>{segment.label}</span>)}</div>}
     </div>
   );
 }

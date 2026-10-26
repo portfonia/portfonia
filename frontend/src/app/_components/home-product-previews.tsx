@@ -274,9 +274,9 @@ export function HomeProductPreviews() {
               </ul>
             </div>
             <div className="rounded-xl border border-white/10 bg-card p-6">
-              <p className="text-sm text-foreground/60">{copy.metricLabel}</p>
+              <p className="text-sm text-muted-foreground">{copy.metricLabel}</p>
               <p className="mt-2 font-serif text-4xl tabular-nums">{copy.metricValue}</p>
-              <p className="mt-2 font-mono text-xs uppercase tracking-wide text-foreground/45">
+              <p className="mt-2 font-mono text-xs uppercase tracking-wide text-muted-foreground">
                 {copy.yearToDate}
               </p>
             </div>

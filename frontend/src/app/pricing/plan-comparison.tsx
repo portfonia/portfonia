@@ -47,7 +47,7 @@ export function PlanComparison() {
           </section>
         ))}
       </div>
-      <p className="mt-3 text-xs text-foreground/45">{footnote}</p>
+      <p className="mt-3 text-xs text-muted-foreground">{footnote}</p>
     </section>
   );
 }
