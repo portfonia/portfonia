@@ -651,6 +651,7 @@
       "rangeSixM": "6M",
       "rangeYtd": "YTD",
       "rangeOneY": "1Y",
+      "rangeThreeY": "3Y",
       "rangeFiveY": "5Y",
       "rangeAll": "All",
       "benchmarkLabel": "Benchmarks",

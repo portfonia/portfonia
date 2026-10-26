@@ -1141,11 +1141,6 @@ def _serialize_benchmark_series(
 @dataclass
 class _BenchmarkBuild:
     series: list[BenchmarkSeries] = field(default_factory=list)
-    # Raw closes/FX for every loaded code (cumulative selections plus the
-    # monthly benchmark, issue #433) — reused by the monthly builder so it
-    # never issues its own `load_index_closes`/`load_fx_series` call.
-    closes_by_index: dict[str, list[RawClose]] = field(default_factory=dict)
-    fx_by_pair: dict[str, list[tuple[date, Decimal]]] = field(default_factory=dict)
 
 
 def _build_selected_benchmarks(
@@ -1155,18 +1150,10 @@ def _build_selected_benchmarks(
     range_end: date,
     requested_currency: str,
     portfolio: PortfolioSeries,
-    extra_codes: tuple[str, ...] = (),
 ) -> _BenchmarkBuild:
-    """Builds the cumulative-chart benchmark series for `benchmark_codes`.
-
-    `extra_codes` (issue #433: the independently single-selected
-    `monthly_benchmark`) are bulk-loaded in the SAME `load_index_closes`/
-    `load_fx_series` calls so a code used only for the monthly card never
-    triggers its own extra query, but do not produce a `BenchmarkSeries` of
-    their own — the monthly card is not part of the cumulative multi-select.
-    """
+    """Build cumulative benchmarks for the page range only."""
     codes = [code for code in benchmark_codes if code in INDEX_YF_TICKERS]
-    load_codes = list(dict.fromkeys([*codes, *(c for c in extra_codes if c in INDEX_YF_TICKERS)]))
+    load_codes = list(dict.fromkeys(codes))
     if not load_codes:
         return _BenchmarkBuild()
     closes_by_index = load_index_closes(session, load_codes, range_start, range_end)
@@ -1190,7 +1177,7 @@ def _build_selected_benchmarks(
         series.append(
             _serialize_benchmark_series(code, range_start, range_end, closes, by_day, portfolio)
         )
-    return _BenchmarkBuild(series=series, closes_by_index=closes_by_index, fx_by_pair=fx_by_pair)
+    return _BenchmarkBuild(series=series)
 
 
 def compute_portfolio_performance(
@@ -1206,6 +1193,7 @@ def compute_portfolio_performance(
     twr: bool = True,
     base_currency: str | None = None,
     monthly_benchmark: str = "sp500",
+    monthly_range: str = "1Y",
     today: date | None = None,
 ) -> PerformanceResult:
     today = today or today_et()
@@ -1242,8 +1230,6 @@ def compute_portfolio_performance(
     # valuable. Display history is not clipped to the portfolio window;
     # comparison_status/comparable say whether the shared-anchor return is
     # honest. Do not rebase already-rounded percentages.
-    # Issue #433: the monthly card's single benchmark is loaded in the same
-    # bulk call even when it is not among the cumulative multi-select.
     benchmark_build = _build_selected_benchmarks(
         session,
         benchmark_codes,
@@ -1251,24 +1237,39 @@ def compute_portfolio_performance(
         end_date,
         requested_currency,
         portfolio_series,
-        extra_codes=(monthly_benchmark,),
     )
     benchmarks = benchmark_build.series
 
     allocation = _build_allocation(build.dates, build.filtered_by_date)
 
+    # Independent calendar window, with one extra month for the opening anchor.
+    month_count = {"6M": 6, "1Y": 12, "3Y": 36}[monthly_range]
+    first_month_index = today.year * 12 + today.month - 1 - (month_count - 1)
+    window_first_month = date(first_month_index // 12, first_month_index % 12 + 1, 1)
+    series_start = (window_first_month - timedelta(days=1)).replace(day=1)
+    monthly_build = _build_portfolio_series(
+        session, user_id, series_start, today, filters, True, requested_currency, tracking_start
+    )
+    closes_by_index = load_index_closes(session, [monthly_benchmark], series_start, today)
+    fx_by_pair = load_fx_series(
+        session, required_pairs_for_closes(closes_by_index, requested_currency), series_start, today
+    )
     monthly_performance = _build_monthly_performance(
         session,
         user_id,
         filters,
-        build,
+        monthly_build,
         tracking_start,
         requested_currency,
         monthly_benchmark,
-        benchmark_build.closes_by_index.get(monthly_benchmark, []),
-        benchmark_build.fx_by_pair,
+        closes_by_index.get(monthly_benchmark, []),
+        fx_by_pair,
         today,
     )
+
+    monthly_performance.points = [
+        p for p in monthly_performance.points if p.month >= _month_key(window_first_month)
+    ]
 
     value_change = value_end - value_start
     if twr and portfolio_series.points:

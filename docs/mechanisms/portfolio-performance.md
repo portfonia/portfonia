@@ -808,15 +808,11 @@ dependency/new market-data source. Five contract comments on #433 are the
 spec; this is the implementation summary. Paired Chinese design doc:
 `Hermes/Portfonia/Docs/Portfolio_Pfmc.md` §1 items 8-11, D10-D13.
 
-**Shared read path**: both features reuse `_build_portfolio_series`'s
-already-loaded, already-filtered (D8) `dates`/`filtered_by_date` — no
-per-date/per-month/per-class query. `_SeriesBuild` (a new internal
-dataclass) carries these plus a `daily_links: dict[date, Decimal | None]`
-of the unrounded approximate-TWR day-over-day factor for every displayed
-day, computed **unconditionally** now (previously only under `twr=True`) —
-monthly performance needs this chain even when the cumulative chart's own
-`twr` toggle is off; the toggle still governs only `PortfolioSeries.points[
-].return_pct_cumulative`.
+**Read path**: allocation reuses the page series' already-filtered (D8)
+`dates`/`filtered_by_date`. Monthly performance builds its own series with
+identical filters, requested currency and tracking start. `_SeriesBuild`
+carries unrounded `daily_links: dict[date, Decimal | None]`, computed
+unconditionally; the page's `twr` toggle governs only its cumulative chart.
 
 **Allocation** (`_build_allocation`): for each date, sums `market_value_base`
 by that row's own `asset_class`, using the SAME day the cumulative series
@@ -831,8 +827,14 @@ subset — a class keeps its color whether 2 or all 13 appear in a given
 range. Weights are currency-invariant (same day, same conversion factor for
 every bucket), so no FX conversion happens in this builder at all.
 
-**Monthly performance** (`_build_monthly_performance`): aggregates the SAME
-unrounded `daily_links` into `prod(1 + r_t) - 1` per calendar month
+**Monthly performance**: `monthly_range` is independent of page `range`:
+`6M`, `1Y` (default), or `3Y` includes the current calendar month plus the
+preceding 5, 11, or 35 months. The series starts on day 1 of the month before
+the first window month. This extra opening month supplies the previous
+month's last tracked snapshot; its bar is computed and then dropped by
+`month` key. Page range changes never truncate monthly calendar months.
+
+`_build_monthly_performance` aggregates that series' unrounded `daily_links` into `prod(1 + r_t) - 1` per calendar month
 (`_month_key`), assigning each link to the month containing its own date —
 never differencing already-rounded cumulative percentages. Partial-month
 rules:
@@ -862,10 +864,9 @@ The monthly benchmark (`monthly_benchmark` query param, `sp500|dow30|
 nasdaq|csi300`, default `sp500`, independent single-select from the
 cumulative chart's `benchmarks` multi-select) is evaluated with the
 existing `evaluate_index_day` at the portfolio's own disclosed month
-start/end dates, reusing the SAME bulk-loaded `closes`/`fx_by_pair` the
-cumulative benchmarks already loaded — `_build_selected_benchmarks` grew an
-`extra_codes` param so a monthly-only code is bulk-loaded in the same
-`load_index_closes`/`load_fx_series` call rather than issuing its own.
+start/end dates. It loads its own `load_index_closes` and required
+`load_fx_series` data from the extra opening month's first day through
+`today`, independently of cumulative benchmark loading.
 Either endpoint unavailable → `benchmark_return_pct=null` +
 `benchmark_unavailable_reason` (the existing `UnavailableReason` set); never
 a shifted window or invented value.
@@ -879,11 +880,16 @@ so row identity/update time is not trade evidence.
 `allocation-data.ts`/`allocation-chart.tsx` (Recharts `AreaChart`
 `stackOffset="expand"`, a gap day is an all-null row, not a zero-filled
 stack) and `monthly-data.ts`/`monthly-performance-chart.tsx` (grouped
-`BarChart`, adaptive tick thinning above 12 months so 5Y/ALL labels don't
+`BarChart`, adaptive tick thinning above 12 months so 3Y labels don't
 overlap) are new, both under the existing cumulative chart card.
 `benchmark-single-select-menu.tsx` is a new single-choice `MenuDropdown`
 (same primitive `CurrencySwitcher` uses) for `monthly_benchmark`, kept
 separate from `MultiSelectMenu` since it can never reach "none"/"several".
+
+`monthly-range-tabs.tsx` adds an independent 6M/1Y/3Y selector (default 1Y)
+beside the monthly benchmark selector, disabled while loading, without persistence.
+
+History: #826 gave monthly performance its own calendar window and benchmark load.
 
 **CSI 300 color (requirement 9)**: `globals.css` gets a dedicated
 `--chart-csi300` token (light `#9c7a2e` / dark `#dcaa4a`) used by BOTH the

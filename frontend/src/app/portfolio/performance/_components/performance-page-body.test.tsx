@@ -283,6 +283,7 @@ describe("PerformancePageBody", () => {
       accounts: [],
       baseCurrency: "USD",
       monthlyBenchmark: "sp500",
+      monthlyRange: "1Y",
     });
     expect(screen.getByRole("button", { name: "1M" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /Benchmarks/ })).toHaveTextContent("1 selected");
@@ -311,12 +312,28 @@ describe("PerformancePageBody", () => {
     expect(screen.getByText(/Portfolio tracked since Aug 3, 2026/)).toBeInTheDocument();
   });
 
+  it("keeps the monthly window independent of the page range", async () => {
+    const user = userEvent.setup();
+    renderBody();
+    await waitForChart();
+    const card = screen.getByText("Monthly performance").closest('[data-slot="card"]')!;
+    const monthly = within(card as HTMLElement);
+    expect(monthly.getByRole("button", { name: "6M" })).toHaveAttribute("aria-pressed", "false");
+    expect(monthly.getByRole("button", { name: "1Y" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(monthly.getByRole("button", { name: "3Y" }));
+    await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(2));
+    expect(getPerformanceMock.mock.calls.at(-1)?.[0]).toMatchObject({ monthlyRange: "3Y", range: "1M" });
+    await user.click(screen.getByRole("button", { name: "5Y" }));
+    await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(3));
+    expect(getPerformanceMock.mock.calls.at(-1)?.[0]).toMatchObject({ monthlyRange: "3Y", range: "5Y" });
+  });
+
   it("refetches when the range changes", async () => {
     const user = userEvent.setup();
     renderBody();
     await waitForChart();
 
-    await user.click(screen.getByRole("button", { name: "6M" }));
+    await user.click(within(screen.getAllByRole("radiogroup")[0]).getByRole("button", { name: "6M" }));
 
     await waitFor(() => expect(getPerformanceMock).toHaveBeenCalledTimes(2));
     expect(getPerformanceMock.mock.calls[1][0].range).toBe("6M");

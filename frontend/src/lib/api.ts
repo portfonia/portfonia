@@ -785,6 +785,10 @@ export interface PortfolioPerformanceResponse {
   meta: PortfolioPerformanceMeta;
 }
 
+export type MonthlyRange = "6M" | "1Y" | "3Y";
+export const MONTHLY_RANGES: readonly MonthlyRange[] = ["6M", "1Y", "3Y"];
+export const DEFAULT_MONTHLY_RANGE: MonthlyRange = "1Y";
+
 export const DEFAULT_MONTHLY_BENCHMARK: BenchmarkCode = "sp500";
 
 export interface PortfolioPerformanceQuery {
@@ -799,6 +803,7 @@ export interface PortfolioPerformanceQuery {
   // Issue #433: single-select, independent of the cumulative `benchmarks`
   // multi-select — drives only `monthly_performance`.
   monthlyBenchmark: BenchmarkCode;
+  monthlyRange: MonthlyRange;
 }
 
 // GET /portfolio/performance (issue #360 Phase 2). `baseCurrency` is always
@@ -818,6 +823,7 @@ export async function getPortfolioPerformance(
     range: query.range,
     twr: String(query.twr),
     monthly_benchmark: query.monthlyBenchmark,
+    monthly_range: query.monthlyRange,
   });
   const dimensions = [
     ["benchmarks", query.benchmarks],
