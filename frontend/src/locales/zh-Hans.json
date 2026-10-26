@@ -719,7 +719,7 @@
       "monthlyPortfolioLabel": "组合(近似 TWR)",
       "monthlyApproxNote": "本月包含近似或兜底定价数据。",
       "monthlyPartialReason": {
-        "range_start": "不完整月份——所选区间从本月中途开始。",
+        "range_start": "不完整月份——当前筛选范围的数据从本月中途开始。",
         "tracking_start": "不完整月份——组合追踪从本月中途开始。",
         "month_to_date": "月初至今——截至最近一次真实追踪快照,非完整日历月。"
       },

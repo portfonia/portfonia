@@ -719,7 +719,7 @@
       "monthlyPortfolioLabel": "Portfolio (approx. TWR)",
       "monthlyApproxNote": "This month includes approximate or fallback-priced data.",
       "monthlyPartialReason": {
-        "range_start": "Partial month — the selected range starts partway through this month.",
+        "range_start": "Partial month — data for the current selection starts partway through this month.",
         "tracking_start": "Partial month — portfolio tracking started partway through this month.",
         "month_to_date": "Month to date — through the latest tracked snapshot, not the full calendar month."
       },
