@@ -132,7 +132,7 @@ function percentLabel(_key: string, value: number): string {
   return `${value}%`;
 }
 
-export function HomeProductPreviews() {
+export function HomeProductPreviews({ technicalPreview }: { technicalPreview?: React.ReactNode }) {
   const t = useTranslations("home");
   const copy = t.raw("productPreviews") as Messages["home"]["productPreviews"];
   const tPortfolio = useTranslations("portfolio");
@@ -347,6 +347,8 @@ export function HomeProductPreviews() {
             </div>
           </div>
         </div>
+
+        {technicalPreview}
 
         <div className="rounded-2xl border border-white/10 bg-card p-7 sm:p-11">
           <h2 className="max-w-[18ch] font-serif text-2xl sm:text-3xl">{copy.ctaHeading}</h2>

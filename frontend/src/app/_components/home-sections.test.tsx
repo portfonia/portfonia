@@ -690,3 +690,15 @@ it.each(LOCALES)("#791 renders the %s hero security statement", locale => {
   render(<LocaleProvider routeLocale={locale}><HomeSections /></LocaleProvider>);
   expect(screen.getByText(catalogs[locale].home.hero.security)).toBeInTheDocument();
 });
+
+
+it("833 places the technical preview between performance and the closing CTA outside the briefing", () => {
+  render(<LocaleProvider routeLocale="en"><HomeSections /></LocaleProvider>);
+  const home = catalogs.en.home;
+  const technical = screen.getByRole("heading", { level: 3, name: home.preview.technicalSiteLabel });
+  const performance = screen.getByRole("heading", { name: home.productPreviews.performanceHeading });
+  const cta = screen.getByRole("heading", { name: home.productPreviews.ctaHeading });
+  expect(performance.compareDocumentPosition(technical) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(technical.compareDocumentPosition(cta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(technical.closest("#preview")).toBeNull();
+});
