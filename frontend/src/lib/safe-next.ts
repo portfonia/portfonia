@@ -3,7 +3,7 @@ export function safeNext(raw: unknown): string {
     raw.startsWith("/") &&
     !raw.startsWith("//") &&
     !raw.startsWith("/\\") &&
-    !/[\r\n]/.test(raw)
+    !/[\x00-\x1F\x7F]/.test(raw)
     ? raw
     : "/portfolio";
 }

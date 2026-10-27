@@ -95,6 +95,7 @@ from app.services.report_sections import (
     _fx_is_stale,
     _header_timestamp,
     _inject_forward_block,
+    _inject_section4_page_links,
     _inject_section42_table,
     _inject_today_events,
 )
@@ -638,8 +639,6 @@ def _render_full_md(
     analysis to check) and any other caller can opt out simply by not
     passing them.
     """
-    from app.services.report_sections import _inject_section4_page_links
-
     render_lang = "zh" if output_lang == "zh-Hant" else output_lang
     cleaned = _strip_markers(raw_body)
     if report_id is not None and holding_news is not None:

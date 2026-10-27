@@ -8,6 +8,7 @@ it.each([
   ["//evil.example", "/portfolio"],
   ["https://evil.example", "/portfolio"],
   ["/\\evil.example", "/portfolio"],
+  ["/\t/evil.example", "/portfolio"],
 ])("828 safeNext(%s) returns %s", (raw, expected) => {
   expect(safeNext(raw)).toBe(expected);
 });

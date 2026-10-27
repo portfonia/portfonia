@@ -561,7 +561,7 @@ file:
 Issue #828: signed-out protected-page redirects carry the original pathname and
 query in `/login?next=...`. The login form submits `next`; the login action uses
 `safeNext` from `src/lib/safe-next.ts` to accept paths starting with `/`, reject
-`//`, `/\` prefixes and CR/LF, and otherwise fall back to `/portfolio`.
+`//`, `/\` prefixes and control characters, and otherwise fall back to `/portfolio`.
 
 Closes the loop B4 opened: `current_principal` (B4) requires a Bearer JWT on
 every non-public backend route, but until this checkpoint nothing in the

@@ -262,7 +262,10 @@ describe("issue #702 public SEO routing", () => {
     getUser.mockResolvedValue({ data: { user: null } });
     const res = await proxy(makeRequest(path));
     expect(res.status).toBe(307);
-    expect(new URL(res.headers.get("location")!).searchParams.get("next")).toBe(path);
+    const location = new URL(res.headers.get("location")!);
+    expect(location.origin).toBe("https://portfonia.com");
+    expect(location.pathname).toBe("/login");
+    expect(location.searchParams.get("next")).toBe(path);
   });
   it("does not redirect an unknown signed-in URL", async () => {
     getUser.mockResolvedValue({ data: { user: AUTHED_USER } });
@@ -278,7 +281,10 @@ describe("issue #702 follow-up header and path boundaries", () => {
     const request = new NextRequest(`https://portfonia.com${path}`);
     const res = await proxy(request);
     expect(res.status).toBe(307);
-    expect(new URL(res.headers.get("location")!).searchParams.get("next")).toBe(request.nextUrl.pathname + request.nextUrl.search);
+    const location = new URL(res.headers.get("location")!);
+    expect(location.origin).toBe("https://portfonia.com");
+    expect(location.pathname).toBe("/login");
+    expect(location.searchParams.get("next")).toBe(request.nextUrl.pathname + request.nextUrl.search);
   });
   it.each(["/reports-sample", "/%2568oldings", "/zh-Hans/holdings", "/bad%escape", "/missing%2f..%2fholdings"])("7g leaves %s unprotected without a second decode or dot-segment resolution", async (path) => {
     getUser.mockResolvedValue({ data: { user: null } });
@@ -320,7 +326,10 @@ it("808 A4 redirects anonymous tracking requests to login", async () => {
   getSession.mockResolvedValue({ data: { session: null } });
   const res = await proxy(makeRequest("/jade/tracking"));
   expect(res.status).toBe(307);
-  expect(new URL(res.headers.get("location")!).searchParams.get("next")).toBe("/jade/tracking");
+  const location = new URL(res.headers.get("location")!);
+  expect(location.origin).toBe("https://portfonia.com");
+  expect(location.pathname).toBe("/login");
+  expect(location.searchParams.get("next")).toBe("/jade/tracking");
 });
 
 it("828 preserves the protected page and query through login", async () => {
