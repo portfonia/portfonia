@@ -438,3 +438,8 @@ describe("HoldingsEditor", () => {
     });
   });
 });
+
+it("828 links to change history from the edit page", () => {
+  renderEditor();
+  expect(screen.getAllByRole("link").some((link) => link.getAttribute("href") === "/holdings/changes")).toBe(true);
+});

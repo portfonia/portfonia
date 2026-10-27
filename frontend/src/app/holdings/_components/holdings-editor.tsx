@@ -310,9 +310,14 @@ export function HoldingsEditor({
       <header className="mb-8">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h1 className="font-heading text-2xl font-semibold">{t("editPageTitle")}</h1>
-          <Link href="/portfolio" className="text-sm text-muted-foreground underline underline-offset-4">
-            {t("viewPortfolioLink")}
-          </Link>
+          <span className="flex flex-wrap gap-4">
+            <Link href="/portfolio" className="text-sm text-muted-foreground underline underline-offset-4">
+              {t("viewPortfolioLink")}
+            </Link>
+            <Link href="/holdings/changes" className="text-sm text-muted-foreground underline underline-offset-4">
+              {t("changeHistoryLink")}
+            </Link>
+          </span>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">{t("editPageSubtitle")}</p>
         <p className="mt-1 text-sm text-muted-foreground">{t("capNote")}</p>

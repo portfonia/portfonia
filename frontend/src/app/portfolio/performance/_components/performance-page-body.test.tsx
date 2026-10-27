@@ -806,3 +806,12 @@ describe("PerformancePageBody", () => {
     expect(lastCall.benchmarks).toEqual(["sp500"]);
   });
 });
+
+it("828 offers Portfolio and Edit holdings navigation", async () => {
+  getPerformanceMock.mockResolvedValue(response());
+  renderBody();
+  await waitForChart();
+  const hrefs = screen.getAllByRole("link").map((link) => link.getAttribute("href"));
+  expect(hrefs).toContain("/portfolio");
+  expect(hrefs).toContain("/holdings/edit");
+});

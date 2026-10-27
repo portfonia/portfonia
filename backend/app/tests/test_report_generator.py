@@ -2589,3 +2589,22 @@ def test_issue725_analyze_uses_current_tier_and_updates_stored_model(db_session:
         assert out.report_inputs is not None
         assert out.report_inputs["pass2_model"] == get_settings().PRIMARY_LLM_MODEL
         assert out.status == "success"
+
+
+def test_render_full_md_zh_injects_section41_localized_link() -> None:
+    from string import Template
+
+    from app.core.config import get_settings
+    from app.services.i18n_glossary import load_i18n_glossary
+
+    body = "### 4.1 Concentration\nAssets.\n### 4.3 FX exposure\nCurrencies."
+    with patch("app.services.report_generator._translate_md", side_effect=lambda md, lang: md):
+        full_md, _violations, _dynamic = rg._render_full_md(
+            "2026-09-25", _LINKS_PORTFOLIO, [], body, "zh"
+        )
+    template = load_i18n_glossary().templates["section41_page_link"]["zh-Hans"]
+    base = get_settings().FRONTEND_URL.rstrip("/")
+    assert (
+        Template(template).substitute(portfolio_url=f"{base}/portfolio?focus=asset-class")
+        in full_md
+    )

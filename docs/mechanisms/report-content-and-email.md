@@ -249,6 +249,15 @@ between them, so the wording and URLs stay byte-exact. Because translation
 chunks at `## `/`### ` headings, splitting the call does not change the chunk
 set. The non-`en` compliance re-scan still runs over the spliced output.
 
+### §4.1 / §4.3 closing page links (issue #828)
+
+`templates.section41_page_link` and `templates.section43_page_link` provide
+English and Simplified Chinese closing lines. `_render_full_md` injects them
+after body translation, before the non-English compliance re-scan and Traditional
+conversion. The URLs are `{FRONTEND_URL}/portfolio?focus=asset-class` and
+`{FRONTEND_URL}/portfolio?focus=currency`; Portfolio scrolls to the matching
+chart. A missing section heading is logged and that section's link is skipped.
+
 ### Theme-anomaly holding weights (issue #492)
 
 Issue #492 (PR #500): `window_data._merge_theme_anomalies._val()` weighted holdings sharing a theme by raw `Holding.current_value`, which is never a real valuation for `pricing_mode="auto"` holdings — now `shares × price` for auto, unchanged for manual/cash. Forward-only, no retroactive report regeneration.

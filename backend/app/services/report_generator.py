@@ -638,6 +638,8 @@ def _render_full_md(
     analysis to check) and any other caller can opt out simply by not
     passing them.
     """
+    from app.services.report_sections import _inject_section4_page_links
+
     render_lang = "zh" if output_lang == "zh-Hant" else output_lang
     cleaned = _strip_markers(raw_body)
     if report_id is not None and holding_news is not None:
@@ -690,6 +692,7 @@ def _render_full_md(
     # LLM. Chunking is by heading, so the chunk set is unchanged.
     snapshot_out = _translate_md(header + window + section1, render_lang)
     body_out = _translate_md(cleaned, render_lang)
+    body_out = _inject_section4_page_links(body_out, render_lang)
     hits = prompt_label_hits(raw_body, body_out)
     if label_hits is not None:
         label_hits[:] = hits

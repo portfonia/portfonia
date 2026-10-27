@@ -158,6 +158,12 @@ templates:
   section1_page_links:
     en: "Want a closer look? Open [Portfolio]($portfolio_url) to explore your holdings, allocation and risk, or [Performance]($performance_url) to follow your returns and long-term trends."
     zh-Hans: "想看得更深入？在[持仓总览]($portfolio_url)中查看持仓结构、分布与风险，在[业绩表现]($performance_url)中追踪收益与长期趋势。"
+  section41_page_link:
+    en: "See the full asset-class breakdown in [Portfolio]($portfolio_url)."
+    zh-Hans: "在[持仓总览]($portfolio_url)中查看完整的资产类别分布。"
+  section43_page_link:
+    en: "See the full currency breakdown in [Portfolio]($portfolio_url)."
+    zh-Hans: "在[持仓总览]($portfolio_url)中查看完整的币种分布。"
   cross_reference_example:
     # A concrete example of the §-anchor marker the Pass 2 prompt permits the
     # LLM to emit (report_generator._build_pass2_prompt's §4.2 rule).

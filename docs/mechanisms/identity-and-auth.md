@@ -558,6 +558,11 @@ file:
 
 ### Frontend auth closure — B5 (Ring 1 stage B, issue #129)
 
+Issue #828: signed-out protected-page redirects carry the original pathname and
+query in `/login?next=...`. The login form submits `next`; the login action uses
+`safeNext` from `src/lib/safe-next.ts` to accept paths starting with `/`, reject
+`//`, `/\` prefixes and CR/LF, and otherwise fall back to `/portfolio`.
+
 Closes the loop B4 opened: `current_principal` (B4) requires a Bearer JWT on
 every non-public backend route, but until this checkpoint nothing in the
 frontend could produce one — every route was unconditionally public. B5

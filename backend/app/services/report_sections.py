@@ -7,6 +7,8 @@ statement. Split out of report_generator.py (#37).
 
 from __future__ import annotations
 
+import logging
+import re
 from datetime import date, datetime
 from string import Template
 from typing import Any
@@ -16,6 +18,8 @@ from app.core.timezones import ET
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
 from app.services.portfolio_calculator import format_fx_rates_as_of
 from app.services.price_anomaly_detector import trigger_description
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # §1 Portfolio Snapshot
@@ -151,6 +155,39 @@ def _build_section1_page_links(output_lang: str = "en") -> str:
         portfolio_url=f"{base}/portfolio",
         performance_url=f"{base}/portfolio/performance",
     )
+
+
+def _inject_section4_page_links(body: str, output_lang: str = "en") -> str:
+    base = get_settings().FRONTEND_URL.rstrip("/")
+    templates = load_i18n_glossary().templates
+    locale = locale_for_output_lang(output_lang)
+    lines = body.split("\n")
+    for section, key, focus in (
+        ("4.3", "section43_page_link", "currency"),
+        ("4.1", "section41_page_link", "asset-class"),
+    ):
+        start = next(
+            (
+                i
+                for i, line in enumerate(lines)
+                if re.match(rf"^###\s*{re.escape(section)}(?!\d)", line)
+            ),
+            None,
+        )
+        if start is None:
+            logger.warning("report section %s heading not found; page link skipped", section)
+            continue
+        end = next(
+            (i for i in range(start + 1, len(lines)) if lines[i].startswith("#")), len(lines)
+        )
+        trimmed = end
+        while trimmed > start + 1 and not lines[trimmed - 1].strip():
+            trimmed -= 1
+        link = Template(templates[key][locale]).substitute(
+            portfolio_url=f"{base}/portfolio?focus={focus}"
+        )
+        lines[trimmed:end] = ["", link, ""]
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

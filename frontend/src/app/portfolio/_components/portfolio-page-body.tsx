@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
@@ -45,9 +45,11 @@ function assetClassLabel(t: ReturnType<typeof useTranslations<"portfolio">>, cod
 export function PortfolioPageBody({
   initialSummary,
   initialLoadError,
+  focus,
 }: {
   initialSummary: PortfolioSummary | null;
   initialLoadError: boolean;
+  focus?: "asset-class" | "currency";
 }) {
   const t = useTranslations("portfolio");
   const tMenu = useTranslations("menu");
@@ -57,6 +59,10 @@ export function PortfolioPageBody({
   );
   const [loadError, setLoadError] = useState(initialLoadError);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (focus) document.getElementById(focus)?.scrollIntoView({ block: "start" });
+  }, [focus]);
 
   if (loadError && !summary) {
     return <p className="text-sm text-destructive">{t("loadError")}</p>;
@@ -223,23 +229,27 @@ export function PortfolioPageBody({
           currency={summary.base_currency}
           emptyLabel={t("chartEmpty")}
         />
-        <BreakdownChart
-          title={t("chartByAssetClass")}
-          data={summary.by_asset_class}
-          labelFor={assetClassLabelFor}
-          currency={summary.base_currency}
-          emptyLabel={t("chartEmpty")}
-        />
-        <BreakdownChart
-          title={t("chartByCurrency")}
-          data={summary.by_currency}
-          currency={summary.base_currency}
-          emptyLabel={t("chartEmpty")}
-          formatValue={currencyRowFormat}
-          // The share is already baked into currencyRowFormat's own
-          // "(NN.N%)" — the default annotation would just duplicate it.
-          showShareOfTotal={false}
-        />
+        <div id="asset-class">
+          <BreakdownChart
+            title={t("chartByAssetClass")}
+            data={summary.by_asset_class}
+            labelFor={assetClassLabelFor}
+            currency={summary.base_currency}
+            emptyLabel={t("chartEmpty")}
+          />
+        </div>
+        <div id="currency">
+          <BreakdownChart
+            title={t("chartByCurrency")}
+            data={summary.by_currency}
+            currency={summary.base_currency}
+            emptyLabel={t("chartEmpty")}
+            formatValue={currencyRowFormat}
+            // The share is already baked into currencyRowFormat's own
+            // "(NN.N%)" — the default annotation would just duplicate it.
+            showShareOfTotal={false}
+          />
+        </div>
       </div>
 
       <Card>

@@ -124,6 +124,7 @@ export function PerformancePageBody({
   initialLoadError: boolean;
 }) {
   const t = useTranslations("portfolio");
+  const tMenu = useTranslations("menu");
   const { locale } = useLocale();
 
   // Issue #350 item 1: seed from the user's own persisted report-currency
@@ -337,12 +338,12 @@ export function PerformancePageBody({
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <CurrencySwitcher value={currency} onChange={changeCurrency} disabled={isLoading} />
-          <Link
-            href="/portfolio"
-            className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
-          >
+          <Button variant="outline" size="sm" render={<Link href="/portfolio" />}>
             {t("performance.overviewLink")}
-          </Link>
+          </Button>
+          <Button variant="outline" size="sm" render={<Link href="/holdings/edit" />}>
+            {tMenu("editHoldings")}
+          </Button>
         </div>
       </header>
 
