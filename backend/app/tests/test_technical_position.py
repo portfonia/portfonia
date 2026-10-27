@@ -160,12 +160,13 @@ def test_829_series_matches_same_day_position_with_sparse_history(db_session: Se
     db_session.flush()
     points = tp.compute_technical_series(db_session, "SPARSE829", "Sparse", start, end)
     assert [point.date for point in points] == [day for day in days if start <= day <= end]
-    last = tp.compute_technical_position(db_session, "SPARSE829", "Sparse", end)
-    assert points[-1].pct_vs_sma50 == last.pct_vs_sma50 is None
-    assert points[-1].close == last.last_close
-    assert points[-1].pct_vs_sma200 == last.pct_vs_sma200
-    assert points[-1].pct_in_52w_range == last.pct_in_52w_range
-    assert points[-1].vol_20d_annualized == last.vol_20d_annualized
+    for point in points:
+        position = tp.compute_technical_position(db_session, "SPARSE829", "Sparse", point.date)
+        assert point.close == position.last_close
+        assert point.pct_vs_sma50 == position.pct_vs_sma50
+        assert point.pct_vs_sma200 == position.pct_vs_sma200
+        assert point.pct_in_52w_range == position.pct_in_52w_range
+        assert point.vol_20d_annualized == position.vol_20d_annualized
 
 
 def test_829_historical_holdings_uses_prior_snapshot(db_session: Session) -> None:
