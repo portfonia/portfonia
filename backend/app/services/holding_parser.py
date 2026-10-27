@@ -762,7 +762,16 @@ _ASSET_TYPE_CLASS: dict[str, str] = {
 }
 
 
-def _classify_asset_class(row: dict[str, Any]) -> str:
+def _classify_asset_class(
+    row: dict[str, Any], leverage_classes: Mapping[str, str] | None = None
+) -> str:
+    from app.services.ticker_leverage import normalize_leverage_ticker
+
+    ticker = row.get("ticker")
+    if ticker and leverage_classes:
+        registered = leverage_classes.get(normalize_leverage_ticker(ticker))
+        if registered is not None:
+            return registered
     mapping = _load_ticker_asset_class()
     ticker = (row.get("ticker") or "").upper()
     if ticker and ticker in mapping:
@@ -1012,7 +1021,7 @@ def _postprocess(
                 row[str_field] = " ".join(v) if v else None
 
         # Classify economic exposure (not the LLM's product-form asset_type).
-        row["asset_class"] = _classify_asset_class(row)
+        row["asset_class"] = _classify_asset_class(row, {})
 
         # Deduplicate: collapse only fully-identical rows (see comment above).
         if dedup:

@@ -121,6 +121,7 @@ from app.services.ticker_leverage import (
     delete_leverage_override,
     get_leverage_override,
     list_leverage_overrides,
+    reclassify_ticker_holdings,
     update_leverage_override,
 )
 from app.services.user_directory import recipient_email_with_purpose
@@ -1753,17 +1754,23 @@ class LeverageOverrideOut(BaseModel):
     leverage_multiple: Decimal
     direction: Literal["bull", "bear"] | None
     notes: str | None
+    asset_class: str | None
+    underlying_ticker: str | None
+    reclassified_holdings: int = 0
     created_by: UUID
     created_at: datetime
     updated_at: datetime
 
     @staticmethod
-    def from_override(o: LeverageOverride) -> LeverageOverrideOut:
+    def from_override(o: LeverageOverride, reclassified_holdings: int = 0) -> LeverageOverrideOut:
         return LeverageOverrideOut(
             ticker=o.ticker,
             leverage_multiple=o.leverage_multiple,
             direction=o.direction,
             notes=o.notes,
+            asset_class=o.asset_class,
+            underlying_ticker=o.underlying_ticker,
+            reclassified_holdings=reclassified_holdings,
             created_by=o.created_by,
             created_at=o.created_at,
             updated_at=o.updated_at,
@@ -1775,6 +1782,17 @@ class CreateLeverageOverrideBody(BaseModel):
     leverage_multiple: Decimal = Field(gt=0)
     direction: Literal["bull", "bear"] | None = None
     notes: str | None = None
+    asset_class: str | None = None
+    underlying_ticker: str | None = None
+
+    @field_validator("asset_class")
+    @classmethod
+    def validate_asset_class(cls, value: str | None) -> str | None:
+        from app.services.asset_class_config import VALID_ASSET_CLASSES
+
+        if value is not None and value not in VALID_ASSET_CLASSES:
+            raise ValueError("Unknown asset_class")
+        return value
 
 
 @router.post("/ticker-leverage", response_model=LeverageOverrideOut, status_code=201)
@@ -1784,7 +1802,7 @@ def create_ticker_leverage_endpoint(
     """Issue #87: system-wide leveraged-product multiplier, applied at read
     time by window_data.py (anomaly thresholds widened) and
     portfolio_calculator.py (§4.1 single-holding concentration thresholds
-    tightened). Never written back onto Holding.asset_class."""
+    tightened). Registration also reclassifies existing holdings (#839)."""
     try:
         created = create_leverage_override(
             session,
@@ -1792,6 +1810,8 @@ def create_ticker_leverage_endpoint(
             leverage_multiple=body.leverage_multiple,
             direction=body.direction,
             notes=body.notes,
+            asset_class=body.asset_class,
+            underlying_ticker=body.underlying_ticker,
             created_by=UUID(get_settings().ADMIN_ID),
         )
     except LeverageOverrideAlreadyExists:
@@ -1799,7 +1819,9 @@ def create_ticker_leverage_endpoint(
             status_code=409, detail="ticker already has a leverage override"
         ) from None
     session.commit()
-    return LeverageOverrideOut.from_override(created)
+    return LeverageOverrideOut.from_override(
+        created, reclassify_ticker_holdings(session, created.ticker)
+    )
 
 
 @router.get("/ticker-leverage", response_model=list[LeverageOverrideOut])
@@ -1825,6 +1847,17 @@ class UpdateLeverageOverrideBody(BaseModel):
     leverage_multiple: Decimal | None = Field(default=None, gt=0)
     direction: Literal["bull", "bear"] | None = Field(default=None)
     notes: str | None = Field(default=None)
+    asset_class: str | None = None
+    underlying_ticker: str | None = None
+
+    @field_validator("asset_class")
+    @classmethod
+    def validate_asset_class(cls, value: str | None) -> str | None:
+        from app.services.asset_class_config import VALID_ASSET_CLASSES
+
+        if value is not None and value not in VALID_ASSET_CLASSES:
+            raise ValueError("Unknown asset_class")
+        return value
 
 
 @router.patch("/ticker-leverage/{ticker}", response_model=LeverageOverrideOut)
@@ -1837,7 +1870,7 @@ def update_ticker_leverage_endpoint(
     except LookupError:
         raise HTTPException(status_code=404, detail="ticker leverage override not found") from None
     session.commit()
-    return LeverageOverrideOut.from_override(updated)
+    return LeverageOverrideOut.from_override(updated, reclassify_ticker_holdings(session, ticker))
 
 
 @router.delete("/ticker-leverage/{ticker}", status_code=204)
@@ -1847,6 +1880,7 @@ def delete_ticker_leverage_endpoint(ticker: str, session: Session = Depends(get_
     except LookupError:
         raise HTTPException(status_code=404, detail="ticker leverage override not found") from None
     session.commit()
+    reclassify_ticker_holdings(session, ticker)
 
 
 @router.get("/users/{user_id}/api-audit", response_model=ApiAuditPage)

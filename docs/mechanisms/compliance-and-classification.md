@@ -296,8 +296,9 @@ a system-wide table, not per-user — same sharing model as `ticker_themes`
 lookups use (`app.services.ticker_leverage.normalize_leverage_ticker`; see
 the issue #204 mechanism note above this file's FX-pair entry for why an
 un-normalized join key silently splits one ticker's data across two rows).
-`Holding.asset_class` is never modified — a leveraged QQQ product stays
-`EQUITY_US_TECH`. `leverage_multiple` is looked up at read time only, in two
+The #87 rule that `Holding.asset_class` is never modified is superseded by
+#839: registration can set its underlying exposure class (a leveraged QQQ
+product can use `EQUITY_US_TECH`). `leverage_multiple` is looked up at read time only, in two
 places that move the threshold in **opposite directions**:
 
 - `window_data.select_user_anomalies` (leverage_map param) widens
@@ -321,7 +322,48 @@ documentation/audit only; it does not currently affect either formula.
 **Ops CRUD**: `GET`/`POST`/`PATCH`/`DELETE /admin/ticker-leverage[/{ticker}]`
 (`app/routers/admin.py`), `ADMIN_API_TOKEN` auth + the router's structural
 audit logging — no dedicated UI. No LLM involvement anywhere in this
-feature; `leverage_multiple` is looked up, never parsed or inferred, so
-`holding_parser.py` is untouched.
+feature; `leverage_multiple` is looked up, never parsed or inferred.
+The #87 statement that `holding_parser.py` is untouched is superseded by #839.
+The parser now accepts registration classes; parse-time classification passes
+an empty map, while write-time classification loads the registration table.
 
 
+
+**Registration extension (#839):** nullable `asset_class` (CHECKed against
+`VALID_ASSET_CLASSES`) and `underlying_ticker` (normalized through
+`normalize_leverage_ticker`) supplement the existing multiplier/direction.
+PATCH follows `notes` semantics: omitted fields stay unchanged and explicit
+null clears them. Classification precedence is registered non-null class,
+then `ticker_asset_class.yml` (ticker, then fund code), then the existing
+asset-type catch-all. Each holdings writer loads registration classes once;
+the reclassification script also respects them. Registered classes suppress
+the unmapped-fund alert.
+
+After each committed admin create/update/delete, matching encrypted holding
+tickers are filtered in Python and changed classes are committed.
+Create/update responses expose `reclassified_holdings`; GET/list return zero
+and DELETE remains 204. No multiplier threshold math changes.
+
+Forward capture includes underlying earnings for held registered products.
+Reports store per-user `leverage_links` with the underlying, plain multiple
+and direction alongside forward events. Earnings exposure lists direct
+holdings followed by product labels such as `MU-Bull-2X (2x MU)` or
+`MU-Bear-2X (-2x MU)`. These links never enter an LLM payload; old report inputs
+without links retain existing rendering. Watch text and the ticker fallback
+are unchanged.
+
+Holdings writes enqueue detection only for non-null tickers with automatic
+pricing and `capture_supported=True`, absent from registrations and the YAML
+mapping, and without a `leverage_check:<normalized ticker>` Redis mark.
+The Celery task queries yfinance `get_info` through the provider-symbol
+adapter. Successful responses are marked for 30 days, including non-products;
+provider exceptions log WARNING and remain unmarked. String categories
+starting with `Trading--` produce one WARNING ops alert per detected batch,
+including product metadata and registration instructions. Enqueue failures
+log ERROR without failing the holdings write. There are no Yahoo request-path
+calls, LLM calls or Beat changes.
+
+`python -m app.scripts.check_leveraged_holdings` applies the same candidate
+rule to current holdings, ignores Redis marks, runs detection synchronously,
+prints detected products and sends the same batch alert. Running this sweep
+is an operational action separate from deploying the code.

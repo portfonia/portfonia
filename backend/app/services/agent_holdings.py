@@ -20,6 +20,7 @@ from app.services import agent_idempotency, holdings_write
 from app.services.holding_change_alerts import enqueue_change_alert
 from app.services.holding_ordering import sorted_holdings
 from app.services.subscription import is_jade
+from app.services.ticker_leverage import load_leverage_entries
 
 logger = logging.getLogger(__name__)
 INPUT_FIELDS = (
@@ -108,7 +109,9 @@ def get_book(session: Session, uid: UUID) -> dict[str, object]:
     return result
 
 
-def normalize(data: dict[str, object], path: str) -> dict[str, object]:
+def normalize(
+    data: dict[str, object], path: str, leverage_classes: dict[str, str]
+) -> dict[str, object]:
     # Input values have been type checked by the strict transport schema.
     if not cast(str, data["name"]).strip():
         raise error(422, "invalid_holding", "Name must be nonempty.", path=f"{path}.name")
@@ -135,7 +138,7 @@ def normalize(data: dict[str, object], path: str) -> dict[str, object]:
             "Cash and WMF require manual current_value and no instrument.",
             path=path,
         ) from None
-    return holdings_write.apply_write_defaults(data)
+    return holdings_write.apply_write_defaults(data, leverage_classes)
 
 
 def writable_json(data: dict[str, object]) -> dict[str, object]:
@@ -167,6 +170,7 @@ def plan(
     body: Create | ReplaceAll | Patch | None,
     hid: UUID | None,
     version: str,
+    leverage_classes: dict[str, str],
 ) -> Plan:
     if version != str(user.holdings_version):
         raise error(
@@ -199,7 +203,9 @@ def plan(
                 missing_ids=sorted(str(i) for i in missing),
             )
         for index, candidate in enumerate(body.holdings):
-            data = normalize(candidate.model_dump(exclude={"id"}), f"holdings.{index}")
+            data = normalize(
+                candidate.model_dump(exclude={"id"}), f"holdings.{index}", leverage_classes
+            )
             targets.append((owned(rows, candidate.id) if candidate.id else None, data, index))
         deleted = [owned(rows, i) for i in body.delete_ids]
         normalized.update(
@@ -211,7 +217,7 @@ def plan(
         )
     elif isinstance(body, Create):
         current = owned(rows, hid) if hid is not None else None
-        data = normalize(body.holding.model_dump(), "holding")
+        data = normalize(body.holding.model_dump(), "holding", leverage_classes)
         position = (
             current.position
             if current
@@ -226,7 +232,7 @@ def plan(
         changes = body.changes.model_dump(exclude_unset=True)
         if changes:
             data.update(changes)
-            data = normalize(data, "changes")
+            data = normalize(data, "changes", leverage_classes)
         else:
             # Empty PATCH preserves stored fields, including legacy rows.
             data.update(
@@ -299,7 +305,11 @@ def mutate(
             [{"type": "missing", "loc": ("body", "version"), "msg": "Field required", "input": {}}]
         )
     try:
-        prepared = plan(user, rows, body, hid, submitted)
+        entries = load_leverage_entries(session)
+        leverage_classes = {
+            t: e.asset_class for t, e in entries.items() if e.asset_class is not None
+        }
+        prepared = plan(user, rows, body, hid, submitted, leverage_classes)
         saved, capture, changed, group_id = holdings_write.apply_agent_book(
             session,
             user,
@@ -325,7 +335,8 @@ def mutate(
         raise
     if group_id is not None:
         enqueue_change_alert(uid, group_id)
-    holdings_write.enqueue_unmapped_asset_class_alert(saved, "agent")
+    holdings_write.enqueue_unmapped_asset_class_alert(saved, "agent", session)
+    holdings_write.enqueue_leverage_check(session, saved)
     if capture:
         try:
             holdings_write.enqueue_agent_capture(session, uid, capture)
@@ -339,7 +350,11 @@ def validate(session: Session, uid: UUID, body: Validation) -> dict[str, object]
     version = str(user.holdings_version)
     hid = getattr(body, "holding_id", None)
     try:
-        prepared = plan(user, rows, body, hid, body.version)
+        entries = load_leverage_entries(session)
+        leverage_classes = {
+            t: e.asset_class for t, e in entries.items() if e.asset_class is not None
+        }
+        prepared = plan(user, rows, body, hid, body.version, leverage_classes)
         normalized = {"operation": body.operation, **prepared.normalized}
         if hid is not None:
             normalized["holding_id"] = str(hid)

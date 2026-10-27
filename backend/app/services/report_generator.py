@@ -621,6 +621,7 @@ def _render_full_md(
     report_id: uuid.UUID | None = None,
     holding_news: dict[str, list[dict[str, Any]]] | None = None,
     label_hits: list[str] | None = None,
+    leverage_links: dict[str, dict[str, str]] | None = None,
 ) -> tuple[str, list[str], str]:
     """Annotate, assemble, language-render, and compliance-scan a report.
 
@@ -655,14 +656,18 @@ def _render_full_md(
         cleaned = _inject_forward_block(
             cleaned,
             _build_forward_block(
-                forward_events, portfolio.get("holdings", []), news_items, report_date_str
+                forward_events,
+                portfolio.get("holdings", []),
+                news_items,
+                report_date_str,
+                leverage_links,
             ),
         )
         # R-6: events scheduled for the report's own date are no longer "forward"
         # — promote them to a "today" note at the top of §2 (calendar fact only,
         # results not yet in this report's data).
         today_block = _build_today_events_block(
-            forward_events, portfolio.get("holdings", []), report_date_str
+            forward_events, portfolio.get("holdings", []), report_date_str, leverage_links
         )
         if today_block:
             cleaned = _inject_today_events(cleaned, today_block)
@@ -802,6 +807,7 @@ def _finish_report(
         report_id=report.id,
         holding_news=ctx.holding_news,
         label_hits=ctx.prompt_label_hits,
+        leverage_links=ctx.leverage_links,
     )
     ctx.pass2_translated = translated_body
     logger.info("report %s: assembled + rendered (lang=%s)", report.id, output_lang)
@@ -1351,6 +1357,21 @@ def generate_report(
         # Forward calendar (#1): read the scheduled US events the capture task
         # persisted. Stored so re-render reproduces §2.5 without a DB read.
         logger.info("report %s: loading forward calendar", report.id)
+        from app.services.ticker_leverage import load_leverage_entries, normalize_leverage_ticker
+
+        entries = load_leverage_entries(session)
+        ctx.leverage_links = {}
+        for h in user_holdings(session, user_id):
+            if not h.ticker:
+                continue
+            ticker = normalize_leverage_ticker(h.ticker)
+            entry = entries.get(ticker)
+            if entry and entry.underlying_ticker:
+                ctx.leverage_links[ticker] = {
+                    "underlying": entry.underlying_ticker,
+                    "multiple": format(entry.multiple.normalize(), "f"),
+                    "direction": entry.direction or "",
+                }
         ctx.forward_events = load_forward_events(
             session, eff_date, eff_date + timedelta(days=FORWARD_WINDOW_DAYS)
         )
@@ -1779,6 +1800,7 @@ def regenerate_report(
         report_id=report.id,
         holding_news=inputs.get("holding_news", {}),
         label_hits=label_hits,
+        leverage_links=inputs.get("leverage_links", {}),
     )
     report.status = "needs_review" if violations else "success"
     report.report_md = full_md
