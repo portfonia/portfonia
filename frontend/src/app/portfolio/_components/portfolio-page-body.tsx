@@ -201,7 +201,6 @@ export function PortfolioPageBody({
 
       <RiskPanel baseCurrency={summary.base_currency} />
 
-
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <BreakdownChart
           title={t("chartByMarket")}

@@ -316,7 +316,6 @@ export function HomeSections() {
             </p>
           </div>
         </div>
-
       </section>
 
       <HomeProductPreviews technicalPreview={
