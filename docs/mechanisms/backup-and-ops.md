@@ -79,3 +79,36 @@ place for that number to drift.
   top-level PR comment per round.
 
 
+### Container instance-principal auth depends on the IMDS SNAT source (issue #836)
+
+Instance principal auth from inside a container works only while Docker's
+SNAT sends metadata-service (169.254.169.254) traffic with the instance's
+**primary** private IP. OCI IMDS answers 404 to requests from any other
+source address, including a secondary IP on the same VNIC. The `oci` CLI
+then fails with "Instance principal auth is only possible from OCI compute
+instances", which hides the real cause.
+
+- **Why the source can drift**: IMDS is reached through a direct link-local
+  route with no gateway, so `MASQUERADE` picks the interface's first address.
+  Ordinary egress goes through the subnet gateway and selects the primary
+  address no matter how the addresses are ordered. After a secondary /32 was
+  added to the host for the DERP relay, a `systemd-networkd` restart during
+  OS patching (2026-10-26) re-applied the static address before the DHCP
+  lease. Every backup upload failed from the next run (2026-10-27 03:00 ET)
+  until the fix.
+- **Fix (host configuration, not in this repo)**: a systemd unit
+  `portfonia-imds-snat.service` (`PartOf=`/`WantedBy=docker.service`)
+  inserts `nat POSTROUTING` rule 1:
+  `-d 169.254.169.254/32 -o <nic> -j SNAT --to-source <primary IP>`. It is
+  re-inserted on every Docker start, so Docker's own `MASQUERADE` rules
+  cannot end up above it. The netfilter-persistent snapshot is deliberately
+  left untouched, because it also holds Docker's rules. Actual values live
+  in the Obsidian environment doc.
+- **Rule**: any change to the host's addresses (adding or removing an IP,
+  changing the primary IP) must keep this rule's `--to-source` in step. Then
+  check IMDS from a container (`/opc/v2/identity/cert.pem` must return 200).
+- **Diagnosis order for an IMDS 404**: compare the same request with
+  `curl --interface <primary>` and `--interface <secondary>` on the host,
+  then from inside a container. A 404 that carries IMDS's own response
+  headers means the source address was rejected, not a missing path or an
+  IAM policy (contrast the unquoted-policy `BucketNotFound` 404 above).
