@@ -95,6 +95,7 @@ from app.services.report_sections import (
     _fx_is_stale,
     _header_timestamp,
     _inject_forward_block,
+    _inject_section4_page_links,
     _inject_section42_table,
     _inject_today_events,
 )
@@ -690,6 +691,7 @@ def _render_full_md(
     # LLM. Chunking is by heading, so the chunk set is unchanged.
     snapshot_out = _translate_md(header + window + section1, render_lang)
     body_out = _translate_md(cleaned, render_lang)
+    body_out = _inject_section4_page_links(body_out, render_lang)
     hits = prompt_label_hits(raw_body, body_out)
     if label_hits is not None:
         label_hits[:] = hits

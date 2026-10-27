@@ -740,3 +740,28 @@ def test_section1_page_links_carry_no_forbidden_vocabulary() -> None:
 
     for lang in ("en", "zh"):
         assert _scan_forbidden_output(sec._build_section1_page_links(lang)) == []
+
+
+def test_section4_page_links_close_matching_blocks() -> None:
+    from string import Template
+
+    from app.core.config import get_settings
+    from app.services.i18n_glossary import load_i18n_glossary
+
+    body = "### 4.1 Concentration\nAssets.\n\n### 4.2 Price anomalies\nPrices.\n\n### 4.3 FX exposure\nCurrencies.\n"
+    result = sec._inject_section4_page_links(body)
+    base = get_settings().FRONTEND_URL.rstrip("/")
+    templates = load_i18n_glossary().templates
+    asset = Template(templates["section41_page_link"]["en"]).substitute(
+        portfolio_url=f"{base}/portfolio?focus=asset-class"
+    )
+    currency = Template(templates["section43_page_link"]["en"]).substitute(
+        portfolio_url=f"{base}/portfolio?focus=currency"
+    )
+    assert result.index("Assets.") < result.index(asset) < result.index("### 4.2")
+    assert result.endswith(f"Currencies.\n\n{currency}\n")
+
+
+def test_section4_page_links_missing_headings_leave_body_unchanged() -> None:
+    body = "## Macro\nUnchanged.\n"
+    assert sec._inject_section4_page_links(body) == body

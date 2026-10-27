@@ -11,7 +11,7 @@ import { markPendingLogin } from "@/hooks/use-session";
 import { settleAuthAction } from "@/lib/settle-auth-action";
 import { login, type LoginState } from "./actions";
 
-export function LoginForm() {
+export function LoginForm({ next }: { next?: string }) {
   const t = useTranslations("auth");
   const { locale } = useLocale();
 
@@ -37,6 +37,7 @@ export function LoginForm() {
           selected locale (no URL-based routing — see src/locales/README.md),
           so the client-only locale state rides along as a plain form field. */}
       <input type="hidden" name="locale" value={locale} />
+      <input type="hidden" name="next" value={next ?? ""} />
       <div className="flex flex-col gap-1.5">
         <label htmlFor="email" className="text-sm text-foreground/80">
           {t("emailLabel")}

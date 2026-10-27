@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 
+import { safeNext } from "@/lib/safe-next";
 import { createClient } from "@/lib/supabase/server";
 import { catalogs, DEFAULT_LOCALE, isLocale } from "@/locales";
 
@@ -41,7 +42,8 @@ export async function login(
   // Issue #586: /login only ever serves returning users — signup
   // redirects straight to /questionnaire?onboarding=1 and never passes
   // through this action — so there is still no /me round trip and no
-  // new-vs-returning branch. The landing is /portfolio. Interrupted
-  // onboarding is still resumed from Profile's gap cards in edit mode.
-  redirect("/portfolio");
+  // new-vs-returning branch. Issue #828 returns to a safe requested page,
+  // defaulting to /portfolio. Interrupted onboarding is still resumed from
+  // Profile's gap cards in edit mode.
+  redirect(safeNext(formData.get("next")));
 }

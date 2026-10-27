@@ -222,7 +222,8 @@ Successful email confirmation redirects from the server action to `/profile`.
 The already-verified link state retains `emailVerification.successMessage`;
 failed confirmation states are unchanged. Accepted limitations: ops-manual
 verification also goes to Profile; a signed-out visitor reaches the existing
-login redirect and, after login, Portfolio, with no return-path parameter.
+login redirect carrying `next` and, after login, the requested page, defaulting
+to `/portfolio` (issue #828).
 The unsubscribe page explains stopped delivery, end-of-paid-period cancellation
 when no verified address remains, no return, and no automatic resume after
 re-verification. These controls and copy ship with #595/#596/#599.
@@ -312,7 +313,8 @@ Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
   there is no new-vs-returning or onboarding-gap branch; interrupted
   onboarding is resumed from Profile's gap cards in edit mode. The
   pre-existing `/me` round-trip in `login/actions.ts` was removed with the
-  branch. **Update (issue #586)**: that landing is `/portfolio`. `/welcome`
+  branch. **Update (issues #586/#828)**: the protected-page redirect carries `next`;
+  login lands on the requested page, defaulting to `/portfolio`. `/welcome`
   shows Portfolio and Choose a plan (#597) above, and a same-session revisit
   replaces to `/portfolio`. The Portfolio page title row adds Edit holdings
   (`/holdings/edit`) and Investment style (`/questionnaire`, no query)

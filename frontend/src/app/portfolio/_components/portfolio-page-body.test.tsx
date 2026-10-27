@@ -423,3 +423,12 @@ describe("PortfolioPageBody", () => {
     });
   });
 });
+
+it("828 passes only supported focus values from the server page", async () => {
+  vi.doMock("@/lib/server-api", () => ({ getPortfolioSummaryServer: vi.fn().mockResolvedValue(null) }));
+  const { default: PortfolioPage } = await import("../page");
+  const currency = await PortfolioPage({ searchParams: Promise.resolve({ focus: "currency" }) });
+  const other = await PortfolioPage({ searchParams: Promise.resolve({ focus: "other" }) });
+  expect(currency.props.children.props.focus).toBe("currency");
+  expect(other.props.children.props.focus).toBeUndefined();
+});

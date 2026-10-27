@@ -3,7 +3,12 @@ import type { PortfolioSummary } from "@/lib/api";
 import { isNextRedirectError } from "@/lib/next-redirect-error";
 import { PortfolioPageBody } from "./_components/portfolio-page-body";
 
-export default async function PortfolioPage() {
+export default async function PortfolioPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ focus?: string }>;
+}) {
+  const { focus } = await searchParams;
   let initialSummary: PortfolioSummary | null = null;
   let initialLoadError = false;
   try {
@@ -22,7 +27,7 @@ export default async function PortfolioPage() {
 
   return (
     <main className="mx-auto w-full max-w-5xl px-6 py-10">
-      <PortfolioPageBody initialSummary={initialSummary} initialLoadError={initialLoadError} />
+      <PortfolioPageBody initialSummary={initialSummary} initialLoadError={initialLoadError} focus={focus === "asset-class" || focus === "currency" ? focus : undefined} />
     </main>
   );
 }
