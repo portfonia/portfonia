@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal, cast
@@ -26,6 +26,7 @@ from app.services.holding_change_alerts import enqueue_change_alert
 from app.services.holding_ordering import sorted_holdings
 from app.services.holding_parser import (
     _classify_asset_class,
+    _load_ticker_asset_class,
     apply_confirmed_exchange_suffix,
     normalize_ticker_and_currency,
     unmapped_fund_identifier,
@@ -33,6 +34,7 @@ from app.services.holding_parser import (
 from app.services.instrument_symbols import normalize_legacy_ticker
 from app.services.markets import is_capture_supported, resolve_holding_market
 from app.services.subscription import is_advanced, is_jade
+from app.services.ticker_leverage import load_leverage_entries, normalize_leverage_ticker
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +64,19 @@ _USER_FIELDS = (
 
 
 def enqueue_unmapped_asset_class_alert(
-    holdings: Iterable[Holding], source: Literal["file", "web", "rollback", "agent"]
+    holdings: Iterable[Holding],
+    source: Literal["file", "web", "rollback", "agent"],
+    session: Session,
 ) -> None:
     """Alert ops once per identifier (7 days) when a fund/ETF used the catch-all class."""
     try:
+        classes = {
+            t for t, e in load_leverage_entries(session).items() if e.asset_class is not None
+        }
         found: dict[str, Holding] = {}
         for h in holdings:
+            if h.ticker and normalize_leverage_ticker(h.ticker) in classes:
+                continue
             identifier = unmapped_fund_identifier(
                 {"asset_type": h.asset_type, "ticker": h.ticker, "fund_code": h.fund_code}
             )
@@ -246,7 +255,9 @@ def _enqueue_confirm_capture(
         )
 
 
-def apply_write_defaults(data: dict[str, Any]) -> dict[str, Any]:
+def apply_write_defaults(
+    data: dict[str, Any], leverage_classes: Mapping[str, str] | None = None
+) -> dict[str, Any]:
     if (
         data.get("asset_type") in ("cash", "wmf")
         and not data.get("ticker")
@@ -267,7 +278,7 @@ def apply_write_defaults(data: dict[str, Any]) -> dict[str, Any]:
     if data.pop("_suffix_ambiguous", False):
         capture_ok = False
     data["capture_supported"] = capture_ok
-    data["asset_class"] = _classify_asset_class(data)
+    data["asset_class"] = _classify_asset_class(data, leverage_classes)
     return data
 
 
@@ -279,9 +290,11 @@ def _money(value: object) -> Decimal | None:
     return Decimal(str(value))
 
 
-def row_to_holding_data(row: ParsedRow, now: datetime, position: int) -> dict[str, Any]:
+def row_to_holding_data(
+    row: ParsedRow, now: datetime, position: int, leverage_classes: Mapping[str, str]
+) -> dict[str, Any]:
     data = row.model_dump(exclude={"issues", "confidence"})
-    data = apply_write_defaults(data)
+    data = apply_write_defaults(data, leverage_classes)
     for field in _MONEY_FIELDS:
         if data[field] is not None:
             data[field] = _money(data[field])
@@ -299,10 +312,15 @@ def insert_from_rows(
     start_position: int,
     archive_unreferenced: bool,
 ) -> list[Holding]:
+    leverage_classes = {
+        t: e.asset_class
+        for t, e in load_leverage_entries(session).items()
+        if e.asset_class is not None
+    }
     parsed: list[dict[str, Any]] = []
     now = datetime.now(tz=UTC)
     for idx, row in enumerate(rows):
-        parsed.append(row_to_holding_data(row, now, start_position + idx))
+        parsed.append(row_to_holding_data(row, now, start_position + idx, leverage_classes))
     account_ids = resolve_accounts_for_holdings(
         session,
         user_id,
@@ -415,7 +433,8 @@ def confirm_holdings(
         if group_id is not None:
             enqueue_change_alert(user_id, group_id)
         if changed:
-            enqueue_unmapped_asset_class_alert(replaced, "file")
+            enqueue_unmapped_asset_class_alert(replaced, "file", session)
+            enqueue_leverage_check(session, replaced)
             _enqueue_replaced_book(session, user_id)
     elif rows:
         inserted = insert_from_rows(
@@ -430,7 +449,8 @@ def confirm_holdings(
         session.commit()
         if group_id is not None:
             enqueue_change_alert(user_id, group_id)
-        enqueue_unmapped_asset_class_alert(inserted, "file")
+        enqueue_unmapped_asset_class_alert(inserted, "file", session)
+        enqueue_leverage_check(session, inserted)
         _enqueue_sparse_for(session, user_id, inserted, log_prefix="confirm_holdings")
     else:
         session.commit()
@@ -453,7 +473,8 @@ def create_holding(session: Session, user_id: UUID, row: ParsedRow) -> Holding:
     _bump(user)
     holding_changes.record(session, user_id, change_before, source="web")
     session.commit()
-    enqueue_unmapped_asset_class_alert(inserted, "web")
+    enqueue_unmapped_asset_class_alert(inserted, "web", session)
+    enqueue_leverage_check(session, inserted)
     _enqueue_sparse_for(session, user_id, inserted, log_prefix="create_holding")
     holding = inserted[0]
     session.refresh(holding)
@@ -503,7 +524,12 @@ def update_holding(
         ParsedRow.model_validate(merged.copy())
     except ValidationError as exc:
         raise RequestValidationError(exc.errors()) from exc
-    data = apply_write_defaults(merged)
+    leverage_classes = {
+        t: e.asset_class
+        for t, e in load_leverage_entries(session).items()
+        if e.asset_class is not None
+    }
+    data = apply_write_defaults(merged, leverage_classes)
     account_fields_changed = any(key in updates for key in ("broker", "account", "portfolio"))
     ticker_changed = data.get("ticker") != holding.ticker
     fund_changed = data.get("fund_code") != holding.fund_code
@@ -533,7 +559,8 @@ def update_holding(
     _bump(user)
     holding_changes.record(session, user_id, change_before, source="web")
     session.commit()
-    enqueue_unmapped_asset_class_alert([holding], "web")
+    enqueue_unmapped_asset_class_alert([holding], "web", session)
+    enqueue_leverage_check(session, [holding])
     if ticker_changed or fund_changed:
         _enqueue_sparse_for(session, user_id, [holding], log_prefix="update_holding")
     session.refresh(holding)
@@ -661,12 +688,17 @@ def rollback_holdings(session: Session, user_id: UUID, group_id: UUID, version: 
     capture: list[Holding] = []
     written_rows: list[Holding] = []
     now = datetime.now(tz=UTC)
+    leverage_classes = {
+        t: e.asset_class
+        for t, e in load_leverage_entries(session).items()
+        if e.asset_class is not None
+    }
     for (hid, values), account_id in zip(written.items(), account_ids, strict=True):
         data = {
             field: _money(value) if field in _MONEY_FIELDS else value
             for field, value in values.items()
         }
-        defaults = apply_write_defaults(data.copy())
+        defaults = apply_write_defaults(data.copy(), leverage_classes)
         data.update(
             asset_class=defaults["asset_class"], capture_supported=defaults["capture_supported"]
         )
@@ -700,5 +732,35 @@ def rollback_holdings(session: Session, user_id: UUID, group_id: UUID, version: 
         session, user_id, before, source="rollback", rollback_to=group.created_at
     )
     session.commit()
-    enqueue_unmapped_asset_class_alert(written_rows, "rollback")
+    enqueue_unmapped_asset_class_alert(written_rows, "rollback", session)
+    enqueue_leverage_check(session, written_rows)
     _enqueue_sparse_for(session, user_id, capture, log_prefix="rollback_holdings")
+
+
+def leverage_check_candidates(
+    session: Session, holdings: Iterable[Holding], *, ignore_redis: bool = False
+) -> list[str]:
+    entries = load_leverage_entries(session)
+    mapping = _load_ticker_asset_class()
+    candidates = set()
+    for h in holdings:
+        if h.ticker is None or h.pricing_mode != "auto" or not h.capture_supported:
+            continue
+        ticker = normalize_leverage_ticker(h.ticker)
+        if ticker in entries or h.ticker.upper() in mapping:
+            continue
+        if not ignore_redis and alert_dedup.already_alerted(f"leverage_check:{ticker}"):
+            continue
+        candidates.add(ticker)
+    return sorted(candidates)
+
+
+def enqueue_leverage_check(session: Session, holdings: Iterable[Holding]) -> None:
+    try:
+        candidates = leverage_check_candidates(session, holdings)
+        if candidates:
+            from app.tasks.admin_tasks import check_leveraged_tickers_task
+
+            check_leveraged_tickers_task.delay(candidates)
+    except Exception:
+        logger.error("Leverage check enqueue failed", exc_info=True)

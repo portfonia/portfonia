@@ -50,6 +50,7 @@ class ReportInputsDict(TypedDict, total=False):
     macro_signals: dict[str, Any]
     price_anomalies: list[dict[str, Any]]
     forward_events: list[dict[str, Any]]
+    leverage_links: dict[str, dict[str, str]]
     holding_news: dict[str, list[dict[str, Any]]]
     large_holding_moves: dict[str, dict[str, Any]]
     period_start: str
@@ -95,6 +96,7 @@ class ReportContext:
     macro_signals: dict[str, Any] = field(default_factory=dict)
     price_anomalies: list[dict[str, Any]] = field(default_factory=list)
     forward_events: list[dict[str, Any]] = field(default_factory=list)
+    leverage_links: dict[str, dict[str, str]] = field(default_factory=dict)
     # R-3 holding-relevant news: {identifier: [news dict, ...]} recalled from the
     # window store for the holdings that moved (plus any targeted-search items).
     holding_news: dict[str, list[dict[str, Any]]] = field(default_factory=dict)

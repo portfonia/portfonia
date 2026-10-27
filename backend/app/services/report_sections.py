@@ -332,7 +332,9 @@ def _us_equity(h: dict[str, Any]) -> bool:
 
 
 def _forward_exposure(
-    event: dict[str, Any], holdings: list[dict[str, Any]]
+    event: dict[str, Any],
+    holdings: list[dict[str, Any]],
+    leverage_links: dict[str, dict[str, str]] | None = None,
 ) -> tuple[list[str], str]:
     """Map a scheduled event to the holdings exposed to it + what to watch.
 
@@ -341,6 +343,14 @@ def _forward_exposure(
     if event.get("event_type") == "earnings":
         tk = event.get("ticker", "")
         exposed = [h["name"] for h in holdings if h.get("ticker") == tk]
+        from app.services.ticker_leverage import normalize_leverage_ticker
+
+        for h in holdings:
+            ticker = h.get("ticker")
+            link = (leverage_links or {}).get(normalize_leverage_ticker(ticker)) if ticker else None
+            if link and link["underlying"] == tk:
+                sign = "-" if link["direction"] == "bear" else ""
+                exposed.append(f"{h['name']} ({sign}{link['multiple']}x {tk})")
         return (exposed or [tk]), "reported results vs expectations for this holding"
 
     low = event.get("name", "").lower()
@@ -388,6 +398,7 @@ def _build_forward_block(
     holdings: list[dict[str, Any]],
     news_items: list[dict[str, Any]],
     report_date_str: str = "",
+    leverage_links: dict[str, dict[str, str]] | None = None,
 ) -> str:
     """Build §2.5 Forward Calendar from data — no LLM (#1).
 
@@ -408,7 +419,7 @@ def _build_forward_block(
         "|------|-------|------------------|-------|",
     ]
     for e in events:
-        exposed, watch = _forward_exposure(e, holdings)
+        exposed, watch = _forward_exposure(e, holdings, leverage_links)
         if len(exposed) > 3:
             shown = ", ".join(exposed[:3]) + f" +{len(exposed) - 3}"
         else:
@@ -435,7 +446,10 @@ def _inject_forward_block(body: str, block: str) -> str:
 
 
 def _build_today_events_block(
-    events: list[dict[str, Any]], holdings: list[dict[str, Any]], report_date_str: str
+    events: list[dict[str, Any]],
+    holdings: list[dict[str, Any]],
+    report_date_str: str,
+    leverage_links: dict[str, dict[str, str]] | None = None,
 ) -> str:
     """Promote events scheduled for the report's own date to a §2 lead note (R-6).
 
@@ -452,7 +466,7 @@ def _build_today_events_block(
         "**Today's scheduled events** (calendar facts; results not yet in this report's data):"
     ]
     for e in today:
-        exposed, watch = _forward_exposure(e, holdings)
+        exposed, watch = _forward_exposure(e, holdings, leverage_links)
         shown = ", ".join(exposed[:3]) + (f" +{len(exposed) - 3}" if len(exposed) > 3 else "")
         tail = f" — exposed: {shown}" if exposed else ""
         lines.append(f"- {e.get('name', '')}{tail}. {watch}")

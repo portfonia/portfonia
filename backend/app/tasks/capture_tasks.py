@@ -669,7 +669,20 @@ def capture_forward_events_task(self: Any) -> dict[str, int]:
                 "capture_forward_events_task: FRED_API_KEY unset — skipping macro releases"
             )
         events += fetch_fomc_dates(today, _FORWARD_HORIZON_DAYS)
-        events += fetch_earnings_dates(_market_tickers(session, "US"), today, _FORWARD_HORIZON_DAYS)
+        from app.services.ticker_leverage import load_leverage_entries, normalize_leverage_ticker
+
+        held = _market_tickers(session, "US")
+        entries = load_leverage_entries(session)
+        held_norm = {normalize_leverage_ticker(x) for x in held}
+        tickers = sorted(
+            set(held)
+            | {
+                e.underlying_ticker
+                for t, e in entries.items()
+                if e.underlying_ticker and t in held_norm
+            }
+        )
+        events += fetch_earnings_dates(tickers, today, _FORWARD_HORIZON_DAYS)
         captured = persist_forward_events(session, events)
         return {"captured": captured}
     except Exception as exc:

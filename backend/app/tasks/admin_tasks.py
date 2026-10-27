@@ -14,7 +14,10 @@ a standard answer to.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from app.services.ticker_leverage import DetectedProduct
 
 from app.services.email_sender import send_ops_alert
 from app.tasks import celery_app
@@ -42,3 +45,27 @@ def send_admin_alert_task(
         send_ops_alert(subject, body, severity=severity)
     else:
         send_ops_alert(subject, body, severity=severity, idempotency_key=idempotency_key)
+
+
+def alert_detected_products(products: list[DetectedProduct]) -> None:
+    if not products:
+        return
+    body = "\n".join(
+        [
+            *[f"{p.ticker}: {p.long_name} | {p.category} | {p.fund_family}" for p in products],
+            "",
+            "Register with POST /admin/ticker-leverage {ticker, leverage_multiple, direction, asset_class, underlying_ticker}. Existing holdings are reclassified on registration.",
+        ]
+    )
+    send_admin_alert_task.delay(
+        subject=f"Leveraged/inverse product detected ({len(products)})",
+        body=body,
+        severity="WARNING",
+    )
+
+
+@celery_app.task(name="app.tasks.admin_tasks.check_leveraged_tickers_task", ignore_result=True)  # type: ignore[untyped-decorator]
+def check_leveraged_tickers_task(tickers: list[str]) -> None:
+    from app.services.ticker_leverage import detect_leveraged
+
+    alert_detected_products(detect_leveraged(tickers))

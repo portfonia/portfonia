@@ -18,14 +18,20 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models.holding import Holding
 from app.services.holding_parser import _classify_asset_class
+from app.services.ticker_leverage import load_leverage_entries
 
 
 def reclassify_asset_class(session: Session, *, apply_changes: bool) -> int:
+    classes = {
+        t: e.asset_class
+        for t, e in load_leverage_entries(session).items()
+        if e.asset_class is not None
+    }
     rows = session.query(Holding).filter(Holding.asset_type.in_(("etf", "fund"))).all()
     changed = 0
     for h in rows:
         new = _classify_asset_class(
-            {"ticker": h.ticker, "fund_code": h.fund_code, "asset_type": h.asset_type}
+            {"ticker": h.ticker, "fund_code": h.fund_code, "asset_type": h.asset_type}, classes
         )
         if new == h.asset_class:
             continue
