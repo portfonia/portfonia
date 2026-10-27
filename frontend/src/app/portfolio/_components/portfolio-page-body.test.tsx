@@ -432,3 +432,8 @@ it("828 passes only supported focus values from the server page", async () => {
   expect(currency.props.children.props.focus).toBe("currency");
   expect(other.props.children.props.focus).toBeUndefined();
 });
+
+it("829 links to technical position", () => {
+  render(<LocaleProvider routeLocale={null}><PortfolioPageBody initialSummary={summary({})} initialLoadError={false} /></LocaleProvider>);
+  expect(screen.getByRole("link", { name: catalogs.en.portfolio.technical.open })).toHaveAttribute("href", "/portfolio/technical");
+});

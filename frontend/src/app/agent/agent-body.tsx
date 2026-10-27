@@ -36,7 +36,7 @@ export function AgentBody() {
       <CardHeader><CardTitle role="heading" aria-level={2}>{t("docs.endpointsTitle")}</CardTitle></CardHeader>
       <CardContent className="flex flex-col gap-6">
         <p>{t("docs.endpointsLead")}</p>
-        {(["token", "reports", "snapshots", "intel", "jade", "holdingsRead", "changes", "holdingsValidate", "holdingsAdd", "holdingsReplace", "holdingsPatch", "holdingsDelete", "holdingsReplaceAll"] as const).map(endpoint => (
+        {(["token", "reports", "snapshots", "intel", "technical", "technicalSeries", "jade", "holdingsRead", "changes", "holdingsValidate", "holdingsAdd", "holdingsReplace", "holdingsPatch", "holdingsDelete", "holdingsReplaceAll"] as const).map(endpoint => (
           <section key={endpoint} className="flex flex-col gap-1">
             <h3 className="font-medium">{t(`docs.${endpoint}Heading`)}</h3>
             <code className="break-all">{t.raw(`docs.${endpoint}Path`)}</code>

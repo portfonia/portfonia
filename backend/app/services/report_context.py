@@ -49,7 +49,6 @@ class ReportInputsDict(TypedDict, total=False):
     news_items: list[dict[str, Any]]
     macro_signals: dict[str, Any]
     price_anomalies: list[dict[str, Any]]
-    technical_positions: list[dict[str, Any]]
     forward_events: list[dict[str, Any]]
     holding_news: dict[str, list[dict[str, Any]]]
     large_holding_moves: dict[str, dict[str, Any]]
@@ -95,7 +94,6 @@ class ReportContext:
     news_items: list[dict[str, Any]] = field(default_factory=list)
     macro_signals: dict[str, Any] = field(default_factory=dict)
     price_anomalies: list[dict[str, Any]] = field(default_factory=list)
-    technical_positions: list[dict[str, Any]] = field(default_factory=list)
     forward_events: list[dict[str, Any]] = field(default_factory=list)
     # R-3 holding-relevant news: {identifier: [news dict, ...]} recalled from the
     # window store for the holdings that moved (plus any targeted-search items).

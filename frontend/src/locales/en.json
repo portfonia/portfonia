@@ -751,7 +751,31 @@
     "sendOverviewConfirmTitle": "Send holdings overview?",
     "sendOverviewConfirmBody": "A holdings overview in {currency} will be emailed to your report delivery address.",
     "sendOverviewConfirmAction": "Send",
-    "sendOverviewCancel": "Cancel"
+    "sendOverviewCancel": "Cancel",
+    "technical": {
+      "title": "Technical position",
+      "description": "See where your holdings sit relative to moving averages and their 52-week range, with recent volatility.",
+      "open": "View technical position",
+      "tableTitle": "Dated technical position",
+      "date": "Date (empty for latest)",
+      "asOf": "As of {date}",
+      "holdingsAsOf": "Holdings as of {date}",
+      "holding": "Holding",
+      "sma50": "vs 50-day avg",
+      "sma200": "vs 200-day avg",
+      "range": "52-week range position",
+      "volatility": "20-day volatility (ann.)",
+      "rangeNote": "Range position: 0% = at the 52-week low, 100% = at the 52-week high. Figures describe where the price sits; they are not signals.",
+      "seriesTitle": "Daily technical position",
+      "start": "Start date",
+      "end": "End date",
+      "rangeTooLong": "Choose at most 92 days, including both dates.",
+      "invalidRange": "Choose an ordered date range ending on or before today.",
+      "loadError": "Could not load technical position.",
+      "noSnapshot": "No holdings snapshot on or before this date.",
+      "noHoldings": "No holdings with tickers.",
+      "noPoints": "No captured closes in this date range."
+    }
   },
   "home": {
     "hero": {
@@ -788,7 +812,7 @@
         },
         {
           "title": "Personalized briefings",
-          "body": "Briefings arrive weekly, Mon / Wed / Fri or daily depending on your plan, tied to your actual holdings — price anomalies, technical position and a forward calendar.",
+          "body": "Briefings arrive weekly, Mon / Wed / Fri or daily depending on your plan, tied to your actual holdings — price anomalies and a forward calendar. Technical position is available on the website.",
           "tags": [
             "Email",
             "Web report history"
@@ -1112,7 +1136,8 @@
             "Capacity expansion has a cash counterpart: quarterly cash additions to property and equipment were $35.8B, versus $17.1B a year earlier. [Established] This is not a measure of AI spending alone or of investment returns. The next disclosures can show cloud growth alongside infrastructure spending and cash generation; that comparison tests how demand and investment are developing together. [Probable] Microsoft's smaller weight than TSMC's gives the direct position a different portfolio scale, without implying independence between the two businesses."
           ]
         }
-      ]
+      ],
+      "technicalSiteLabel": "Technical position on the website"
     },
     "audience": {
       "heading": "For investors who stay through the cycle",
@@ -1448,7 +1473,7 @@
             "Daily briefing (Advanced) — 2.49 credits per month. One personalized briefing email every weekday (Monday to Friday), including market holidays.",
             "Jade — 9.99 credits per month. Includes everything in the Advanced plan. You choose the Weekly, Mon / Wed / Fri, or Daily briefing schedule and can change it at any time on the Jade page. Jade includes five portfolio risk tools: holdings replay, tail risk (VaR / CVaR), historical stress scenarios, style exposure, and tracking against your reference. It also includes holdings rebalancing what-if: compare holdings with up to two edited versions and rebalancing rules over past prices.",
             "Jade offers. Free upgrade period: if you change from another plan that is still within its paid period to Jade and have never subscribed to Jade, your first Jade period is free and the unused part of the previous plan's fee is not returned. Each user can receive this free period once; cancelling, letting a plan expire or subscribing again does not restore it, and users who have already subscribed to Jade are not eligible. Discounted periods: every user, including current Jade subscribers, receives three Jade billing periods at 6.99 credits each instead of 9.99, available until we end the offer. The three periods are counted one by one, not as three consecutive months, so cancelling or changing plans keeps any you have not used. A free upgrade period does not use up a discounted period: your next three charged Jade periods are the discounted ones. After that, Jade is 9.99 credits per period. Current Jade subscribers receive the discount from their next renewal.",
-            "Weekly and Mon / Wed / Fri differ only in how often briefings are sent. Daily is the Advanced plan. Advanced and Jade subscriptions both let your AI agent read your daily holding snapshots and intelligence headlines related to your holdings and macro themes; Jade additionally provides headline summaries and included article text for holdings and macro themes. Report history is available to AI agents on every plan. Saved holding rows, including cash and watched rows, are limited to 30 on Weekly and Mon / Wed / Fri, 50 while Advanced is active, and 100 while Jade is active. Active Jade also supports reading and managing current holdings through your own agent; changes require a holdings-write token."
+            "Weekly and Mon / Wed / Fri differ only in how often briefings are sent. Daily is the Advanced plan. Advanced and Jade subscriptions both let your AI agent read your daily holding snapshots and intelligence headlines related to your holdings and macro themes; Jade additionally provides headline summaries and included article text for holdings and macro themes. Report history is available to AI agents on every plan. Saved holding rows, including cash and watched rows, are limited to 30 on Weekly and Mon / Wed / Fri, 50 while Advanced is active, and 100 while Jade is active. Active Jade also supports reading and managing current holdings through your own agent; changes require a holdings-write token. Advanced and Jade agents can also read technical position."
           ]
         },
         {
@@ -1456,7 +1481,7 @@
           "body": [
             "Holdings upload from CSV, Excel, or Markdown, with row-level editing.",
             "Portfolio overview: allocation, performance against benchmarks, and historical volatility and risk views.",
-            "Briefings covering price anomalies, technical position, macro and company news mapped to your holdings, and a forward calendar of macro and earnings events, each causal claim with a confidence label.",
+            "Briefings covering price anomalies, macro and company news mapped to your holdings, and a forward calendar of macro and earnings events, each causal claim with a confidence label. Technical position is available on the website.",
             "Briefings in English or Chinese."
           ]
         },
@@ -1571,7 +1596,7 @@
   },
   "agent": {
     "title": "AI Agent",
-    "intro": "Your own AI agent can read reports, snapshots and intelligence through a personal API token. Active Jade users can also let it read current holdings and manage them with a holdings-write token. New tokens default to read-only.",
+    "intro": "Your own AI agent can read reports, snapshots and intelligence through a personal API token. Active Jade users can also let it read current holdings and manage them with a holdings-write token. New tokens default to read-only. Advanced and Jade agents can also read technical position.",
     "limitsTitle": "Access limits and notices",
     "limits": "Limits combine all your tokens. Single-row holdings POST/PUT/PATCH/DELETE share 30 requests per minute and 100 per hour; request 31 in one minute locks all Agent access for 15 minutes. Other calls, including GET, whole PUT and validate, allow 20 per endpoint per hour and 10 across endpoints per minute; request 11 locks access for 15 minutes. A refusal returns Retry-After.",
     "quiet": "Requests pause from five minutes before a heavy scheduled job’s scheduled time until five minutes after it finishes, including intelligence collection and scheduled briefings.",
@@ -1689,7 +1714,17 @@
       "jadeAccess": "Active Jade; read-only and holdings-write tokens",
       "jadeAction": "Read the results of your five Jade risk tools, including every series.",
       "jadeNote": "Tools: replay, tail-risk, stress, style and tracking. Stress requires one scenario per request. Together these routes allow one request per 3 minutes and at most 10 per hour per user, in addition to the existing Agent limits and quiet windows.",
-      "jadePath": "GET /agent/v1/jade/{tool}"
+      "jadePath": "GET /agent/v1/jade/{tool}",
+      "technicalHeading": "Read technical position",
+      "technicalPath": "GET /agent/v1/technical",
+      "technicalAccess": "Applies during an active Advanced or Jade period. Read-only tokens and holdings-write tokens are both accepted.",
+      "technicalAction": "Read the technical position table. Optional date=YYYY-MM-DD; omitted means current holdings. Historical holdings use the last snapshot on or before the date.",
+      "technicalNote": "Normal Agent limits apply; no access notice is sent.",
+      "technicalSeriesHeading": "Read daily technical series",
+      "technicalSeriesPath": "GET /agent/v1/technical/series",
+      "technicalSeriesAccess": "Applies during an active Advanced or Jade period. Read-only tokens and holdings-write tokens are both accepted.",
+      "technicalSeriesAction": "Read one holding: ticker is required; start and end are optional ET dates (YYYY-MM-DD). End defaults to today, start to 91 days earlier. At most 92 inclusive days per request.",
+      "technicalSeriesNote": "Normal Agent limits apply; no access notice is sent."
     },
     "guideLink": "See what your agent can do and how."
   },
@@ -1803,7 +1838,7 @@
         "heading": "What a briefing covers",
         "body": [
           "Upload positions from CSV, Excel or Markdown and edit individual rows. View portfolio allocation, performance against benchmarks, historical volatility and risk.",
-          "Briefings cover price anomalies, technical position, macro and company news tied to your holdings, and a forward calendar of macro and earnings events. Each causal claim carries a confidence label."
+          "Briefings cover price anomalies, macro and company news tied to your holdings, and a forward calendar of macro and earnings events. Each causal claim carries a confidence label. Technical position is available on the website."
         ]
       },
       {
@@ -2220,7 +2255,7 @@
         "lead": "Everything in Briefing, plus:",
         "features": [
           "A briefing every weekday, Monday to Friday",
-          "Your AI agent can also read daily snapshots and learn about intelligence topics related to your holdings",
+          "Your AI agent can also read daily snapshots, technical position and intelligence topics related to your holdings",
           "Up to 50 saved holding rows while Advanced is active, including cash and watched rows"
         ]
       },

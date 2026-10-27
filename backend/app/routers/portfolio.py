@@ -42,6 +42,7 @@ from app.schemas.portfolio import (
     SendOverviewResponse,
     SnapshotExportOut,
 )
+from app.schemas.technical import TechnicalSeriesOut, TechnicalTableOut
 from app.services import subscription
 from app.services.portfolio_calculator import compute_portfolio
 from app.services.portfolio_export import (
@@ -53,6 +54,7 @@ from app.services.portfolio_export import (
 from app.services.portfolio_performance import compute_portfolio_performance
 from app.services.portfolio_risk import compute_portfolio_risk
 from app.services.portfolio_snapshot_export import export_snapshot_range
+from app.services.technical_position import technical_series, technical_table
 from app.services.user_scope import report_currency_for
 from app.tasks.notification_tasks import send_portfolio_overview_email_task
 
@@ -435,3 +437,25 @@ def get_portfolio_performance(
         ),
         meta=PerformanceMetaOut(**result.meta),
     )
+
+
+@router.get("/technical", response_model=TechnicalTableOut)
+def get_technical_table(
+    date: Annotated[date | None, Query()] = None,
+    principal: Principal = Depends(current_principal),
+    session: Session = Depends(get_session),
+) -> TechnicalTableOut:
+    """Read dated technical metrics. Normal limits apply; no access notice is sent."""
+    return technical_table(session, principal.user_id, date)
+
+
+@router.get("/technical/series", response_model=TechnicalSeriesOut)
+def get_technical_series(
+    ticker: str,
+    start: Annotated[date | None, Query()] = None,
+    end: Annotated[date | None, Query()] = None,
+    principal: Principal = Depends(current_principal),
+    session: Session = Depends(get_session),
+) -> TechnicalSeriesOut:
+    """Read at most 92 inclusive ET calendar days. Normal limits apply; no access notice is sent."""
+    return technical_series(session, principal.user_id, ticker, start, end)

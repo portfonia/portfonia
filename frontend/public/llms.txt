@@ -1,6 +1,6 @@
 # Portfonia
 
-> Portfonia provides a personal data API for a user's own AI agent: reports, complete daily holding snapshots, holding-related intelligence and strict current-holdings management. Access uses personal API tokens and subscription entitlements. Portfonia provides information and context, not investment advice.
+> Portfonia provides a personal data API for a user's own AI agent: reports, complete daily holding snapshots, technical position, holding-related intelligence and strict current-holdings management. Access uses personal API tokens and subscription entitlements. Portfonia provides information and context, not investment advice.
 
 ## Docs
 
@@ -11,6 +11,13 @@
 
 - `GET /agent/v1/token`: token metadata and current capabilities, with normal read limits and no data notice.
 - `GET /agent/v1/holdings/changes?start=&end=`: active Jade, either permission, inclusive ET dates within the last 30 days, at most 100 groups newest first and a truncated flag. Field-level changes are stored encrypted for 30 days.
+
+## Technical position
+
+- `GET /agent/v1/technical`: active Advanced or Jade, either token permission; optional ET date for a current or historical holdings table.
+- `GET /agent/v1/technical/series`: active Advanced or Jade, either permission; required ticker, optional start/end ET dates, at most 92 inclusive days. End defaults to today and start to 91 days earlier.
+
+Normal Agent limits apply. These endpoints send no access notice and compute descriptive metrics on demand from stored closes, without collecting data.
 
 ## Jade risk results
 

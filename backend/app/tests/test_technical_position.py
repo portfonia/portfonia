@@ -118,3 +118,80 @@ def test_compute_technical_positions_normalizes_known_collision_ticker(
     assert len(positions) == 1
     assert positions[0].bars == 1
     assert positions[0].ticker == "0700.HK"
+
+
+def test_829_position_ignores_future_closes(db_session: Session) -> None:
+    db_session.add_all(
+        [
+            PriceSnapshot(
+                ticker="FUTURE829",
+                market="US",
+                session_node="close",
+                trade_date=date(2026, 1, day),
+                close=Decimal(day),
+            )
+            for day in (1, 2)
+        ]
+    )
+    db_session.flush()
+    pos = tp.compute_technical_position(db_session, "FUTURE829", "Future", date(2026, 1, 1))
+    assert pos.last_close == 1.0
+    assert pos.bars == 1
+
+
+def test_829_series_matches_same_day_position_with_sparse_history(db_session: Session) -> None:
+    from datetime import timedelta
+
+    end = date(2026, 10, 26)
+    start = end - timedelta(days=91)
+    days = [end - timedelta(days=9 * (49 - i)) for i in range(50)]
+    db_session.add_all(
+        [
+            PriceSnapshot(
+                ticker="SPARSE829",
+                market="US",
+                session_node="close",
+                trade_date=day,
+                close=Decimal(100 + i),
+            )
+            for i, day in enumerate(days)
+        ]
+    )
+    db_session.flush()
+    points = tp.compute_technical_series(db_session, "SPARSE829", "Sparse", start, end)
+    assert [point.date for point in points] == [day for day in days if start <= day <= end]
+    for point in points:
+        position = tp.compute_technical_position(db_session, "SPARSE829", "Sparse", point.date)
+        assert point.close == position.last_close
+        assert point.pct_vs_sma50 == position.pct_vs_sma50
+        assert point.pct_vs_sma200 == position.pct_vs_sma200
+        assert point.pct_in_52w_range == position.pct_in_52w_range
+        assert point.vol_20d_annualized == position.vol_20d_annualized
+
+
+def test_829_historical_holdings_uses_prior_snapshot(db_session: Session) -> None:
+    from uuid import uuid4
+
+    from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
+    from app.tests.conftest import seed_user
+
+    uid = uuid4()
+    seed_user(db_session, uid)
+    db_session.add_all(
+        [
+            PortfolioValueSnapshot(
+                user_id=uid,
+                snapshot_date=date(2026, 1, day),
+                ticker=ticker,
+                currency="USD",
+                base_currency="USD",
+            )
+            for day, ticker in ((1, "AAPL"), (3, "MSFT"))
+        ]
+    )
+    db_session.flush()
+    assert tp.technical_holdings(db_session, uid, date(2026, 1, 2)) == (
+        date(2026, 1, 1),
+        [{"ticker": "AAPL", "name": "AAPL"}],
+    )
+    assert tp.technical_holdings(db_session, uid, date(2025, 12, 31)) == (None, [])

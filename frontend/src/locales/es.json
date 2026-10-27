@@ -751,7 +751,31 @@
     "sendOverviewConfirmTitle": "¿Enviar resumen de posiciones?",
     "sendOverviewConfirmBody": "Se enviará un resumen de posiciones en {currency} a su dirección de entrega de informes.",
     "sendOverviewConfirmAction": "Enviar",
-    "sendOverviewCancel": "Cancelar"
+    "sendOverviewCancel": "Cancelar",
+    "technical": {
+      "title": "Situación técnica",
+      "description": "Consulte sus posiciones frente a las medias móviles y su rango de 52 semanas, junto con la volatilidad reciente.",
+      "open": "Ver situación técnica",
+      "tableTitle": "Situación técnica por fecha",
+      "date": "Fecha (vacío para la más reciente)",
+      "asOf": "A fecha de {date}",
+      "holdingsAsOf": "Posiciones a fecha de {date}",
+      "holding": "Posición",
+      "sma50": "vs media de 50 días",
+      "sma200": "vs media de 200 días",
+      "range": "Posición en rango de 52 semanas",
+      "volatility": "Volatilidad de 20 días (anual.)",
+      "rangeNote": "Posición en el rango: 0% = mínimo de 52 semanas, 100% = máximo de 52 semanas. Las cifras describen dónde se sitúa el precio; no son señales.",
+      "seriesTitle": "Situación técnica diaria",
+      "start": "Fecha inicial",
+      "end": "Fecha final",
+      "rangeTooLong": "Seleccione como máximo 92 días, incluidas ambas fechas.",
+      "invalidRange": "Seleccione fechas ordenadas que terminen hoy o antes.",
+      "loadError": "No se pudo cargar la situación técnica.",
+      "noSnapshot": "No hay instantáneas de posiciones en esta fecha o antes.",
+      "noHoldings": "No hay posiciones con símbolo bursátil.",
+      "noPoints": "No hay cierres capturados en estas fechas."
+    }
   },
   "home": {
     "hero": {
@@ -788,7 +812,7 @@
         },
         {
           "title": "Resúmenes personalizados",
-          "body": "Los resúmenes llegan cada semana, los lunes / miércoles / viernes o diariamente, según su plan, vinculados a sus posiciones: anomalías de precios, situación técnica y calendario próximo.",
+          "body": "Los resúmenes llegan cada semana, los lunes / miércoles / viernes o diariamente, según su plan, vinculados a sus posiciones: anomalías de precios y calendario próximo. La situación técnica está disponible en el sitio web.",
           "tags": [
             "Correo electrónico",
             "Historial de informes en la web"
@@ -1112,7 +1136,8 @@
             "La expansión de capacidad tiene una contrapartida de efectivo: las adiciones trimestrales de efectivo a propiedades, planta y equipo fueron de $35.8B, frente a $17.1B un año antes. [Established] Esto no mide por sí solo el gasto en IA ni el retorno de la inversión. Las próximas divulgaciones pueden mostrar el crecimiento de la nube junto con el gasto en infraestructura y la generación de efectivo; esa comparación examina cómo evolucionan juntos la demanda y la inversión. [Probable] El menor peso de Microsoft frente al de TSMC da a la posición directa una escala distinta en la cartera, sin implicar independencia entre los dos negocios."
           ]
         }
-      ]
+      ],
+      "technicalSiteLabel": "Situación técnica en el sitio web"
     },
     "audience": {
       "heading": "Para quienes invierten a lo largo del ciclo",
@@ -1448,7 +1473,7 @@
             "Resumen diario (Advanced): 2.49 créditos al mes. Un correo personalizado cada día de lunes a viernes, incluidos festivos bursátiles.",
             "Jade: 9.99 créditos al mes. Incluye todo el plan Advanced. Elija resúmenes semanales, Lun / Mié / Vie o diarios y cambie el calendario cuando quiera en Jade. Incluye cinco herramientas de riesgo: simulación histórica de posiciones, riesgo de cola (VaR / CVaR), escenarios de estrés histórico, exposición por estilo y seguimiento frente a su referencia. También incluye la simulación de rebalanceo de posiciones: compare sus posiciones con hasta dos versiones editadas y reglas de rebalanceo sobre precios históricos.",
             "Ofertas de Jade. Período gratuito al mejorar: si pasa a Jade desde otro plan que aún está dentro de su período pagado y nunca ha estado suscrito a Jade, su primer período de Jade es gratuito y no se devuelve la parte no utilizada de la tarifa del plan anterior. Cada usuario puede recibir este período gratuito una sola vez; cancelar, dejar que un plan venza o volver a suscribirse no lo restablece, y los usuarios que ya se hayan suscrito a Jade no son elegibles. Períodos con descuento: todos los usuarios, incluidos los suscriptores actuales de Jade, reciben tres períodos de facturación de Jade a 6.99 créditos cada uno en lugar de 9.99, hasta que terminemos la oferta. Los tres períodos se cuentan uno a uno, no como tres meses seguidos, por lo que cancelar o cambiar de plan conserva los que no haya usado. El período gratuito no consume un período con descuento: los tres siguientes períodos de Jade que se cobren son los que tienen descuento. Después, Jade cuesta 9.99 créditos por período. Los suscriptores actuales de Jade reciben el descuento desde su próxima renovación.",
-            "Semanal y Lun / Mié / Vie solo difieren en frecuencia. Diario es el plan Advanced. Las suscripciones Advanced y Jade permiten que su agente de IA lea instantáneas diarias de posiciones y titulares relacionados con sus posiciones y las temáticas macroeconómicas; Jade también proporciona resúmenes de titulares y texto de artículos incluidos sobre sus posiciones y las temáticas macroeconómicas. El historial de informes está disponible para agentes en todos los planes. Las posiciones guardadas, incluido el efectivo y las posiciones en observación, se limitan a 30 en Semanal y Lun / Mié / Vie, 50 mientras Advanced está activo y 100 mientras Jade está activo. Jade activo también permite leer y gestionar posiciones actuales mediante su propio agente; los cambios requieren un token de escritura."
+            "Semanal y Lun / Mié / Vie solo difieren en frecuencia. Diario es el plan Advanced. Las suscripciones Advanced y Jade permiten que su agente de IA lea instantáneas diarias de posiciones y titulares relacionados con sus posiciones y las temáticas macroeconómicas; Jade también proporciona resúmenes de titulares y texto de artículos incluidos sobre sus posiciones y las temáticas macroeconómicas. El historial de informes está disponible para agentes en todos los planes. Las posiciones guardadas, incluido el efectivo y las posiciones en observación, se limitan a 30 en Semanal y Lun / Mié / Vie, 50 mientras Advanced está activo y 100 mientras Jade está activo. Jade activo también permite leer y gestionar posiciones actuales mediante su propio agente; los cambios requieren un token de escritura. Los agentes Advanced y Jade también pueden leer la situación técnica."
           ]
         },
         {
@@ -1456,7 +1481,7 @@
           "body": [
             "Carga de posiciones desde CSV, Excel o Markdown, con edición por fila.",
             "Resumen de cartera: distribución, rendimiento frente a índices y vistas de volatilidad y riesgo históricos.",
-            "Resúmenes de anomalías de precios, situación técnica, noticias macro y empresariales relacionadas con sus posiciones y calendario próximo de eventos macro y resultados, con una etiqueta de confianza en cada afirmación causal.",
+            "Resúmenes de anomalías de precios, noticias macro y empresariales relacionadas con sus posiciones y calendario próximo de eventos macro y resultados, con una etiqueta de confianza en cada afirmación causal. La situación técnica está disponible en el sitio web.",
             "Resúmenes en inglés o chino."
           ]
         },
@@ -1571,7 +1596,7 @@
   },
   "agent": {
     "title": "Agente de IA",
-    "intro": "Su propio agente de IA puede leer informes, instantáneas e información mediante un token de API personal. Con Jade activo, también puede leer sus posiciones actuales y gestionarlas con un token de escritura de posiciones. Los tokens nuevos son de solo lectura de forma predeterminada.",
+    "intro": "Su propio agente de IA puede leer informes, instantáneas e información mediante un token de API personal. Con Jade activo, también puede leer sus posiciones actuales y gestionarlas con un token de escritura de posiciones. Los tokens nuevos son de solo lectura de forma predeterminada. Los agentes Advanced y Jade también pueden leer la situación técnica.",
     "limitsTitle": "Límites de acceso y avisos",
     "limits": "Los límites combinan todos sus tokens. POST/PUT/PATCH/DELETE de una sola posición comparten 30 solicitudes por minuto y 100 por hora; la solicitud 31 bloquea todo el acceso de agentes durante 15 minutos. Las demás llamadas, incluidas GET, PUT completo y validación, permiten 20 por endpoint por hora y 10 entre endpoints por minuto; la solicitud 11 bloquea el acceso 15 minutos. Un rechazo devuelve Retry-After.",
     "quiet": "Las solicitudes se pausan desde cinco minutos antes de la hora programada de una tarea pesada hasta cinco minutos después de terminar, incluidas la recopilación de información y los resúmenes programados.",
@@ -1689,7 +1714,17 @@
       "jadeAccess": "Suscripción Jade activa; tokens de solo lectura y de escritura de posiciones",
       "jadeAction": "Lea los resultados de sus cinco herramientas de riesgo de Jade, incluidas todas las series.",
       "jadeNote": "Herramientas: replay, tail-risk, stress, style y tracking. Cada solicitud de estrés requiere un solo escenario. En conjunto, estas rutas permiten una solicitud cada 3 minutos y un máximo de 10 por hora por usuario, además de los límites y períodos de pausa existentes para agentes.",
-      "jadePath": "GET /agent/v1/jade/{tool}"
+      "jadePath": "GET /agent/v1/jade/{tool}",
+      "technicalHeading": "Leer situación técnica",
+      "technicalPath": "GET /agent/v1/technical",
+      "technicalAccess": "Disponible durante un período Advanced o Jade activo. Se aceptan tokens de solo lectura y de escritura de posiciones.",
+      "technicalAction": "Lea la tabla técnica. Fecha opcional date=YYYY-MM-DD; si se omite, se usan las posiciones actuales. Las posiciones históricas usan la última instantánea en esa fecha o antes.",
+      "technicalNote": "Se aplican los límites normales del agente; no se envía aviso de acceso.",
+      "technicalSeriesHeading": "Leer serie técnica diaria",
+      "technicalSeriesPath": "GET /agent/v1/technical/series",
+      "technicalSeriesAccess": "Disponible durante un período Advanced o Jade activo. Se aceptan tokens de solo lectura y de escritura de posiciones.",
+      "technicalSeriesAction": "Lea una posición: ticker es obligatorio; start y end son fechas ET opcionales (YYYY-MM-DD). End toma hoy por defecto y start, 91 días antes. Máximo 92 días inclusivos por solicitud.",
+      "technicalSeriesNote": "Se aplican los límites normales del agente; no se envía aviso de acceso."
     },
     "guideLink": "Vea qué puede hacer su agente y cómo."
   },
@@ -1803,7 +1838,7 @@
         "heading": "Qué cubre un resumen",
         "body": [
           "Suba posiciones desde CSV, Excel o Markdown y edite filas individuales. Consulte distribución de cartera, rendimiento frente a índices, volatilidad y riesgo históricos.",
-          "Los resúmenes cubren anomalías de precios, situación técnica, noticias macro y empresariales relacionadas con sus posiciones y calendario de eventos macro y resultados. Cada afirmación causal tiene una etiqueta de confianza."
+          "Los resúmenes cubren anomalías de precios, noticias macro y empresariales relacionadas con sus posiciones y calendario de eventos macro y resultados. Cada afirmación causal tiene una etiqueta de confianza. La situación técnica está disponible en el sitio web."
         ]
       },
       {
@@ -2220,7 +2255,7 @@
         "lead": "Todo lo incluido en Briefing, más:",
         "features": [
           "Un resumen cada día de lunes a viernes",
-          "Su agente de IA también puede leer instantáneas diarias y conocer temas de información relacionados con sus posiciones",
+          "Su agente de IA también puede leer instantáneas diarias, situación técnica y temas de información relacionados con sus posiciones",
           "Hasta 50 posiciones guardadas mientras Advanced está activo, incluidas efectivo y posiciones en observación"
         ]
       },

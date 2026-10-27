@@ -212,48 +212,6 @@ def test_inject_section42_table_fallback_appends_when_heading_absent() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _tech_dict(**over: object) -> dict[str, object]:
-    base: dict[str, object] = {
-        "ticker": "NVDA",
-        "name": "NVIDIA",
-        "last_close": 120.0,
-        "bars": 252,
-        "pct_vs_sma50": 0.06,
-        "pct_vs_sma200": 0.18,
-        "range_52w_low": 80.0,
-        "range_52w_high": 140.0,
-        "pct_in_52w_range": 0.667,
-        "vol_20d_annualized": 0.42,
-    }
-    base.update(over)
-    return base
-
-
-def test_build_section44_renders_descriptive_metrics() -> None:
-    md = sec._build_section44_technical([_tech_dict()])
-    assert "### 4.4 Technical position" in md
-    assert "NVIDIA (NVDA)" in md
-    assert "+6.0%" in md  # vs 50-day avg
-    assert "+18.0%" in md  # vs 200-day avg
-    assert "67%" in md  # 52-week range position
-    assert "+42.0%" in md  # annualized volatility
-
-
-def test_build_section44_insufficient_history_message_no_table() -> None:
-    sparse = _tech_dict(
-        pct_vs_sma50=None, pct_vs_sma200=None, pct_in_52w_range=None, vol_20d_annualized=None
-    )
-    md = sec._build_section44_technical([sparse])
-    assert "Insufficient captured price history" in md
-    assert "| Holding |" not in md  # no table rendered
-
-
-def test_build_section44_partial_metrics_render_dash() -> None:
-    md = sec._build_section44_technical([_tech_dict(pct_vs_sma200=None)])
-    assert "| Holding |" in md  # table rendered (some metric present)
-    assert "—" in md  # the missing 200-day cell
-
-
 # ---------------------------------------------------------------------------
 # Tests: §2.5 Forward Calendar
 # ---------------------------------------------------------------------------

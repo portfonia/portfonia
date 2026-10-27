@@ -1283,3 +1283,51 @@ export async function calculateJadeWhatIf(body: { base_currency: BaseCurrency; r
   if (!response.ok) await throwOnHttpError(response);
   return response.json() as Promise<JadeWhatIf>;
 }
+
+
+export interface TechnicalPositionOut {
+  ticker: string;
+  name: string;
+  last_close: number | null;
+  bars: number;
+  pct_vs_sma50: number | null;
+  pct_vs_sma200: number | null;
+  range_52w_low: number | null;
+  range_52w_high: number | null;
+  pct_in_52w_range: number | null;
+  vol_20d_annualized: number | null;
+}
+export interface TechnicalTableOut {
+  as_of: string;
+  holdings_date: string | null;
+  positions: TechnicalPositionOut[];
+}
+export interface TechnicalPointOut {
+  date: string;
+  close: number;
+  pct_vs_sma50: number | null;
+  pct_vs_sma200: number | null;
+  pct_in_52w_range: number | null;
+  vol_20d_annualized: number | null;
+}
+export interface TechnicalSeriesOut {
+  ticker: string;
+  name: string;
+  start: string;
+  end: string;
+  points: TechnicalPointOut[];
+}
+export async function getTechnicalTable(date?: string): Promise<TechnicalTableOut> {
+  const query = date ? `?${new URLSearchParams({ date })}` : "";
+  const response = await fetch(`/api/portfolio/technical${query}`, { cache: "no-store" });
+  if (!response.ok) await throwOnHttpError(response);
+  return response.json() as Promise<TechnicalTableOut>;
+}
+export async function getTechnicalSeries(ticker: string, start?: string, end?: string): Promise<TechnicalSeriesOut> {
+  const params = new URLSearchParams({ ticker });
+  if (start) params.set("start", start);
+  if (end) params.set("end", end);
+  const response = await fetch(`/api/portfolio/technical/series?${params}`, { cache: "no-store" });
+  if (!response.ok) await throwOnHttpError(response);
+  return response.json() as Promise<TechnicalSeriesOut>;
+}

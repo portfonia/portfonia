@@ -206,9 +206,10 @@ after the intro and above section 1. The Pricing document text stays authoritati
    - Holdings upload from CSV, Excel, or Markdown, with row-level editing.
    - Portfolio overview: allocation, performance against benchmarks, and
      historical volatility and risk views.
-   - Briefings covering price anomalies, technical position, macro and
-     company news mapped to your holdings, and a forward calendar of macro
-     and earnings events, each causal claim with a confidence label.
+   - Briefings covering price anomalies, macro and company news mapped to your
+     holdings, and a forward calendar of macro and earnings events, each
+     causal claim with a confidence label. Technical position is available on
+     the website.
    - Briefings in English or Chinese.
 3. **Credits**
    - Credits are sold in packs: US$10 for 10 credits, or US$20 for 20

@@ -173,7 +173,7 @@ def _split_sections(md: str) -> list[str]:
     """Split a report into translation chunks at section AND subsection headings.
 
     Breaks at both top-level ('## ') and subsection ('### ') headings, so §4 —
-    which now carries two large code-built tables (§4.2 anomalies, §4.4 technical)
+    which carries a large code-built table (§4.2 anomalies)
     plus prose subsections — becomes several small chunks instead of one oversized
     request. Smaller chunks keep the cheap, occasionally rate-limited translation
     model from returning a truncated 200 that silently drops content. The preamble

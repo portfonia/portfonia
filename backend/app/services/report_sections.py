@@ -1,7 +1,7 @@
 """Code-built report sections — no LLM involved, deterministic from data.
 
 Covers §1 Portfolio Snapshot, §2.5 Forward Calendar, §4.2 Price Anomalies
-table, §4.4 Technical Position, the F3 fixed footer, and the data-window
+table, §4.4 Technical Position page link, the F3 fixed footer, and the data-window
 statement. Split out of report_generator.py (#37).
 """
 
@@ -157,6 +157,14 @@ def _build_section1_page_links(output_lang: str = "en") -> str:
     )
 
 
+def _build_section44_page_link(output_lang: str = "en") -> str:
+    base = get_settings().FRONTEND_URL.rstrip("/")
+    template = load_i18n_glossary().templates["section44_page_link"]
+    return Template(template[locale_for_output_lang(output_lang)]).substitute(
+        technical_url=f"{base}/portfolio/technical"
+    )
+
+
 def _inject_section4_page_links(body: str, output_lang: str = "en") -> str:
     base = get_settings().FRONTEND_URL.rstrip("/")
     templates = load_i18n_glossary().templates
@@ -290,60 +298,6 @@ def _inject_section42_table(body: str, table: str) -> str:
 # ---------------------------------------------------------------------------
 # §4.4 Technical position
 # ---------------------------------------------------------------------------
-
-
-def _build_section44_technical(positions: list[dict[str, Any]]) -> str:
-    """Build the §4.4 technical-position block from data — no LLM (#4).
-
-    Pure description of where each holding's price sits: distance to its 50/200-day
-    average, position inside the trailing 52-week range, recent realized volatility.
-    No signals, no actions. Cells with insufficient captured history render as "—".
-    If no holding has any computed metric yet (capture layer still warming up /
-    backfill not run), a single explanatory line replaces the table.
-    """
-
-    def pct(x: float | None) -> str:
-        return f"{x * 100:+.1f}%" if x is not None else "—"
-
-    def rng(x: float | None) -> str:
-        return f"{x * 100:.0f}%" if x is not None else "—"
-
-    rows = [p for p in positions if p.get("ticker")]
-    if not any(
-        p.get("pct_vs_sma50") is not None
-        or p.get("pct_vs_sma200") is not None
-        or p.get("pct_in_52w_range") is not None
-        or p.get("vol_20d_annualized") is not None
-        for p in rows
-    ):
-        return (
-            "### 4.4 Technical position\n\n"
-            "Insufficient captured price history to compute technical position "
-            "(run the one-year OHLCV backfill; metrics populate as the capture "
-            "layer accumulates closes)."
-        )
-
-    lines = [
-        "### 4.4 Technical position",
-        "",
-        "| Holding | vs 50-day avg | vs 200-day avg | 52-week range position "
-        "| 20-day volatility (ann.) |",
-        "|---------|---------------|----------------|-------------------------"
-        "|--------------------------|",
-    ]
-    for p in rows:
-        ident = p.get("ticker", "")
-        name_col = f"{p.get('name', '')} ({ident})" if ident else p.get("name", "")
-        lines.append(
-            f"| {name_col} | {pct(p.get('pct_vs_sma50'))} | {pct(p.get('pct_vs_sma200'))} "
-            f"| {rng(p.get('pct_in_52w_range'))} | {pct(p.get('vol_20d_annualized'))} |"
-        )
-    lines += [
-        "",
-        "> Range position: 0% = at the 52-week low, 100% = at the 52-week high. "
-        "Figures describe where the price sits; they are not signals.",
-    ]
-    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

@@ -380,3 +380,26 @@ def test_export_excludes_by_star_aggregates(app_client: TestClient, db_session: 
     resp = app_client.get("/portfolio/export?format=md")
     assert "by_market" not in resp.text
     assert "by_currency" not in resp.text
+
+
+def test_829_technical_table_rejects_future_date(app_client: TestClient) -> None:
+    resp = app_client.get("/portfolio/technical?date=9999-01-01")
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["code"] == "invalid_date"
+
+
+def test_829_technical_series_range_limit(app_client: TestClient, db_session: Session) -> None:
+    _seed(db_session)
+    resp = app_client.get("/portfolio/technical/series?ticker=AAPL&start=2026-01-01&end=2026-04-03")
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["code"] == "range_too_long"
+    resp = app_client.get("/portfolio/technical/series?ticker=AAPL&start=2026-01-01&end=2026-04-02")
+    assert resp.status_code == 200
+
+
+def test_829_technical_series_requires_held_ticker(app_client: TestClient) -> None:
+    resp = app_client.get(
+        "/portfolio/technical/series?ticker=NOTHELD829&start=2026-01-01&end=2026-01-02"
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "ticker_not_held"

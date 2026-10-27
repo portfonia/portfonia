@@ -308,34 +308,38 @@ export function HomeSections() {
                   </li>
                 ))}
               </ul>
-              <div className="overflow-x-auto">
-                <table className={TABLE_CLS}>
-                  <thead>
-                    <tr>
-                      {t.preview.technicalColumns.map((col) => (
-                        <th key={col} className={TH_CLS}>{col}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {t.preview.technicalRows.map((row, i) => (
-                      <tr key={`tech-${i}`}>
-                        {row.map((cell, j) => (
-                          <td key={`tech-${i}-${j}`} className={TD_CLS}>{cell}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="text-xs text-muted-foreground">
-                <BoldText text={t.preview.technicalNote} />
-              </div>
+
             </div>
 
             <p className="mt-6 border-t border-white/10 pt-5 text-sm text-muted-foreground">
               {t.preview.footnote}
             </p>
+          </div>
+        </div>
+        <div className="mx-auto mt-8 max-w-4xl space-y-4 rounded-lg border border-border bg-card p-6">
+          <h3 className="font-serif text-lg">{t.preview.technicalSiteLabel}</h3>
+          <div className="overflow-x-auto">
+            <table className={TABLE_CLS}>
+              <thead>
+                <tr>
+                  {t.preview.technicalColumns.map((col) => (
+                    <th key={col} className={TH_CLS}>{col}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {t.preview.technicalRows.map((row, i) => (
+                  <tr key={`tech-${i}`}>
+                    {row.map((cell, j) => (
+                      <td key={`tech-${i}-${j}`} className={TD_CLS}>{cell}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            <BoldText text={t.preview.technicalNote} />
           </div>
         </div>
       </section>

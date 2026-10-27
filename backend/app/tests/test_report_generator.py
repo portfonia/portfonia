@@ -2608,3 +2608,20 @@ def test_render_full_md_zh_injects_section41_localized_link() -> None:
         Template(template).substitute(portfolio_url=f"{base}/portfolio?focus=asset-class")
         in full_md
     )
+
+
+def test_829_render_and_generation_use_technical_page(db_session: Session) -> None:
+    from string import Template
+
+    from app.services.i18n_glossary import load_i18n_glossary
+    from app.tests.test_issue_639_reports import generate
+
+    block = Template(load_i18n_glossary().templates["section44_page_link"]["en"]).substitute(
+        technical_url=get_settings().FRONTEND_URL.rstrip("/") + "/portfolio/technical"
+    )
+    with patch.object(rg, "_translate_md", side_effect=lambda text, lang: text):
+        md, _, body = rg._render_full_md("2026-10-26", {}, [], "Quiet day.", "en")
+    assert block in md
+    assert "|" not in body.split(block.splitlines()[0], 1)[1]
+    report = generate(db_session, [("TSLA", "stock", 4)], [])
+    assert "technical_positions" not in (report.report_inputs or {})

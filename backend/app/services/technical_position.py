@@ -17,14 +17,26 @@ from __future__ import annotations
 
 import logging
 import statistics
+from bisect import bisect_left
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
+from uuid import UUID
 
-from sqlalchemy import select
+from fastapi import HTTPException
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.timezones import today_et
+from app.models.holding import Holding
+from app.models.portfolio_value_snapshot import PortfolioValueSnapshot
 from app.models.price_snapshot import PriceSnapshot
+from app.schemas.technical import (
+    TechnicalPointOut,
+    TechnicalPositionOut,
+    TechnicalSeriesOut,
+    TechnicalTableOut,
+)
 from app.services.instrument_symbols import normalize_legacy_ticker
 
 logger = logging.getLogger(__name__)
@@ -55,23 +67,22 @@ class TechnicalPosition:
     vol_20d_annualized: float | None
 
 
-def _load_closes(session: Session, ticker: str, floor: date) -> list[float]:
-    """Daily closes on-or-after `floor`, oldest first (capture layer, close node)."""
-    rows = (
-        session.execute(
-            select(PriceSnapshot.close)
-            .where(
-                PriceSnapshot.ticker == ticker,
-                PriceSnapshot.session_node == "close",
-                PriceSnapshot.close.is_not(None),
-                PriceSnapshot.trade_date >= floor,
-            )
-            .order_by(PriceSnapshot.trade_date.asc())
+def _load_closes(
+    session: Session, ticker: str, floor: date, ceiling: date
+) -> list[tuple[date, float]]:
+    """Captured daily closes within inclusive calendar bounds, oldest first."""
+    rows = session.execute(
+        select(PriceSnapshot.trade_date, PriceSnapshot.close)
+        .where(
+            PriceSnapshot.ticker == ticker,
+            PriceSnapshot.session_node == "close",
+            PriceSnapshot.close.is_not(None),
+            PriceSnapshot.trade_date >= floor,
+            PriceSnapshot.trade_date <= ceiling,
         )
-        .scalars()
-        .all()
-    )
-    return [float(c) for c in rows if c is not None]
+        .order_by(PriceSnapshot.trade_date.asc())
+    ).all()
+    return [(day, float(close)) for day, close in rows]
 
 
 def _sma_gap(closes: list[float], window: int) -> float | None:
@@ -99,7 +110,10 @@ def compute_technical_position(
     # §4.4 permanently empty for any normalized ticker regardless of
     # capture/valuation being otherwise correct.
     ticker = normalize_legacy_ticker(ticker)
-    closes = _load_closes(session, ticker, today - timedelta(days=_LOOKBACK_DAYS))
+    closes = [
+        close
+        for _, close in _load_closes(session, ticker, today - timedelta(days=_LOOKBACK_DAYS), today)
+    ]
     last = closes[-1] if closes else None
 
     lo = hi = pos = None
@@ -139,3 +153,163 @@ def compute_technical_positions(
         seen.add(ticker)
         out.append(compute_technical_position(session, ticker, h.get("name", ticker), today))
     return out
+
+
+@dataclass
+class TechnicalPoint:
+    date: date
+    close: float
+    pct_vs_sma50: float | None
+    pct_vs_sma200: float | None
+    pct_in_52w_range: float | None
+    vol_20d_annualized: float | None
+
+
+def compute_technical_series(
+    session: Session, ticker: str, name: str, start: date, end: date
+) -> list[TechnicalPoint]:
+    ticker = normalize_legacy_ticker(ticker)
+    rows = _load_closes(session, ticker, start - timedelta(days=_LOOKBACK_DAYS), end)
+    dates = [day for day, _ in rows]
+    out: list[TechnicalPoint] = []
+    for index, (day, close) in enumerate(rows):
+        if day < start:
+            continue
+        floor = bisect_left(dates, day - timedelta(days=_LOOKBACK_DAYS))
+        closes = [value for _, value in rows[floor : index + 1]]
+        pos = None
+        if len(closes) >= _RANGE_MIN_BARS:
+            window = closes[-_TRADING_DAYS_YR:]
+            low, high = min(window), max(window)
+            pos = (close - low) / (high - low) if high > low else None
+        out.append(
+            TechnicalPoint(
+                day,
+                close,
+                _sma_gap(closes, _SMA_SHORT),
+                _sma_gap(closes, _SMA_LONG),
+                pos,
+                _vol_annualized(closes, _VOL_WINDOW),
+            )
+        )
+    return out
+
+
+def technical_holdings(
+    session: Session, user_id: UUID, as_of: date | None
+) -> tuple[date | None, list[dict[str, str]]]:
+    live = session.scalars(
+        select(Holding)
+        .where(Holding.user_id == user_id)
+        .order_by(Holding.position.asc().nulls_last(), Holding.created_at, Holding.id)
+    ).all()
+    names = {holding.id: holding.name for holding in live}
+    rows: list[dict[str, str]] = []
+    holdings_date: date | None
+    if as_of is None:
+        holdings_date = today_et()
+        rows = [{"ticker": h.ticker, "name": h.name} for h in live if h.ticker]
+    else:
+        holdings_date = session.scalar(
+            select(func.max(PortfolioValueSnapshot.snapshot_date)).where(
+                PortfolioValueSnapshot.user_id == user_id,
+                PortfolioValueSnapshot.snapshot_date <= as_of,
+            )
+        )
+        if holdings_date is None:
+            return None, []
+        snapshots = session.scalars(
+            select(PortfolioValueSnapshot)
+            .where(
+                PortfolioValueSnapshot.user_id == user_id,
+                PortfolioValueSnapshot.snapshot_date == holdings_date,
+            )
+            .order_by(PortfolioValueSnapshot.created_at, PortfolioValueSnapshot.id)
+        ).all()
+        rows = [
+            {
+                "ticker": h.ticker,
+                "name": names.get(h.holding_id, h.ticker) if h.holding_id else h.ticker,
+            }
+            for h in snapshots
+            if h.ticker
+        ]
+    unique: dict[str, dict[str, str]] = {}
+    for row in rows:
+        ticker = normalize_legacy_ticker(row["ticker"])
+        unique.setdefault(ticker, {"ticker": ticker, "name": row["name"]})
+    return holdings_date, list(unique.values())
+
+
+def held_tickers(session: Session, user_id: UUID, start: date, end: date) -> set[str]:
+    current = session.scalars(select(Holding).where(Holding.user_id == user_id)).all()
+    historical = session.scalars(
+        select(PortfolioValueSnapshot).where(
+            PortfolioValueSnapshot.user_id == user_id,
+            PortfolioValueSnapshot.snapshot_date >= start,
+            PortfolioValueSnapshot.snapshot_date <= end,
+        )
+    ).all()
+    return {normalize_legacy_ticker(h.ticker) for h in current if h.ticker} | {
+        normalize_legacy_ticker(h.ticker) for h in historical if h.ticker
+    }
+
+
+def technical_table(
+    session: Session, user_id: UUID, requested_date: date | None
+) -> TechnicalTableOut:
+    as_of = requested_date or today_et()
+    if as_of > today_et():
+        raise HTTPException(
+            422, detail={"code": "invalid_date", "message": "Date must not be in the future."}
+        )
+    holdings_date, holdings = technical_holdings(session, user_id, requested_date)
+    return TechnicalTableOut(
+        as_of=as_of,
+        holdings_date=holdings_date,
+        positions=[
+            TechnicalPositionOut.model_validate(
+                compute_technical_position(session, h["ticker"], h["name"], as_of),
+                from_attributes=True,
+            )
+            for h in holdings
+        ],
+    )
+
+
+def technical_series(
+    session: Session, user_id: UUID, ticker: str, start: date | None, end: date | None
+) -> TechnicalSeriesOut:
+    end = end or today_et()
+    start = start or end - timedelta(days=91)
+    if start > end or end > today_et():
+        raise HTTPException(
+            422,
+            detail={
+                "code": "invalid_range",
+                "message": "Use an ordered range ending on or before today.",
+            },
+        )
+    if (end - start).days > 91:
+        raise HTTPException(
+            422,
+            detail={
+                "code": "range_too_long",
+                "message": "Request at most 92 inclusive calendar days.",
+            },
+        )
+    ticker = normalize_legacy_ticker(ticker)
+    if ticker not in held_tickers(session, user_id, start, end):
+        raise HTTPException(
+            404, detail={"code": "ticker_not_held", "message": "Ticker was not held in this range."}
+        )
+    _, current = technical_holdings(session, user_id, None)
+    name = next((h["name"] for h in current if h["ticker"] == ticker), ticker)
+    points = compute_technical_series(session, ticker, name, start, end)
+    return TechnicalSeriesOut(
+        ticker=ticker,
+        name=name,
+        start=start,
+        end=end,
+        points=[TechnicalPointOut.model_validate(point, from_attributes=True) for point in points],
+    )

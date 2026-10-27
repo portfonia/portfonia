@@ -90,7 +90,7 @@ from app.services.report_sections import (
     _build_section1,
     _build_section1_page_links,
     _build_section42_table,
-    _build_section44_technical,
+    _build_section44_page_link,
     _build_today_events_block,
     _fx_is_stale,
     _header_timestamp,
@@ -104,7 +104,6 @@ from app.services.report_serializers import (
     _serialize_macro,
     _serialize_news,
     _serialize_portfolio,
-    _serialize_technical,
 )
 from app.services.report_translation import _translate_md
 from app.services.report_types import validate_report_type
@@ -113,7 +112,6 @@ from app.services.section3_proportionality import (
     check_section3_proportionality,
 )
 from app.services.subscription import is_jade
-from app.services.technical_position import compute_technical_positions
 from app.services.user_scope import user_holdings
 from app.services.watch_tier_config import load_watch_tier_weights
 from app.services.window_data import (
@@ -618,7 +616,6 @@ def _render_full_md(
     period_end: str = "",
     trading_days: int = 0,
     anomalies: list[dict[str, Any]] | None = None,
-    technical: list[dict[str, Any]] | None = None,
     forward_events: list[dict[str, Any]] | None = None,
     price_data_through: str = "",
     report_id: uuid.UUID | None = None,
@@ -673,10 +670,6 @@ def _render_full_md(
     # under the LLM's §4.2 heading (#3): deterministic, token-free, no hallucination.
     if anomalies:
         cleaned = _inject_section42_table(cleaned, _build_section42_table(anomalies))
-    # §4.4 technical position appended to the §4 body (#4) — also code-built from
-    # stored metrics, so re-render reproduces it without touching the DB.
-    if technical:
-        cleaned = cleaned.rstrip() + "\n\n" + _build_section44_technical(technical)
     header = f"# Portfonia Holdings Briefing — {_header_timestamp(report_date_str, period_end)}\n\n"
     window = _build_data_window(
         news_items, portfolio, period_start, period_end, trading_days, price_data_through
@@ -692,6 +685,7 @@ def _render_full_md(
     snapshot_out = _translate_md(header + window + section1, render_lang)
     body_out = _translate_md(cleaned, render_lang)
     body_out = _inject_section4_page_links(body_out, render_lang)
+    body_out = body_out.rstrip() + "\n\n" + _build_section44_page_link(render_lang)
     hits = prompt_label_hits(raw_body, body_out)
     if label_hits is not None:
         label_hits[:] = hits
@@ -803,7 +797,6 @@ def _finish_report(
         ctx.period_end,
         ctx.window_trading_days,
         ctx.price_anomalies,
-        ctx.technical_positions,
         ctx.forward_events,
         ctx.price_data_through,
         report_id=report.id,
@@ -1355,15 +1348,6 @@ def generate_report(
         price_through = latest_window_close_date(session, period_start, period_end)
         ctx.price_data_through = price_through.isoformat() if price_through else ""
 
-        # Technical position (#4): computed here (needs the session) and stored, so
-        # §4.4 stays code-built and re-render reproduces it without a DB read.
-        logger.info("report %s: computing technical position", report.id)
-        ctx.technical_positions = _serialize_technical(
-            compute_technical_positions(
-                session, ctx.portfolio_summary.get("holdings", []), eff_date
-            )
-        )
-
         # Forward calendar (#1): read the scheduled US events the capture task
         # persisted. Stored so re-render reproduces §2.5 without a DB read.
         logger.info("report %s: loading forward calendar", report.id)
@@ -1700,7 +1684,7 @@ def regenerate_report(
         period_end_iso = report.period_end.isoformat() if report.period_end else ""
         trading_days = int(inputs.get("window_trading_days", 0))
 
-        # Re-fetched live, like fresh_technical below — a regenerate should
+        # Re-fetched live, as in generation — a regenerate should
         # reflect a questionnaire answered/changed since the original
         # generation, not replay the stale answer set frozen in `inputs`
         # (issue #129 checkpoint B6).
@@ -1753,24 +1737,16 @@ def regenerate_report(
             "macro_continuity_snapshot": macro_continuity,
         }
 
-        # Recompute technical positions from the live DB so a backfill run
-        # between the original generation and this regenerate is reflected.
-        fresh_technical = _serialize_technical(
-            compute_technical_positions(session, portfolio.get("holdings", []), report.report_date)
-        )
         # New dict identity so SQLAlchemy flags the column dirty (an
         # in-place mutation of the existing dict would not be detected).
         report.report_inputs = {
             **inputs,
             **body_update,
             "llm_calls": regen_calls,
-            "technical_positions": fresh_technical,
             "portfolio_summary": portfolio,
         }
-        technical_positions = fresh_technical
     elif mode == "render":
         raw_body = stored_body
-        technical_positions = inputs.get("technical_positions", [])
     else:
         raise ValueError(f"unknown mode {mode!r} (expected 'render' or 'analyze')")
 
@@ -1798,7 +1774,6 @@ def regenerate_report(
         report.period_end.isoformat() if report.period_end else "",
         int(inputs.get("window_trading_days", 0)),
         inputs.get("price_anomalies", []),
-        technical_positions,
         inputs.get("forward_events", []),
         str(inputs.get("price_data_through", "")),
         report_id=report.id,
