@@ -44,7 +44,9 @@ def test_a5_session(
     assert r.json() == {"advanced": advanced, "jade": jade}
 
 
-def test_a5_agent_snapshot(app_client: TestClient, db_session: Session) -> None:
+def test_a5_agent_snapshot(
+    app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
     u = seed_user(db_session, TEST_USER_ID)
     u.subscription_status = "active"
     u.subscription_type = "jade"
@@ -52,6 +54,7 @@ def test_a5_agent_snapshot(app_client: TestClient, db_session: Session) -> None:
     db_session.flush()
     token = create(app_client)
     day = date(2026, 10, 8).isoformat()
+    monkeypatch.setattr("app.core.agent_limits.quiet_retry_after", lambda _: None)
     r = app_client.get(
         "/agent/v1/snapshots", params={"start": day, "end": day}, headers=bearer(token)
     )

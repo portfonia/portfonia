@@ -160,7 +160,7 @@ def test_acceptance_04_auth_surfaces(app_client: TestClient, db_session: Session
 
 
 def test_acceptance_05_snapshot_equivalence_and_entitlement(
-    app_client: TestClient, db_session: Session
+    app_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from app.tests.test_portfolio_snapshot_export import _batch, _row
 
@@ -172,6 +172,7 @@ def test_acceptance_05_snapshot_equivalence_and_entitlement(
     _row(db_session, today_et())
     body = create(app_client)
     web = app_client.get("/portfolio/snapshots", params=params())
+    monkeypatch.setattr("app.core.agent_limits.quiet_retry_after", lambda _: None)
     agent = app_client.get(AGENT, params=params(), headers=bearer(body))
     assert agent.status_code == web.status_code == 200
     assert agent.json() == web.json()
