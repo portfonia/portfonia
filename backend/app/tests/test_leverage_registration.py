@@ -133,9 +133,7 @@ def test_forward_leverage_labels_and_old_inputs() -> None:
     assert report_sections._forward_exposure(event, holdings, links)[0] == ["MU-Bull-2X (2x MU)"]
     links["MUU"]["direction"] = "bear"
     assert report_sections._forward_exposure(event, holdings, links)[0] == ["MU-Bull-2X (-2x MU)"]
-    assert report_sections._build_forward_block(
-        [event], holdings, []
-    ) == report_sections._build_forward_block([event], holdings, [], leverage_links={})
+    assert report_sections._forward_exposure(event, holdings)[0] == ["MU"]
 
 
 def test_enqueue_excludes_registered_mapped_marked_and_unsupported(db_session: Session) -> None:
