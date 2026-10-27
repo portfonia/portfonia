@@ -176,7 +176,9 @@ not listing location. **The class list and every number are defined in code
 
 - Class list: `VALID_ASSET_CLASSES` in `app/services/asset_class_config.py`.
 - Per-class numbers + per-class rationale comments: `config/asset_class_thresholds.yml`.
-- Which holdings map to which class: `config/ticker_asset_class.yml`, loaded
+- Which holdings map to which class: a `ticker_leverage_overrides` registration
+  with a non-null `asset_class` takes precedence over `config/ticker_asset_class.yml`
+  (#839). The YAML mapping is loaded
   once per process by `holding_parser._load_ticker_asset_class()`
   (issue #786; changes take effect after deploy restarts the processes;
   unknown asset_class values fail loudly at load, mirroring the thresholds
@@ -200,7 +202,9 @@ publishes same evening after A-share close). Confirm-time
 
 After a persisted holdings write (file confirm, web create/update, rollback, Agent
 write), `holdings_write.enqueue_unmapped_asset_class_alert` checks each written row
-with `holding_parser.unmapped_fund_identifier`: an `etf`/`fund` row whose ticker and
+with `holding_parser.unmapped_fund_identifier`. A ticker registered in
+`ticker_leverage_overrides` with a non-null `asset_class` is skipped and stored as
+the registered class (#839). Otherwise, an `etf`/`fund` row whose ticker and
 fund_code are both absent from `ticker_asset_class.yml` was stored as `EQUITY_BROAD`
 through the `asset_type` catch-all. One WARNING ops email lists the new identifiers
 with market, asset type and write source (no user id, name, shares or amounts). Each
@@ -210,7 +214,9 @@ Failures are logged and never affect the write.
 
 Fix route: add the identifier to `backend/config/ticker_asset_class.yml` by PR, deploy,
 run `python -m app.scripts.reclassify_asset_class` (dry run) and, with the owner's
-approval, `--apply`.
+approval, `--apply`. For a leveraged product, register it with
+`POST /admin/ticker-leverage` and a non-null `asset_class`; existing holdings are
+reclassified on registration (#839).
 
 Allocation history may show a fund/ETF moving from `EQUITY_BROAD` to another class on
 the day its mapping was deployed, with no change in the user's holdings. Snapshots
@@ -348,9 +354,10 @@ Forward capture includes underlying earnings for held registered products.
 Reports store per-user `leverage_links` with the underlying, plain multiple
 and direction alongside forward events. Earnings exposure lists direct
 holdings followed by product labels such as `MU-Bull-2X (2x MU)` or
-`MU-Bear-2X (-2x MU)`. These links never enter an LLM payload; old report inputs
-without links retain existing rendering. Watch text and the ticker fallback
-are unchanged.
+`MU-Bear-2X (-2x MU)`. The `leverage_links` data is not part of any prompt.
+For non-English reports, the rendered §2.5 block is translated with the rest of
+the body, like every other code-built section. Old report inputs without links
+retain existing rendering. Watch text and the ticker fallback are unchanged.
 
 Holdings writes enqueue detection only for non-null tickers with automatic
 pricing and `capture_supported=True`, absent from registrations and the YAML

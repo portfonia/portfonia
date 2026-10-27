@@ -176,3 +176,59 @@ def test_detection_marks_successes_and_task_alerts_once() -> None:
         send.assert_called_once()
         admin_tasks.check_leveraged_tickers_task(["PLAIN"])
         send.assert_called_once()
+
+
+def test_regenerate_render_reads_persisted_leverage_links(db_session: Session) -> None:
+    from datetime import timedelta
+
+    from app.models.report import Report
+    from app.services import report_generator as rg
+    from app.services.report_context import ReportContext
+    from app.services.report_serializers import _serialize_portfolio
+    from app.tests.test_report_generator import _FAKE_LLM_PASS2, _NOW, _TODAY, _portfolio_snap
+
+    seed_user(db_session, TEST_USER_ID)
+    portfolio = _serialize_portfolio(_portfolio_snap())
+    portfolio["holdings"][0].update(ticker="MUU", name="MU-Bull-2X")
+    ctx = ReportContext(
+        portfolio_summary=portfolio,
+        pass2_raw=_FAKE_LLM_PASS2,
+        forward_events=[
+            {
+                "event_type": "earnings",
+                "ticker": "MU",
+                "name": "MU earnings",
+                "scheduled_date": _TODAY.isoformat(),
+            }
+        ],
+        leverage_links={"MUU": {"underlying": "MU", "multiple": "2", "direction": "bull"}},
+    )
+    label = "MU-Bull-2X (2x MU)"
+    for index, with_links in enumerate((True, False)):
+        inputs = ctx.to_jsonb()
+        if not with_links:
+            inputs.pop("leverage_links")
+        report = Report(
+            user_id=TEST_USER_ID,
+            report_date=_TODAY + timedelta(days=index),
+            report_type="incremental",
+            session_node="manual",
+            status="success",
+            period_start=_NOW - timedelta(days=1),
+            period_end=_NOW + timedelta(days=1),
+            report_inputs=inputs,
+        )
+        db_session.add(report)
+        db_session.commit()
+        report_id = report.id
+        db_session.expire(report)
+        rendered = rg.regenerate_report(
+            db_session, report_id, user_id=TEST_USER_ID, mode="render", output_lang="en"
+        )
+        assert rendered.report_md is not None
+        calendar = rendered.report_md.split("## §2.5 Forward Calendar", 1)[1].split("## §3", 1)[0]
+        if with_links:
+            assert label in calendar
+        else:
+            assert label not in calendar
+            assert "| MU earnings | MU |" in calendar
