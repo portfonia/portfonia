@@ -200,10 +200,6 @@ export function PortfolioPageBody({
       <PnlSummaryCard summary={summary} />
 
       <RiskPanel baseCurrency={summary.base_currency} />
-      <Card>
-        <CardHeader><CardTitle>{t("technical.title")}</CardTitle><CardDescription>{t("technical.description")}</CardDescription></CardHeader>
-        <CardContent><Button variant="outline" render={<Link href="/portfolio/technical" />}>{t("technical.open")}</Button></CardContent>
-      </Card>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <BreakdownChart
@@ -272,6 +268,10 @@ export function PortfolioPageBody({
       </Card>
 
       <NoLivePriceSection holdings={noLivePrice} />
+      <Card>
+        <CardHeader><CardTitle>{t("technical.title")}</CardTitle><CardDescription>{t("technical.description")}</CardDescription></CardHeader>
+        <CardContent><Button variant="outline" render={<Link href="/portfolio/technical" />}>{t("technical.open")}</Button></CardContent>
+      </Card>
     </div>
   );
 }

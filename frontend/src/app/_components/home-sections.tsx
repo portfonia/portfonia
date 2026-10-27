@@ -316,7 +316,10 @@ export function HomeSections() {
             </p>
           </div>
         </div>
-        <div className="mx-auto mt-8 max-w-4xl space-y-4 rounded-lg border border-border bg-card p-6">
+      </section>
+
+      <HomeProductPreviews technicalPreview={
+        <div className="space-y-4 rounded-lg border border-border bg-card p-6">
           <h3 className="font-serif text-lg">{t.preview.technicalSiteLabel}</h3>
           <div className="overflow-x-auto">
             <table className={TABLE_CLS}>
@@ -342,9 +345,7 @@ export function HomeSections() {
             <BoldText text={t.preview.technicalNote} />
           </div>
         </div>
-      </section>
-
-      <HomeProductPreviews />
+      } />
       <HomeJadeTools />
 
       <section id="boundary" className="px-6 py-16 sm:py-20">

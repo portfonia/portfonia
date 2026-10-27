@@ -437,3 +437,18 @@ it("829 links to technical position", () => {
   render(<LocaleProvider routeLocale={null}><PortfolioPageBody initialSummary={summary({})} initialLoadError={false} /></LocaleProvider>);
   expect(screen.getByRole("link", { name: catalogs.en.portfolio.technical.open })).toHaveAttribute("href", "/portfolio/technical");
 });
+
+
+it("833 places the technical position link after holdings and the no-live-price section", () => {
+  renderBody(summary({ holdings: [priced({}), priced({
+    holding_id: "h2", name: "Unresolvable", ticker: null, market: "Other",
+    capture_supported: false, market_value_base: null,
+  })] }));
+  const holdingsCard = screen.getByText(catalogs.en.portfolio.holdingsHeading).closest('[data-slot="card"]')!;
+  const holdings = within(holdingsCard as HTMLElement).getByRole("table");
+  const noLivePrice = screen.getByText(catalogs.en.portfolio.noLivePriceHeading).parentElement!;
+  const technical = screen.getByRole("link", { name: catalogs.en.portfolio.technical.open });
+  expect(technical).toHaveAttribute("href", "/portfolio/technical");
+  expect(holdings.compareDocumentPosition(technical) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(noLivePrice.compareDocumentPosition(technical) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
