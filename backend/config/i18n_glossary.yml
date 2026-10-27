@@ -121,6 +121,15 @@ vendor_names:
     zh-Hans: 天天基金
 
 templates:
+  section44_page_link:
+    en: |-
+      ### 4.4 Technical position
+
+      You can check the current technical position of your holdings on the [Technical position]($technical_url) page.
+    zh-Hans: |-
+      ### 4.4 技术位置
+
+      您可以在[技术位置]($technical_url)页面查看当前持仓的技术位置。
   # Multi-line rendered report text (report_generator._build_footer).
   # $fx_date / $base_ccy are string.Template placeholders substituted at
   # render time. Values are single-line (no YAML line-folding) deliberately:

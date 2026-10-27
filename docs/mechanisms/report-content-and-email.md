@@ -16,13 +16,16 @@ re-render-safe); the LLM writes only prose/attribution. Current shape:
 - **Confidence labels** — every causal attribution ends with
   `[Established]/[Probable]/[Speculative]` (never a numeric %); zh-Hans
   renderings defined in `i18n_glossary.yml`'s `report_glossary`.
-- **§4.4 technical position** (`technical_position.py`) — descriptive OHLCV
-  facts only (distance to 50/200-day avg, 52-week range, 20-day vol); TA
-  signal vocabulary (support/resistance/golden-cross/death-cross, EN + zh-Hans
-  — see `ta_observation_terms` in `i18n_glossary.yml`) is forbidden in the
-  body. Needs ~200 captured closes — seed once via
-  `python -m app.scripts.backfill_ohlcv`, or let `confirm_holdings` dispatch
-  the scoped `backfill_ohlcv_task` for this user's sparse tickers.
+- **§4.4 technical position page link** (#829) — the report includes a localized
+  link to `/portfolio/technical`, including quiet-day reports. It no longer
+  computes or stores technical metrics; old `technical_positions` input keys
+  are ignored without migration. The page and Advanced Agent reads compute
+  descriptive moving-average gaps, 52-week range position and annualized
+  20-day volatility on demand from `price_snapshots`, with no new storage.
+  Each dated metric uses closes through that date within its preceding 420
+  calendar days; formulas and insufficient-history null rules are unchanged.
+  Historical tables use the latest holdings snapshot on or before the date.
+  Daily series return captured closes only and accept at most 92 inclusive days.
 - **§2.5 forward calendar** (`forward_events.py`) — US macro releases (FRED,
   optional `FRED_API_KEY`), hardcoded FOMC dates (verify annually against
   federalreserve.gov — FRED has no forward FOMC schedule), earnings via

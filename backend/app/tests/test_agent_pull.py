@@ -657,3 +657,30 @@ def test_781_acceptance_07_audit_since(
     params = {"since": (NOW - timedelta(hours=1)).isoformat()}
     app_client.get(INTEL, params=params, headers=bearer(token))
     assert audit_rows(db_session)[-1]["params"] == params
+
+
+def test_829_technical_requires_advanced(
+    app_client: TestClient, db_session: Session, token: dict[str, object]
+) -> None:
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.subscription_type = "mwf"
+    db_session.flush()
+    response = app_client.get("/agent/v1/technical", headers=bearer(token))
+    assert response.status_code == 403
+    assert response.json()["detail"] == "subscription_required"
+    user.subscription_type = "daily"
+    db_session.flush()
+    assert app_client.get("/agent/v1/technical", headers=bearer(token)).status_code == 200
+
+
+def test_829_technical_read_sends_no_notice(
+    app_client: TestClient, token: dict[str, object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import Mock
+
+    notice = Mock()
+    monkeypatch.setattr("app.routers.agent.send_api_access_notice_task", notice)
+    response = app_client.get("/agent/v1/technical", headers=bearer(token))
+    assert response.status_code == 200
+    notice.delay.assert_not_called()

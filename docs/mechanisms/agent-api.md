@@ -1,7 +1,7 @@
 # Personal agent API access (#651, #652)
 
 A user's own agent can read reports on every plan and complete daily holding
-snapshots and intelligence on an active Advanced plan (Daily or Jade). Current holdings,
+snapshots, technical position and intelligence on an active Advanced plan (Daily or Jade). Current holdings,
 validation, writes and Agent change-history reads require active Jade (#775).
 Issue #754 adds holdings management with a holdings-write token and read-only
 validation. See the current-holdings contract below.
@@ -65,7 +65,7 @@ query validation or endpoint entitlement:
 4. Otherwise, `agent:burst:{user_id}`: fixed 60-second window from its first
    increment; the eleventh request sets a 900-second lock and returns 429.
 5. Otherwise, `agent:hour:{endpoint}:{user_id}`: 20 per 3600-second fixed window.
-6. Endpoint entitlement, via `is_advanced(user)` for snapshots and intelligence, and
+6. Endpoint entitlement, via `is_advanced(user)` for snapshots, technical position and intelligence, and
    `is_jade(user)` for holdings, validation, writes and change history (403
    `subscription_required`).
 
@@ -579,3 +579,36 @@ history and explains restoring holdings to before the change. Agent alerts
 also include a fresh revoke-all link and the existing revocation paragraph;
 file alerts do not. Privacy section 7, the Agent notice, guide limits and public
 `agent.md` describe the separate alert. No migration or Beat entry is added.
+
+
+## Technical position (#829)
+
+`GET /agent/v1/technical` and `GET /agent/v1/technical/series` require active
+Advanced or Jade; either token permission may read. They share the web routes'
+parameter handling and response models in `technical_position.py` and
+`schemas/technical.py`. Router-level `agent_limits` applies unchanged: no
+additional bucket, quota increase or access notice. Neither route calls
+`_data_notice` or the access-notice task. Both appear in the public Agent schema.
+
+The table accepts optional ET `date`, defaults to current holdings and today ET,
+and returns `as_of`, nullable `holdings_date` and positions. Historical holdings
+come from the latest user snapshot on or before the requested date, with live
+names by holding ID when available. No snapshot means null holdings date and an
+empty table. Tickers are normalized and deduplicated, first occurrence wins.
+Future dates return 422 `invalid_date`.
+
+The series requires ticker; end defaults to today ET and start to end minus
+91 days. Reversed or future ranges return 422 `invalid_range`, more than 92
+inclusive days returns 422 `range_too_long`. A ticker absent from current
+holdings and snapshots inside the requested range returns 404 `ticker_not_held`.
+Errors use `detail: {code, message}`. The current holding name is used when
+available, otherwise the ticker. Responses carry ticker/name/start/end and daily
+points (date, close and four nullable ratios). Ratios are fractions, not percent
+points. Non-trading days produce no point.
+
+All metrics are computed on demand from captured closes, with unchanged
+formulas and null rules and no new storage. The series issues one price query
+from start minus 420 days through end, then selects each point's own inclusive
+420-day lookback. This preserves equality with the table on the same date,
+including sparse histories. The web equivalents require current_principal,
+without a subscription check. Report section 4.4 links to the web page.

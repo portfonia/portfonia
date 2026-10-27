@@ -308,6 +308,16 @@ export function HomeSections() {
                   </li>
                 ))}
               </ul>
+
+            </div>
+
+            <p className="mt-6 border-t border-white/10 pt-5 text-sm text-muted-foreground">
+              {t.preview.footnote}
+            </p>
+          </div>
+        </div>
+        <div className="mx-auto mt-8 max-w-5xl space-y-4 rounded-lg border border-border bg-card p-6">
+          <h3 className="font-serif text-lg">{t.preview.technicalSiteLabel}</h3>
               <div className="overflow-x-auto">
                 <table className={TABLE_CLS}>
                   <thead>
@@ -331,12 +341,6 @@ export function HomeSections() {
               <div className="text-xs text-muted-foreground">
                 <BoldText text={t.preview.technicalNote} />
               </div>
-            </div>
-
-            <p className="mt-6 border-t border-white/10 pt-5 text-sm text-muted-foreground">
-              {t.preview.footnote}
-            </p>
-          </div>
         </div>
       </section>
 

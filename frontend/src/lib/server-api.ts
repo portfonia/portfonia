@@ -7,7 +7,7 @@
 // 1-B design doc §7.3(1)) — it must derive its own Authorization header,
 // same reasoning as the upload Route Handler (see
 // app/api/holdings/upload/route.ts).
-import type { HoldingOut, InvestmentContext, Me, PortfolioSummary, ReportListPage, ReportDetail } from "@/lib/api";
+import type { TechnicalTableOut, HoldingOut, InvestmentContext, Me, PortfolioSummary, ReportListPage, ReportDetail } from "@/lib/api";
 import { logout } from "@/lib/auth-actions";
 import { currentAccessToken } from "@/lib/supabase/server";
 
@@ -95,4 +95,14 @@ export async function getReportServer(id: string): Promise<ReportDetail | null> 
   if (res.status === 404) return null;
   if (!res.ok) await throwOnHttpError(res);
   return res.json() as Promise<ReportDetail>;
+}
+
+
+export async function getTechnicalTableServer(): Promise<TechnicalTableOut> {
+  const res = await fetch(`${BACKEND_URL}/portfolio/technical`, {
+    cache: "no-store",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) await throwOnHttpError(res);
+  return res.json() as Promise<TechnicalTableOut>;
 }

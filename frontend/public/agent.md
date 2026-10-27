@@ -202,6 +202,40 @@ Jade example, same request:
 Intelligence carries no source links, URL keys, provider or publisher fields.
 Use the supplied text; do not infer or invent source attribution.
 
+## Technical position (Advanced)
+
+`GET /agent/v1/technical?date=YYYY-MM-DD`
+
+`GET /agent/v1/technical/series?ticker=AAPL&start=YYYY-MM-DD&end=YYYY-MM-DD`
+
+Requires an active Advanced or Jade subscription. Either token permission can
+read. Normal Agent limits and quiet windows apply, without an extra bucket or
+quota increase. These reads send no access notice and collect no new data.
+
+The table's optional `date` is an ET calendar date; omitting it uses current
+holdings and today ET. A supplied date uses the latest holdings snapshot on or
+before it. The response has `as_of`, nullable `holdings_date`, and `positions`.
+No prior snapshot gives `holdings_date: null` and an empty positions list.
+Each position contains `ticker`, `name`, nullable `last_close`, `bars`, and
+nullable `pct_vs_sma50`, `pct_vs_sma200`, `range_52w_low`, `range_52w_high`,
+`pct_in_52w_range`, `vol_20d_annualized`.
+
+The series requires `ticker`. Optional `end` defaults to today ET, and `start`
+to 91 calendar days before `end`. Bounds are inclusive; at most 92 calendar
+days per request. The ticker must be in current holdings or a holdings snapshot
+within the requested range. Its response has `ticker`, `name`, `start`, `end`,
+and `points`: each contains `date`, `close`, and the four nullable ratio fields
+`pct_vs_sma50`, `pct_vs_sma200`, `pct_in_52w_range`, `vol_20d_annualized`.
+Only captured trading-day closes produce points. Each point uses at most the
+preceding 420 calendar days of closes, including that day. Insufficient history
+gives null metrics. Ratios are fractions: `0.052` means 5.2%. These are descriptive
+price facts, not trading signals. Data is computed on demand from stored closes.
+
+Coded errors use `detail: {code, message}`: 422 `invalid_date` for a future table
+date, 422 `invalid_range` for reversed dates or a future end, 422 `range_too_long`
+for more than 92 inclusive days, and 404 `ticker_not_held` for an unheld ticker.
+Malformed date parameters return the normal 422 validation response.
+
 ## Current holdings (Jade)
 
 These routes manage the caller's current holdings records. They do not access
@@ -626,7 +660,7 @@ attempt to bypass account limits by switching tokens.
 | HTTP status | Meaning |
 | --- | --- |
 | 401 | Missing, unknown, expired or revoked token; inactive user; or session JWT used instead of an API token (`unauthorized`). |
-| 403 | Required subscription missing (`subscription_required`): Advanced for snapshots and intelligence, Jade for current holdings, change history and Jade results. |
+| 403 | Required subscription missing (`subscription_required`): Advanced for snapshots, intelligence and technical position, Jade for current holdings, change history and Jade results. |
 | 422 | Missing or invalid parameters, including dates, ranges or Jade scenario. |
 | 429 | Request limit, burst lock or scheduled quiet window (`too many attempts, try again later`); includes positive `Retry-After` seconds. |
 | 503 | Rate-limit protection is unavailable; access fails closed (`temporarily unavailable`). |

@@ -37,7 +37,6 @@ def pipeline(
         "detect_macro_signals": _macro_hit(),
         "detect_window_anomalies": (anomalies, 2),
         "resolve_global_moves": ({}, 2),
-        "compute_technical_positions": [],
         "_openrouter_client": None,
     }.items():
         stack.enter_context(patch.object(rg, name, return_value=value))

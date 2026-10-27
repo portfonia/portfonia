@@ -13,7 +13,6 @@ from app.services.macro_detector import MacroSignals
 from app.services.news_fetcher import NewsItem
 from app.services.portfolio_calculator import PortfolioSnapshot
 from app.services.price_anomaly_detector import PriceAnomaly
-from app.services.technical_position import TechnicalPosition
 
 
 def _serialize_news(items: list[NewsItem]) -> list[dict[str, Any]]:
@@ -89,24 +88,6 @@ def _serialize_anomalies(anomalies: list[PriceAnomaly]) -> list[dict[str, Any]]:
             ],
         }
         for a in anomalies
-    ]
-
-
-def _serialize_technical(positions: list[TechnicalPosition]) -> list[dict[str, Any]]:
-    return [
-        {
-            "ticker": p.ticker,
-            "name": p.name,
-            "last_close": p.last_close,
-            "bars": p.bars,
-            "pct_vs_sma50": p.pct_vs_sma50,
-            "pct_vs_sma200": p.pct_vs_sma200,
-            "range_52w_low": p.range_52w_low,
-            "range_52w_high": p.range_52w_high,
-            "pct_in_52w_range": p.pct_in_52w_range,
-            "vol_20d_annualized": p.vol_20d_annualized,
-        }
-        for p in positions
     ]
 
 

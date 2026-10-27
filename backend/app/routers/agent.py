@@ -41,6 +41,7 @@ from app.schemas.jade import (
     JadeTrackingOut,
 )
 from app.schemas.portfolio import SnapshotExportOut
+from app.schemas.technical import TechnicalSeriesOut, TechnicalTableOut
 from app.services import agent_holdings, api_tokens, holding_changes
 from app.services.agent_pull import pull_intel, pull_reports
 from app.services.jade_replay import compute_replay
@@ -51,6 +52,7 @@ from app.services.jade_tail_risk import compute_tail_risk
 from app.services.jade_tracking import compute_tracking
 from app.services.portfolio_snapshot_export import export_snapshot_range
 from app.services.subscription import is_advanced, is_jade
+from app.services.technical_position import technical_series, technical_table
 from app.services.user_scope import report_currency_for
 from app.tasks.notification_tasks import send_api_access_notice_task
 
@@ -565,3 +567,27 @@ def jade_tracking(
     )
     _data_notice(principal.user_id, modified=False)
     return result
+
+
+@router.get("/technical", response_model=TechnicalTableOut, dependencies=[Depends(advanced_access)])
+def get_technical_table(
+    date: Annotated[date | None, Query()] = None,
+    principal: AgentPrincipal = Depends(agent_principal),
+    session: Session = Depends(get_session),
+) -> TechnicalTableOut:
+    """Requires a personal API token and an active Advanced or Jade subscription; either token permission may read. Optional date selects historical holdings and metrics. Normal Agent limits apply; rate-limit and quiet-window responses include Retry-After. No access notice is sent."""
+    return technical_table(session, principal.user_id, date)
+
+
+@router.get(
+    "/technical/series", response_model=TechnicalSeriesOut, dependencies=[Depends(advanced_access)]
+)
+def get_technical_series(
+    ticker: str,
+    start: Annotated[date | None, Query()] = None,
+    end: Annotated[date | None, Query()] = None,
+    principal: AgentPrincipal = Depends(agent_principal),
+    session: Session = Depends(get_session),
+) -> TechnicalSeriesOut:
+    """Requires a personal API token and an active Advanced or Jade subscription; either token permission may read. Supply ticker and optional start/end ET dates, at most 92 inclusive days. End defaults to today, start to 91 days earlier. Normal Agent limits apply; rate-limit and quiet-window responses include Retry-After. No access notice is sent."""
+    return technical_series(session, principal.user_id, ticker, start, end)
