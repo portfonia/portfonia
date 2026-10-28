@@ -1,5 +1,11 @@
+x-logging: &default-logging
+  driver: journald
+  options:
+    tag: "{{.Name}}"
+
 services:
   postgres:
+    logging: *default-logging
     image: postgres:16-alpine
     container_name: portfonia-postgres
     restart: unless-stopped
@@ -19,6 +25,7 @@ services:
       retries: 10
 
   redis:
+    logging: *default-logging
     image: redis:7-alpine
     container_name: portfonia-redis
     restart: unless-stopped
@@ -45,6 +52,7 @@ services:
   # same image race with "already exists" (buildx#3576 / issue #392).
 
   migrate:
+    logging: *default-logging
     image: portfonia-backend
     container_name: portfonia-migrate
     env_file: .env
@@ -59,6 +67,7 @@ services:
   # Do not publish a host port for backend: its `--forwarded-allow-ips "*"`
   # is only safe while Caddy is the sole ingress (see backend/Dockerfile).
   backend:
+    logging: *default-logging
     image: portfonia-backend
     build:
       context: ./backend
@@ -76,6 +85,7 @@ services:
         condition: service_completed_successfully
 
   celery-worker:
+    logging: *default-logging
     image: portfonia-backend
     container_name: portfonia-celery-worker
     restart: unless-stopped
@@ -92,6 +102,7 @@ services:
         condition: service_completed_successfully
 
   celery-beat:
+    logging: *default-logging
     image: portfonia-backend
     container_name: portfonia-celery-beat
     restart: unless-stopped
@@ -108,6 +119,7 @@ services:
         condition: service_completed_successfully
 
   frontend:
+    logging: *default-logging
     build:
       context: ./frontend
       args:
@@ -133,6 +145,7 @@ services:
       - backend
 
   caddy:
+    logging: *default-logging
     image: caddy:2-alpine
     container_name: portfonia-caddy
     restart: unless-stopped

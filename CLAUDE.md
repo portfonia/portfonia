@@ -150,7 +150,7 @@ The per-issue index text that stood here until 2026-10-21 is archived in
 - [Payments and legal copy](docs/mechanisms/payments-and-legal-copy.md) — Paddle checkout, webhook crediting, refunds, Pricing comparison and legal pages.
 - [Frontend chrome](docs/mechanisms/frontend-chrome.md) — shared `SiteHeader`, menus and locale switcher, onboarding flow, public SEO pages and locale URLs, Jade page and logo, calculating overlay.
 - [Admin surface](docs/mechanisms/admin-surface.md) — `/admin/*` token auth, rotation and audit logging.
-- [Backup and ops](docs/mechanisms/backup-and-ops.md) — daily `pg_dump` to object storage, restore drills, container instance-principal IMDS SNAT dependency.
+- [Backup and ops](docs/mechanisms/backup-and-ops.md) — daily `pg_dump` to object storage, restore drills, container instance-principal IMDS SNAT dependency, container log persistence (journald).
 - Playbooks: [documentation governance](docs/playbooks/documentation-governance.md) (incl. public surface sync), [full-context review](docs/playbooks/full-context-review.md), [git and review identities](docs/playbooks/git-and-review-incidents.md), [LLM and data handling](docs/playbooks/llm-and-data-handling.md), [regression notes](docs/playbooks/regression-notes.md), [testing notes](docs/playbooks/testing-notes.md).
 
 ## Language Policy (MANDATORY)
@@ -415,6 +415,9 @@ legitimate local state is `.env` (uploaded via `scp`).
 
 - User holdings are sensitive. Encrypt at rest. **Never** include raw user
   holdings in training data, LLM fine-tuning datasets, or third-party logs.
+- Application logs are persisted on the production host for 90 days
+  (journald, #846) and never contain holding identifiers tied to a user or
+  report, quantities, values, weights, cost basis or returns.
 - When sending holdings to an external LLM, scope the payload to what the
   current report needs. Do not attach the full portfolio history "just in case".
 - **Scheduled intelligence isolation (enforced):** collection and paid

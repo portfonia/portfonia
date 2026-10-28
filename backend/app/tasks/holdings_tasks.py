@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import traceback
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+import pydantic
 from celery.signals import task_revoked  # type: ignore[import-untyped]
 from celery.worker.request import Request as _CeleryRequest  # type: ignore[import-untyped]
 from sqlalchemy import delete, or_
@@ -140,9 +142,20 @@ def parse_holdings_upload(job_id: str) -> dict[str, str]:
             job.status = "failed"
             job.error = str(exc)
         except Exception as exc:
-            logger.exception("parse_holdings_upload: job %s unexpected error", job_id)
+            summary = type(exc).__name__
+            if isinstance(exc, pydantic.ValidationError):
+                summary += " " + "; ".join(
+                    f"{'.'.join(str(p) for p in err['loc'])}:{err['type']}"
+                    for err in exc.errors(include_input=False, include_url=False)
+                )
+            logger.error(
+                "parse_holdings_upload: job %s unexpected error %s\n%s",
+                job_id,
+                summary,
+                "".join(traceback.format_tb(exc.__traceback__)),
+            )
             job.status = "failed"
-            job.error = f"Parse error: {type(exc).__name__}: {exc}"
+            job.error = f"Parse error: {summary}"
         finally:
             # Clear regardless of outcome — the job row shouldn't keep
             # holding plaintext holdings content once the parse attempt is

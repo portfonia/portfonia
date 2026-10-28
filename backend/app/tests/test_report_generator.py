@@ -1751,7 +1751,9 @@ def test_render_full_md_wires_section3_check_and_logs_mismatch(
             report_id=uuid.uuid4(),
             holding_news={},
         )
-    assert "AAPL" in caplog.text
+    assert "holding_index=0" in caplog.text
+    assert "direction=short" in caplog.text
+    assert "AAPL" not in caplog.text
     assert "proportionality mismatch" in caplog.text
 
 

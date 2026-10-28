@@ -173,10 +173,14 @@ def test_acceptance_1_high_weight_low_evidence_short_paragraph_logs_mismatch(
         weight=0.30,  # high weight
         material_text="Shares moved slightly.",  # 0-1 categories
     )
+    logging.getLogger("app.services.section3_proportionality").disabled = False
     with caplog.at_level(logging.WARNING, logger="app.services.section3_proportionality"):
         mismatches = check_section3_proportionality("report-1", _full_body(section3), [holding])
     assert mismatches == 1
-    assert "AAPL" in caplog.text
+    assert "holding_index=0" in caplog.text
+    assert "direction=short" in caplog.text
+    assert "AAPL" not in caplog.text
+    assert "0.3" not in caplog.text
     assert "report-1" in caplog.text
 
 
@@ -199,12 +203,14 @@ def test_acceptance_2_low_weight_high_evidence_long_paragraph_logs_mismatch(
             "milestone was confirmed. A new competitor shifted market share."
         ),  # all 5 categories
     )
+    logging.getLogger("app.services.section3_proportionality").disabled = False
     with caplog.at_level(logging.WARNING, logger="app.services.section3_proportionality"):
         mismatches = check_section3_proportionality(
             "report-2", _full_body(long_analysis), [holding]
         )
     assert mismatches == 1
-    assert "AAPL" in caplog.text
+    assert "holding_index=0" in caplog.text
+    assert "direction=long" in caplog.text
 
 
 def test_acceptance_3_in_range_produces_no_log_entry(caplog: pytest.LogCaptureFixture) -> None:

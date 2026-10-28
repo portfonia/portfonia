@@ -1369,7 +1369,7 @@
     },
     "privacy": {
       "title": "Privacy Policy",
-      "lastUpdated": "Last updated: 2026-10-17",
+      "lastUpdated": "Last updated: 2026-10-28",
       "intro": "Your privacy matters to us. This policy explains what we collect, why, and how it's protected.",
       "sections": [
         {
@@ -1412,7 +1412,8 @@
           "heading": "6. Data Retention",
           "body": [
             "We retain your account and holdings data for as long as your account is active. Some operational records (for example, upload-job metadata) are automatically purged after a short retention window. You may request deletion of your account at any time (see \"Your Rights\" below).",
-            "When your account is deleted, your holdings, investment-style settings, reports, API tokens, waitlist entry and other personal data are removed. Credit and transaction records are kept for accounting and tax purposes, no longer linked to your email address except for a one-way fingerprint of it, used only to prevent the sign-up credit from being granted twice."
+            "When your account is deleted, your holdings, investment-style settings, reports, API tokens, waitlist entry and other personal data are removed, except service logs, as described below. Credit and transaction records are kept for accounting and tax purposes, no longer linked to your email address except for a one-way fingerprint of it, used only to prevent the sign-up credit from being granted twice.",
+            "Service logs, which may include your email address and account identifier but never your holdings or returns, are kept for up to 90 days for security and audit purposes, including after your account is deleted."
           ]
         },
         {

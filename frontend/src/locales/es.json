@@ -1369,7 +1369,7 @@
     },
     "privacy": {
       "title": "Política de privacidad",
-      "lastUpdated": "Última actualización: 2026-10-17",
+      "lastUpdated": "Última actualización: 2026-10-28",
       "intro": "Su privacidad nos importa. Esta política explica qué recopilamos, por qué y cómo lo protegemos.",
       "sections": [
         {
@@ -1412,7 +1412,8 @@
           "heading": "6. Conservación de datos",
           "body": [
             "Conservamos sus datos de cuenta y posiciones mientras su cuenta esté activa. Algunos registros operativos, como metadatos de carga, se eliminan automáticamente tras un breve período. Puede solicitar la eliminación de su cuenta en cualquier momento (consulte «Sus derechos»).",
-            "Al eliminar su cuenta se borran posiciones, preferencias de inversión, informes, API tokens, inscripción en lista de espera y otros datos personales. Los registros de créditos y transacciones se conservan por motivos contables y fiscales, desvinculados de su correo salvo una huella irreversible usada solo para evitar conceder dos veces el crédito de registro."
+            "Al eliminar su cuenta se borran posiciones, preferencias de inversión, informes, API tokens, inscripción en lista de espera y otros datos personales, excepto los registros del servicio, como se describe a continuación. Los registros de créditos y transacciones se conservan por motivos contables y fiscales, desvinculados de su correo salvo una huella irreversible usada solo para evitar conceder dos veces el crédito de registro.",
+            "Los registros del servicio, que pueden incluir su dirección de correo electrónico y el identificador de su cuenta, pero nunca sus posiciones ni rendimientos, se conservan hasta por 90 días por motivos de seguridad y auditoría, incluso después de eliminar su cuenta."
           ]
         },
         {

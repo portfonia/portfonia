@@ -112,3 +112,32 @@ instances", which hides the real cause.
   then from inside a container. A 404 that carries IMDS's own response
   headers means the source address was rejected, not a missing path or an
   IAM policy (contrast the unquoted-policy `BucketNotFound` 404 above).
+
+
+### Container logs persist via journald (issue #846)
+
+All eight Compose services use the `journald` log driver with
+`tag: "{{.Name}}"`, so logs survive container recreation.
+
+- **Host retention (owner-run, not tracked in this repository)**: the owner
+  applies `/etc/systemd/journald.conf.d/portfonia-retention.conf` on the host:
+
+  ```ini
+  [Journal]
+  MaxRetentionSec=90day
+  ```
+
+  This also prunes host OS journal entries older than 90 days. All other
+  defaults remain unchanged. Applying this drop-in and deploying the
+  Compose change are owner-run follow-ups.
+- **Syslog copy**: `ForwardToSyslog=yes` (Ubuntu default) also copies lines
+  to `/var/log/syslog`, rotated weekly with 4 kept.
+- **Log data rule**: logs may contain email addresses and user ids, retained
+  for audit including after account deletion. They must never contain
+  holding identifiers tied to a user or report, quantities, values,
+  weights, cost basis or returns. Parse failures log and store the exception
+  `type` plus pydantic `loc:type` only.
+- **Read current-container logs**:
+  `docker compose logs --since 2h celery-worker`.
+- **Read across container recreations**:
+  `sudo journalctl -t portfonia-celery-worker --since "2026-10-27 20:00" --no-pager`.

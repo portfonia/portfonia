@@ -31,9 +31,9 @@ DESIGN DECISIONS (recorded on issue #173, product owner, 2026-09-10):
 
 3. Failure mode is LOG-ONLY (issue #173 Design item 3 / Contract
    constraints invariant): a mismatch is written to the log with the
-   holding identifier, weight, evidence score, actual length, and
-   expected range. This module never mutates report content, email
-   delivery, or report status, and never re-prompts, truncates, or
+   holding index, evidence score, actual length, and mismatch direction
+   (issue #846). This module never mutates report content, email delivery,
+   or report status, and never re-prompts, truncates, or
    otherwise alters the generated body. `check_section3_proportionality`
    returns an int (mismatch count) purely for test/metric convenience —
    callers must not branch on it to change report behavior.
@@ -302,7 +302,7 @@ def check_section3_proportionality(
     segments = segment_section3_by_holding(section3, identifier_terms)
 
     mismatches = 0
-    for holding in holdings:
+    for index, holding in enumerate(holdings):
         actual_text = segments.by_identifier.get(holding.identifier, "")
         actual_len = len(actual_text)
         evidence_score = score_evidence_strength(holding.material_text)
@@ -310,15 +310,13 @@ def check_section3_proportionality(
         if not (exp_min <= actual_len <= exp_max):
             mismatches += 1
             logger.warning(
-                "report %s: §3 proportionality mismatch — holding=%s weight=%.4f "
-                "evidence_score=%d actual_len=%d expected_range=(%d,%d)",
+                "report %s: §3 proportionality mismatch — holding_index=%d "
+                "evidence_score=%d actual_len=%d direction=%s",
                 report_id,
-                holding.identifier,
-                holding.weight,
+                index,
                 evidence_score,
                 actual_len,
-                exp_min,
-                exp_max,
+                "short" if actual_len < exp_min else "long",
             )
 
     if segments.mixed_paragraph_count:

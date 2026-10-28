@@ -11,10 +11,13 @@ test_cache_tasks.py's _cleanup_expired.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
+import pytest
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -633,3 +636,36 @@ def test_cleanup_upload_jobs_schedule_fires_daily_at_0430_no_weekday_restriction
     assert schedule.hour == {4}
     assert schedule.minute == {30}
     assert schedule.day_of_week == set(range(7))
+
+
+@patch("app.services.holding_parser.parse")
+@patch("app.core.database.SessionLocal")
+def test_parse_holdings_upload_validation_error_excludes_input(
+    mock_session_cls: MagicMock, mock_parse: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    class QuantityInput(BaseModel):
+        quantity: float
+
+    sentinel = "SENSITIVE_QUANTITY_846"
+    with pytest.raises(ValidationError) as caught:
+        QuantityInput.model_validate({"quantity": sentinel})
+    mock_parse.side_effect = caught.value
+    job_id = uuid.uuid4()
+    job = _make_job(job_id)
+    mock_session = MagicMock()
+    mock_session.get.return_value = job
+    mock_session_cls.return_value = mock_session
+
+    from app.tasks.holdings_tasks import parse_holdings_upload
+
+    logging.getLogger("app.tasks.holdings_tasks").disabled = False
+    with caplog.at_level(logging.ERROR, logger="app.tasks.holdings_tasks"):
+        result = parse_holdings_upload.run(str(job_id))
+
+    assert result == {"job_id": str(job_id), "status": "failed"}
+    assert job.status == "failed"
+    assert sentinel not in caplog.text
+    assert sentinel not in job.error
+    for output in (caplog.text, job.error):
+        assert "ValidationError" in output
+        assert "quantity:float_parsing" in output
