@@ -674,13 +674,14 @@ icons are unchanged.
 
 ## Chart styling convention (#850)
 
-All Recharts line, area and bar charts in the app follow this convention:
-- Series colors use `--chart-*` tokens or `performance-colors.ts`, never raw hex.
-- Axis ticks use `fill: "var(--muted-foreground)"`, `fontSize: 12`, `tickLine={false}` and `axisLine={false}`.
-- Percentage Y axes use `width={64}`.
-- `CartesianGrid` uses dashed `var(--border)` strokes and `vertical={false}`.
-- Tooltips use the card surface: `contentStyle` background `var(--card)` and border `var(--border)`, or a custom card tooltip.
-- Line charts use a line-swatch legend below the chart, following the Performance markup.
-- Date axes use `formatAxisDate`. Reference implementation: `performance-chart.tsx`.
+New or changed Recharts charts follow this convention. Existing charts that do not yet follow it are listed in #852, which brings them into line.
+
+- Series colors: `--chart-*` tokens or `performance-colors.ts`, never raw hex. Non-series scales such as the risk gauge `GAUGE_COLORS` are outside this rule.
+- Axis ticks: `tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}`, `tickLine={false}`, `axisLine={false}`.
+- Percentage Y axes: `width={64}`, as on the Jade and technical charts. Performance, allocation and the risk panels currently use 48 or 40 (#852).
+- Grid: `CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false}`.
+- Tooltip on the card surface: `contentStyle={{ background: "var(--card)", borderColor: "var(--border)" }}` or a custom card tooltip; never the Recharts default.
+- Legend: an HTML list below the chart using the Performance line-swatch markup (`portfolio/performance/_components/performance-page-body.tsx`); never the Recharts `<Legend />`.
+- Daily date axes: `formatAxisDate` (reference: `jade/_components/replay-section.tsx`). Performance, allocation and the risk panels currently use `formatShortDate` (#852).
 
 Origin: #831's technical chart shipped with Recharts defaults because this convention was not written down. Reviews check new or changed charts against this section.
