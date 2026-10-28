@@ -757,3 +757,35 @@ def test_section4_page_links_close_matching_blocks() -> None:
 def test_section4_page_links_missing_headings_leave_body_unchanged() -> None:
     body = "## Macro\nUnchanged.\n"
     assert sec._inject_section4_page_links(body) == body
+
+
+def test_section42_yahoo_links_ticker_holdings_and_constituents() -> None:
+    body = (
+        "### 4.2 Price anomalies\n"
+        "| Amkor Technology (AMKR) | +1.00% |\n"
+        "| Some Fund (110011) | +1.00% |\n"
+        "| Gold (GOLD) | +1.00% |\n"
+        "- **Gold**: SGOL +1.20%, 518660.SS +0.80% (weighted avg +1.00%)\n"
+    )
+    links = sec._yahoo_quote_links(
+        [
+            {"ticker": "AMKR"},
+            {"ticker": "SGOL"},
+            {"ticker": "518660.SS"},
+            {"ticker": None, "fund_code": "110011"},
+        ]
+    )
+    result = sec._link_section42_identifiers(body, links)
+    assert "| Amkor Technology ([AMKR](https://finance.yahoo.com/quote/AMKR/)) |" in result
+    assert (
+        "- **Gold**: [SGOL](https://finance.yahoo.com/quote/SGOL/) +1.20%, [518660.SS](https://finance.yahoo.com/quote/518660.SS/) +0.80% (weighted avg +1.00%)"
+        in result
+    )
+    assert "| Some Fund (110011) | +1.00% |" in result
+    assert "| Gold (GOLD) | +1.00% |" in result
+
+
+def test_section42_yahoo_links_full_width_parentheses() -> None:
+    body = "### 4.2 Price anomalies\n| 安靠\uff08AMKR\uff09 | +1.00% |\n"
+    result = sec._link_section42_identifiers(body, sec._yahoo_quote_links([{"ticker": "AMKR"}]))
+    assert "| 安靠\uff08[AMKR](https://finance.yahoo.com/quote/AMKR/)\uff09 | +1.00% |" in result

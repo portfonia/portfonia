@@ -2625,3 +2625,24 @@ def test_829_render_and_generation_use_technical_page(db_session: Session) -> No
     assert "|" not in body.split(block.splitlines()[0], 1)[1]
     report = generate(db_session, [("TSLA", "stock", 4)], [])
     assert "technical_positions" not in (report.report_inputs or {})
+
+
+def test_render_full_md_yahoo_links_after_translation() -> None:
+    recorded: list[str] = []
+
+    def record_translation(text: str, lang: str) -> str:
+        recorded.append(text)
+        return text
+
+    with patch("app.services.report_generator._translate_md", side_effect=record_translation):
+        full_md, _, _ = rg._render_full_md(
+            "2026-10-28",
+            {"holdings": [{"ticker": "AMKR", "name": "Amkor Technology"}]},
+            [],
+            "### 4.2 Price anomalies\n",
+            output_lang="zh",
+            anomalies=[{"identifier": "AMKR", "name": "Amkor Technology"}],
+        )
+    assert recorded
+    assert all("finance.yahoo.com" not in text for text in recorded)
+    assert "[AMKR](https://finance.yahoo.com/quote/AMKR/)" in full_md

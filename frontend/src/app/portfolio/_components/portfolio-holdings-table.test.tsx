@@ -102,3 +102,22 @@ describe("PortfolioHoldingsTable", () => {
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 });
+
+
+it("links ticker holdings to Yahoo Finance and leaves fund codes unlinked", () => {
+  render(
+    <LocaleProvider routeLocale="en">
+      <PortfolioHoldingsTable
+        holdings={[
+          holding({ ticker: "AMKR" }),
+          holding({ holding_id: "h2", fund_code: "110011" }),
+        ]}
+        baseCurrency="USD"
+      />
+    </LocaleProvider>,
+  );
+  const link = screen.getByRole("link", { name: "AMKR" });
+  expect(link).toHaveAttribute("href", "https://finance.yahoo.com/quote/AMKR/");
+  expect(link).toHaveAttribute("target", "_blank");
+  expect(screen.getByText("110011").closest("a")).toBeNull();
+});

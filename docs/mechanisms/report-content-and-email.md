@@ -268,3 +268,10 @@ chart. A missing section heading is logged and that section's link is skipped.
 ### Theme-anomaly holding weights (issue #492)
 
 Issue #492 (PR #500): `window_data._merge_theme_anomalies._val()` weighted holdings sharing a theme by raw `Holding.current_value`, which is never a real valuation for `pricing_mode="auto"` holdings — now `shares × price` for auto, unchanged for manual/cash. Forward-only, no retroactive report regeneration.
+
+### Section 4.2 Yahoo Finance links (issue #848)
+
+Ticker holding identifiers in the anomaly table and theme constituent breakdown
+lines link to Yahoo Finance quote pages. Links are spliced after translation;
+the link map comes from `report_inputs` portfolio holdings with a non-empty
+`ticker`. Fund-code-only holdings and theme headline rows remain unlinked.

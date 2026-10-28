@@ -98,6 +98,8 @@ from app.services.report_sections import (
     _inject_section4_page_links,
     _inject_section42_table,
     _inject_today_events,
+    _link_section42_identifiers,
+    _yahoo_quote_links,
 )
 from app.services.report_serializers import (
     _serialize_anomalies,
@@ -688,6 +690,9 @@ def _render_full_md(
     # LLM. Chunking is by heading, so the chunk set is unchanged.
     snapshot_out = _translate_md(header + window + section1, render_lang)
     body_out = _translate_md(cleaned, render_lang)
+    body_out = _link_section42_identifiers(
+        body_out, _yahoo_quote_links(portfolio.get("holdings", []))
+    )
     body_out = _inject_section4_page_links(body_out, render_lang)
     body_out = body_out.rstrip() + "\n\n" + _build_section44_page_link(render_lang)
     hits = prompt_label_hits(raw_body, body_out)

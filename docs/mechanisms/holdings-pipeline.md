@@ -658,6 +658,8 @@ Obsidian `Hermes/Portfonia/Docs/Ring 1-C design.md` §11.
 
 ### Portfolio overview dashboard — C2 (issue #320 / #130 C2, PR #322)
 
+The Holdings table links non-empty tickers to Yahoo Finance quote pages; fund-code-only rows stay unlinked (#848).
+
 `/portfolio` reads `GET /portfolio/summary` (`compute_portfolio()` in
 `portfolio_calculator.py`), which already computed most of this for the
 report pipeline — C2 is mostly exposing existing calculator output plus one
