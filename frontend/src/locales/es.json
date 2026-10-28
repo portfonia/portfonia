@@ -1383,6 +1383,7 @@
           "body": [
             "Datos de cuenta: su correo electrónico y credenciales de autenticación, gestionados por nuestro proveedor de autenticación.",
             "Datos de posiciones e inversión: posiciones, corredores o custodios y cantidades que suba, además de sus respuestas al cuestionario de estilo de inversión.",
+            "Las posiciones en Portfonia son ingresadas por usted. Pueden corresponder a una cartera de práctica o simulada y no necesariamente a posiciones reales. No se requieren posiciones reales.",
             "Datos de uso: información básica de sesión y actividad necesaria para operar el Servicio de forma segura, como horas de inicio de sesión y aplicación de límites de inactividad.",
             "Datos de pago y créditos: {merchantOfRecord} procesa las compras como comerciante registrado (Merchant of Record). {merchantOfRecord} recopila sus datos de pago y facturación bajo su propio aviso de privacidad; recibimos registros como identificador de pedido, importe, moneda, país y correo usado al pagar, pero nunca el número completo de su tarjeta. También registramos su saldo y cada crédito agregado o utilizado."
           ]
@@ -1398,6 +1399,7 @@
           "heading": "4. Almacenamiento y seguridad",
           "body": [
             "Sus posiciones se cifran en reposo a nivel de campo, al igual que los datos derivados de ellas: el texto de los informes y los datos de entrada de cada informe, las instantáneas diarias de la cartera, los archivos cargados ya procesados, el historial de cambios de posiciones y las notas de cobertura de los informes. La clave de cifrado no se almacena en la base de datos ni en sus copias de seguridad. El acceso a los sistemas de producción está restringido, las acciones administrativas se registran y nuestras herramientas administrativas no muestran sus posiciones ni sus informes.",
+            "Portfonia ofrece un conjunto de herramientas que realizan cálculos con los datos que usted ingresa y protege, en la medida de lo posible, la información que pueda vincularse con usted. Usted es el primer y último responsable de su propia privacidad.",
             "Ningún sistema es perfectamente seguro y no podemos garantizar seguridad absoluta, pero proteger sus datos es un requisito prioritario de ingeniería."
           ]
         },
