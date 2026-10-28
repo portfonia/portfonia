@@ -1,6 +1,6 @@
 "use client";
 
-import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipContentProps } from "recharts";
+import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipContentProps } from "recharts";
 import type { Example } from "../_lib/example";
 import { PORTFOLIO_COLOR, BENCHMARK_COLORS } from "@/app/portfolio/performance/_components/performance-colors";
 
@@ -66,21 +66,25 @@ export function ReplayChart({ points, peakDate, troughDate, portfolioName, forma
             bottom: 0,
             left: 0
           }}>
-            <CartesianGrid stroke="var(--border)" vertical={false} />
+            <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
             <XAxis type="number" dataKey="time" domain={['dataMin', 'dataMax']} tickFormatter={formatTick} minTickGap={36} tick={{
-              fontSize: 10,
+              fontSize: 12,
               fill: 'var(--muted-foreground)'
-            }} />
+            }} tickLine={false} axisLine={false} />
             <YAxis width={64} tickFormatter={formatPercent} tick={{
-              fontSize: 10,
+              fontSize: 12,
               fill: 'var(--muted-foreground)'
-            }} />
+            }} tickLine={false} axisLine={false} />
             <Tooltip isAnimationActive={false} cursor={{ stroke: "var(--foreground)" }} wrapperStyle={{ maxWidth: "100%" }} content={(props) => <ReplayTooltip active={props.active} label={props.label} payload={props.payload} portfolioName={portfolioName} formatPercent={formatPercent} formatTick={formatTick} />} />
             <Line name={portfolioName} dataKey="portfolio" stroke={PORTFOLIO_COLOR} dot={false} isAnimationActive={false} />
             <Line name="SPY" dataKey="spy" stroke={BENCHMARK_COLORS.sp500} dot={false} isAnimationActive={false} />
             <ReferenceLine x={Date.parse(peakDate)} stroke="var(--muted-foreground)" strokeDasharray="3 3" />
             <ReferenceLine x={Date.parse(troughDate)} stroke="var(--muted-foreground)" strokeDasharray="3 3" />
-            <Legend wrapperStyle={{ fontSize: 10 }} />
+
           </LineChart>
         </ResponsiveContainer>;
+}
+
+export function ReplayLegend({ portfolioName }: { portfolioName: string }) {
+  return <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">{[{ key: "portfolio", name: portfolioName, color: PORTFOLIO_COLOR }, { key: "spy", name: "SPY", color: BENCHMARK_COLORS.sp500 }].map(({ key, name, color }) => <li key={key} className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-4 rounded-full" style={{ backgroundColor: color }} />{name}</li>)}</ul>;
 }

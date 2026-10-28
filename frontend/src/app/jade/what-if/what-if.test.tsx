@@ -133,11 +133,12 @@ it("804 A7 keeps the slow calculation notice visible while the request is pendin
  expect(screen.queryByTestId("calculating-overlay")).not.toBeInTheDocument();
 });
 
-const { axis806, tooltip806, yAxis806, line809 } = vi.hoisted(() => ({ axis806: vi.fn(), tooltip806: vi.fn(), yAxis806: vi.fn(), line809: vi.fn() }));
+const { axis806, tooltip806, yAxis806, line809, legend852 } = vi.hoisted(() => ({ axis806: vi.fn(), tooltip806: vi.fn(), yAxis806: vi.fn(), line809: vi.fn(), legend852: vi.fn() }));
 vi.mock("recharts", async () => {
  const actual = await vi.importActual<typeof import("recharts")>("recharts");
  const Container = ({ children }: { children: import("react").ReactNode }) => <div>{children}</div>;
  return { ...actual, ResponsiveContainer: Container, LineChart: Container,
+  Legend: () => { legend852(); return null; },
   Line: (props: object) => { line809(props); return null; },
   XAxis: (props: object) => { axis806(props); return null; },
   YAxis: (props: object) => { yAxis806(props); return null; },
@@ -235,7 +236,7 @@ it("809 A5 draws Current last with a thick dashed stroke", () => {
  render(<WhatIfResults data={fiveYear806} />);
  const lines = line809.mock.calls.map(call => call[0]);
  expect(lines.map(line => line.dataKey)).toEqual(["a", "b", "current"]);
- expect(lines[2]).toMatchObject({ stroke: "#64748b", strokeWidth: 3, strokeDasharray: "6 4" });
+ expect(lines[2]).toMatchObject({ stroke: "var(--chart-1)", strokeWidth: 3, strokeDasharray: "6 4" });
 });
 it("809 A6 renders all three editor columns at once without switching buttons", async () => {
  await ready809();
@@ -244,4 +245,19 @@ it("809 A6 renders all three editor columns at once without switching buttons", 
   expect(screen.getByTestId(`editor-total-${key}`)).toBeInTheDocument();
  }
  expect(screen.getAllByRole("textbox", { name: "One" })).toHaveLength(2);
+});
+
+it("852 A1 uses chart tokens and omits the Recharts legend", () => {
+ render(<WhatIfResults data={fiveYear806} />);
+ expect(line809.mock.calls.map(call => [call[0].dataKey, call[0].stroke])).toEqual([
+  ["a", "var(--chart-4)"], ["b", "var(--chart-3)"], ["current", "var(--chart-1)"]
+ ]);
+ expect(legend852).not.toHaveBeenCalled();
+});
+
+it("852 D4 lists HTML legend names in data.columns order", () => {
+ const { container } = render(<WhatIfResults data={fiveYear806} />);
+ const names = [...container.querySelectorAll("ul.flex.flex-wrap.items-center > li")].map(item => item.textContent);
+ // This suite's translation mock returns the catalog key for each name.
+ expect(names).toEqual(fiveYear806.columns.map(column => `columns.${column.key}`));
 });

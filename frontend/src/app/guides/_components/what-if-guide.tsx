@@ -3,14 +3,14 @@
 import { Fragment } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { LanguageLinks } from "@/app/_components/language-links";
 import { useLocale, useLocalizedHref } from "@/app/_components/locale-provider";
 import { INTL_LOCALES, formatAxisDate, formatTickPct } from "@/app/portfolio/performance/_components/performance-format";
 import type { WhatIfExample } from "../_lib/example-what-if";
 
 const ruleKeys = ["none", "monthly", "quarterly"] as const;
-const colors = { none: "#64748b", monthly: "#4e8b9d", quarterly: "#8b7bb8" };
+const colors = { none: "var(--chart-1)", monthly: "var(--chart-3)", quarterly: "var(--chart-4)" };
 const metricRows = [
   ["cumulative_return", "cumulative"],
   ["annualized_return", "annualized"],
@@ -54,14 +54,15 @@ export function WhatIfGuide({ example, figureOnly = false }: { example: WhatIfEx
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={example.points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="var(--border)" vertical={false} strokeDasharray="3 3" />
-              <XAxis dataKey="time" type="number" domain={["dataMin", "dataMax"]} tickFormatter={value => formatAxisDate(new Date(Number(value)).toISOString().slice(0, 10), locale, spanDays)} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
-              <YAxis width={64} tickFormatter={formatTickPct} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
+              <XAxis dataKey="time" type="number" domain={["dataMin", "dataMax"]} tickFormatter={value => formatAxisDate(new Date(Number(value)).toISOString().slice(0, 10), locale, spanDays)} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} tickLine={false} axisLine={false} />
+              <YAxis width={64} tickFormatter={formatTickPct} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} tickLine={false} axisLine={false} />
               <Tooltip contentStyle={{ background: "var(--card)", borderColor: "var(--border)" }} isAnimationActive={false} labelFormatter={value => date.format(new Date(Number(value)))} formatter={value => percent.format(Number(value))} wrapperStyle={{ maxWidth: "100%" }} />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
+
               {ruleKeys.map(rule => <Line key={rule} dataKey={rule} name={rules(rule)} stroke={colors[rule]} strokeWidth={2} dot={false} isAnimationActive={false} />)}
             </LineChart>
           </ResponsiveContainer>
         </div>
+        <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">{ruleKeys.map(rule => ({ key: rule, name: rules(rule), color: colors[rule] })).map(({ key, name, color }) => <li key={key} className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-4 rounded-full" style={{ backgroundColor: color }} />{name}</li>)}</ul>
         <figcaption className="mt-3 break-words text-xs leading-relaxed text-foreground/70">{t("chartCaption", values)}</figcaption>
       </figure>
       <div className="max-w-full overflow-x-auto">

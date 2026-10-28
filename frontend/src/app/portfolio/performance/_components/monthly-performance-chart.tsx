@@ -115,7 +115,7 @@ export function MonthlyPerformanceChart({
             tickLine={false}
             axisLine={false}
             tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
-            width={48}
+            width={64}
           />
           <ReferenceLine y={0} stroke="var(--muted-foreground)" />
           <Tooltip content={tooltipContent} cursor={MONTHLY_CHART_CURSOR} />

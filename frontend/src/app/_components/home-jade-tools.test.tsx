@@ -46,7 +46,7 @@ it.each(locales)("745 A1 %s places Jade directly between product previews and bo
 it.each(locales)("745 A2 %s lists five localized tool links and matching summaries in order", locale => {
   const { container } = renderHome(locale);
   const section = jadeSection(container);
-  const cards = section.querySelectorAll("ul > li");
+  const cards = section.querySelectorAll("ul.grid > li");
   expect(cards).toHaveLength(5);
   const links = Array.from(cards).flatMap(card => Array.from(card.querySelectorAll("a")));
   const prefix = locale === "en" ? "" : `/${locale}`;

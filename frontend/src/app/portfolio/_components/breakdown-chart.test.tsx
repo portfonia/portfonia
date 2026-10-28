@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { BreakdownChart } from "./breakdown-chart";
 
@@ -122,4 +122,16 @@ describe("BreakdownChart", () => {
     expect(amounts.some((text) => text?.includes("1,000.00 USD"))).toBe(true);
     expect(amounts.some((text) => text?.includes("500.00 USD"))).toBe(true);
   });
+});
+
+const { tooltip852 } = vi.hoisted(() => ({ tooltip852: vi.fn() }));
+vi.mock("recharts", async () => {
+ const actual = await vi.importActual<typeof import("recharts")>("recharts");
+ const Container = ({ children }: { children: import("react").ReactNode }) => <div>{children}</div>;
+ return { ...actual, ResponsiveContainer: ({ children }: { children: import("react").ReactNode }) => <div className="recharts-responsive-container">{children}</div>, PieChart: Container, Tooltip: (props: object) => { tooltip852(props); return null; } };
+});
+it("852 A4 gives the breakdown tooltip the card surface", () => {
+ tooltip852.mockClear();
+ render(<BreakdownChart title="Allocation" data={{ US: "100" }} currency="USD" emptyLabel="Empty" />);
+ expect(tooltip852.mock.calls[0][0].contentStyle).toEqual({ background: "var(--card)", borderColor: "var(--border)" });
 });

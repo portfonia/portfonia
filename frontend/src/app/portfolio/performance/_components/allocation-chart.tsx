@@ -20,7 +20,7 @@ import {
   type TooltipPayloadEntry,
 } from "recharts";
 import { useMemo } from "react";
-import { formatFullDate, formatShortDate, formatSignedPct } from "./performance-format";
+import { formatFullDate, formatAxisDate, formatSignedPct } from "./performance-format";
 import {
   ASSET_CLASS_COLORS,
   DEFAULT_ASSET_CLASS_COLOR,
@@ -108,6 +108,8 @@ export function AllocationChart({
     return Array.from({ length: 6 }, (_, i) => rows[Math.round(i * step)].date);
   }, [rows]);
 
+  const spanDays = rows.length < 2 ? 0 : (Date.parse(rows[rows.length - 1].date) - Date.parse(rows[0].date)) / 86_400_000;
+
   if (rows.length === 0) return null;
 
   const tooltipContent = (props: TooltipContentProps) => (
@@ -131,7 +133,7 @@ export function AllocationChart({
           <XAxis
             dataKey="date"
             ticks={ticks}
-            tickFormatter={(date: string) => formatShortDate(date, locale)}
+            tickFormatter={(date: string) => formatAxisDate(date, locale, spanDays)}
             tickLine={false}
             axisLine={false}
             tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
@@ -143,7 +145,7 @@ export function AllocationChart({
             tickLine={false}
             axisLine={false}
             tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
-            width={40}
+            width={64}
           />
           <Tooltip content={tooltipContent} />
           {assetClasses.map((cls) => (
