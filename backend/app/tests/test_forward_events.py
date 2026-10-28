@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app.models.forward_event import ForwardEvent
@@ -53,6 +55,67 @@ def test_fetch_earnings_dates_filters_window_and_uses_calendar() -> None:
         events = fe.fetch_earnings_dates(["NVDA"], date(2026, 6, 9), horizon_days=10)
     assert [e.scheduled_date for e in events] == [date(2026, 6, 15)]
     assert events[0].event_type == "earnings" and events[0].ticker == "NVDA"
+
+
+def test_fetch_earnings_dates_suppresses_no_fundamentals(caplog: pytest.LogCaptureFixture) -> None:
+    yf_logger = logging.getLogger("yfinance")
+    yf_logger.disabled = False
+    logging.getLogger("app.services.forward_events").disabled = False
+
+    def calendar() -> dict[str, object]:
+        yf_logger.error("HTTP Error 404: ... No fundamentals data found for symbol: VOO")
+        return {}
+
+    ticker_obj = MagicMock()
+    type(ticker_obj).calendar = PropertyMock(side_effect=calendar)
+    with caplog.at_level(logging.INFO), patch("yfinance.Ticker", return_value=ticker_obj):
+        fe.fetch_earnings_dates(["VOO"], date(2026, 10, 27), horizon_days=14)
+    assert not any("No fundamentals data found" in r.getMessage() for r in caplog.records)
+    summaries = [
+        r
+        for r in caplog.records
+        if r.name == "app.services.forward_events" and r.levelno == logging.INFO
+    ]
+    assert len(summaries) == 1
+    assert "VOO" in summaries[0].getMessage()
+
+
+def test_fetch_earnings_dates_preserves_other_errors(caplog: pytest.LogCaptureFixture) -> None:
+    yf_logger = logging.getLogger("yfinance")
+    yf_logger.disabled = False
+    logging.getLogger("app.services.forward_events").disabled = False
+
+    def calendar() -> dict[str, object]:
+        yf_logger.error("HTTP Error 429: Too Many Requests")
+        return {}
+
+    ticker_obj = MagicMock()
+    type(ticker_obj).calendar = PropertyMock(side_effect=calendar)
+    with caplog.at_level(logging.INFO), patch("yfinance.Ticker", return_value=ticker_obj):
+        fe.fetch_earnings_dates(["VOO"], date(2026, 10, 27), horizon_days=14)
+    assert any(
+        r.name == "yfinance"
+        and r.levelno == logging.ERROR
+        and "HTTP Error 429: Too Many Requests" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_fetch_earnings_dates_restores_filters(caplog: pytest.LogCaptureFixture) -> None:
+    yf_logger = logging.getLogger("yfinance")
+    yf_logger.disabled = False
+    logging.getLogger("app.services.forward_events").disabled = False
+    filters_before = list(yf_logger.filters)
+
+    def calendar() -> dict[str, object]:
+        yf_logger.error("HTTP Error 404: ... No fundamentals data found for symbol: VOO")
+        return {}
+
+    ticker_obj = MagicMock()
+    type(ticker_obj).calendar = PropertyMock(side_effect=calendar)
+    with caplog.at_level(logging.INFO), patch("yfinance.Ticker", return_value=ticker_obj):
+        fe.fetch_earnings_dates(["VOO"], date(2026, 10, 27), horizon_days=14)
+    assert yf_logger.filters == filters_before
 
 
 def test_persist_and_load_roundtrip_is_idempotent(db_session: Session) -> None:
