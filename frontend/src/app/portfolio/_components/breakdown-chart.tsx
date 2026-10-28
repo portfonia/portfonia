@@ -116,6 +116,7 @@ export function BreakdownChart({
                       ))}
                     </Pie>
                     <Tooltip
+                      contentStyle={{ background: "var(--card)", borderColor: "var(--border)" }}
                       formatter={(_value, _name, item) => (item.payload as Slice).formatted}
                     />
                   </PieChart>

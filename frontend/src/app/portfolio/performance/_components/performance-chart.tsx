@@ -6,7 +6,7 @@
 
 import { useLocale } from "@/app/_components/locale-provider";
 import { useTranslations } from "next-intl";
-import { formatFullDate, formatShortDate, formatSignedPct, formatTickPct } from "./performance-format";
+import { formatFullDate, formatAxisDate, formatSignedPct, formatTickPct } from "./performance-format";
 import {
   CartesianGrid,
   Line,
@@ -136,6 +136,8 @@ export function PerformanceChart({
     return Array.from({ length: 6 }, (_, i) => rows[Math.round(i * step)].date);
   }, [rows]);
 
+  const spanDays = rows.length < 2 ? 0 : (Date.parse(rows[rows.length - 1].date) - Date.parse(rows[0].date)) / 86_400_000;
+
   if (rows.length === 0) return null;
 
   const tooltipContent = (props: TooltipContentProps) => (
@@ -157,7 +159,7 @@ export function PerformanceChart({
           <XAxis
             dataKey="date"
             ticks={ticks}
-            tickFormatter={(date: string) => formatShortDate(date, locale)}
+            tickFormatter={(date: string) => formatAxisDate(date, locale, spanDays)}
             tickLine={false}
             axisLine={false}
             tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
@@ -169,7 +171,7 @@ export function PerformanceChart({
             tickLine={false}
             axisLine={false}
             tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
-            width={48}
+            width={64}
           />
           {anchorDate ? (
             <ReferenceLine

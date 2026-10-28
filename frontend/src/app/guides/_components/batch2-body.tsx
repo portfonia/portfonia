@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipContentProps } from "recharts";
+import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipContentProps } from "recharts";
 import { Button } from "@/components/ui/button";
 import { LanguageLinks } from "@/app/_components/language-links";
 import { useLocale, useLocalizedHref } from "@/app/_components/locale-provider";
@@ -147,10 +147,11 @@ export function Batch2Body(props: Props & { figureOnly?: boolean }) {
               <ReferenceLine x={Date.parse(props.example.trough)} stroke="var(--muted-foreground)" strokeDasharray="2 3" />
             </>}
             {props.kind === "tracking" && <ReferenceLine y={0} stroke="var(--muted-foreground)" strokeDasharray="3 3" />}
-            <Legend wrapperStyle={{ fontSize: 10 }} />
+
           </LineChart>
         </ResponsiveContainer>
       </div>
+      <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">{[{ key: firstKey, name: firstName, color: firstStroke }, { key: secondKey, name: secondName, color: secondStroke }].map(({ key, name, color }) => <li key={key} className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-4 rounded-full" style={{ backgroundColor: color }} />{name}</li>)}</ul>
       <figcaption className="mt-3 break-words text-xs leading-relaxed text-foreground/70">{t(`${kind}.curveCaption`, values)}</figcaption>
     </figure>;
   }

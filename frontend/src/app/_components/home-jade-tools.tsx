@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { ReplayChart } from "@/app/guides/_components/replay-chart";
+import { ReplayChart, ReplayLegend } from "@/app/guides/_components/replay-chart";
 import { calculateExample } from "@/app/guides/_lib/example";
 import { useLocale, useLocalizedHref } from "./locale-provider";
 
@@ -67,6 +67,7 @@ export function HomeJadeTools() {
                   formatTick={v => date.format(new Date(Number(v)))}
                 />
               </div>
+              <ReplayLegend portfolioName={portfolio} />
               <figcaption className="mt-3 text-xs leading-relaxed text-foreground/70">{caption}</figcaption>
             </figure>
           </div>

@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { BENCHMARK_CODES, DEFAULT_BENCHMARKS, getPortfolioRisk, type BenchmarkCode, type PortfolioRiskResponse } from "@/lib/api";
 import { MultiSelectMenu } from "../performance/_components/multi-select-menu";
 import { BENCHMARK_COLORS, PORTFOLIO_COLOR } from "../performance/_components/performance-colors";
-import { formatFullDate, formatShortDate, formatTickPct } from "../performance/_components/performance-format";
+import { formatFullDate, formatAxisDate, formatTickPct } from "../performance/_components/performance-format";
 
 // Display copy only; mirrors MIN_SAMPLES and MANUAL_SHARE_LIMIT in portfolio_risk.py.
 const MIN_SAMPLE_COPY = 10;
@@ -232,6 +232,7 @@ export function RiskPanel({ baseCurrency }: { baseCurrency: string }) {
     ...benchmarkSeries.filter((item) => item.status === "ok").map(({ name, color, points }) => ({ name, color, points })),
   ];
   const timestamps = [...new Set(chartSeries.flatMap((item) => item.points.map((point) => point.t)))].sort((a, b) => a - b);
+  const spanDays = timestamps.length < 2 ? 0 : (timestamps[timestamps.length - 1] - timestamps[0]) / 86_400_000;
   const ticks = timestamps.length <= 6 ? timestamps : Array.from({ length: 6 }, (_, index) => timestamps[Math.round(index * (timestamps.length - 1) / 5)]);
   const chartName = benchmarks.map((code) => names(code)).join(", ");
   const pending = loading || resolvedKey !== requestKey;
@@ -275,9 +276,9 @@ export function RiskPanel({ baseCurrency }: { baseCurrency: string }) {
             {chartSeries.length ? <div role="img" aria-label={benchmarks.length ? t("chartDescription", { benchmark: chartName }) : t("chartDescriptionPortfolioOnly")} className="mt-5 h-56 w-full min-w-0">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis type="number" dataKey="t" scale="time" domain={["dataMin", "dataMax"]} ticks={ticks} minTickGap={24} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={(value: number) => formatShortDate(isoFromTimestamp(value), locale)} />
-                  <YAxis tickFormatter={formatTickPct} domain={[0, "auto"]} width={48} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} tickLine={false} axisLine={false} />
+                  <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+                  <XAxis type="number" dataKey="t" scale="time" domain={["dataMin", "dataMax"]} ticks={ticks} minTickGap={24} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={(value: number) => formatAxisDate(isoFromTimestamp(value), locale, spanDays)} />
+                  <YAxis tickFormatter={formatTickPct} domain={[0, "auto"]} width={64} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} tickLine={false} axisLine={false} />
                   <Tooltip content={(props: TooltipContentProps) => <RiskChartTooltip {...props} series={chartSeries} />} />
                   {data.portfolio_vol.status === "ok" && <Line data={portfolioSeries} dataKey="vol" type="monotone" stroke={PORTFOLIO_COLOR} strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />}
                   {benchmarkSeries.filter((item) => item.status === "ok").map((item) => <Line key={item.code} data={item.points} dataKey="vol" type="monotone" stroke={item.color} strokeWidth={1.5} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />)}

@@ -45,7 +45,7 @@ function fullDate(locale: string, time: number): string {
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: "UTC" }).format(new Date(time));
 }
 function legendName(scope: HTMLElement, index: number): string {
-  const name = scope.querySelectorAll(".recharts-legend-item-text").item(index).textContent;
+  const name = scope.querySelectorAll("ul.flex.flex-wrap.items-center > li").item(index).textContent;
   if (!name) throw new Error(`missing legend item ${index}`);
   return name;
 }

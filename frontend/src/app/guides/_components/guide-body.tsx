@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { Bar, BarChart, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { LanguageLinks } from "@/app/_components/language-links";
 import { useLocale, useLocalizedHref } from "@/app/_components/locale-provider";
-import { ReplayChart } from "./replay-chart";
+import { ReplayChart, ReplayLegend } from "./replay-chart";
 import type { Example } from "../_lib/example";
 import { PORTFOLIO_COLOR } from "@/app/portfolio/performance/_components/performance-colors";
 import type { Messages } from "@/locales";
@@ -249,13 +249,13 @@ export function GuideBody({ kind, example, figureOnly = false }: {
         /> : <ResponsiveContainer width="100%" height="100%">
           <BarChart data={histogramData}>
             <XAxis type="number" dataKey="midpoint" domain={['dataMin', 'dataMax']} tickFormatter={formatPercent} tick={{
-              fontSize: 10,
+              fontSize: 12,
               fill: 'var(--muted-foreground)'
-            }} />
+            }} tickLine={false} axisLine={false} />
             <YAxis width={30} tickFormatter={formatInteger} tick={{
-              fontSize: 10,
+              fontSize: 12,
               fill: 'var(--muted-foreground)'
-            }} />
+            }} tickLine={false} axisLine={false} />
             <Bar dataKey="count" name={t("common.frequency")} fill="var(--muted-foreground)" isAnimationActive={false} />
             <ReferenceLine x={-portfolioTail.levels[0].daily.var} stroke={PORTFOLIO_COLOR} />
             <ReferenceLine x={-portfolioTail.levels[0].daily.cvar} stroke={PORTFOLIO_COLOR} strokeDasharray="6 3" />
@@ -263,6 +263,7 @@ export function GuideBody({ kind, example, figureOnly = false }: {
           </BarChart>
         </ResponsiveContainer>}
       </div>
+      {kind === "replay" && <ReplayLegend portfolioName={portfolio} />}
       {kind === "var" && <div className="mt-2 flex flex-wrap gap-3 text-xs">
         <span style={{ color: PORTFOLIO_COLOR }}>{tail("legend.var")}</span>
         <span style={{ color: PORTFOLIO_COLOR }}>{tail("legend.cvar")}</span>

@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { formatAxisDate } from "./performance-format";
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import type { ChartSeriesRow } from "./performance-data";
 import { ChartTooltip, PerformanceChart, type ChartSeriesSpec } from "./performance-chart";
@@ -166,4 +167,17 @@ describe("PerformanceChart", () => {
     expect(portfolioCurve?.getAttribute("stroke-dasharray")).toBeNull();
     expect(container.querySelector(".recharts-dot")).toBeNull();
   });
+});
+
+const { axis852 } = vi.hoisted(() => ({ axis852: vi.fn() }));
+vi.mock("recharts", async () => {
+ const actual = await vi.importActual<typeof import("recharts")>("recharts");
+ return { ...actual, XAxis: (props: import("recharts").XAxisProps) => { axis852(props); return <actual.XAxis {...props} />; } };
+});
+it("852 A3 formats long-span X-axis ticks with formatAxisDate", () => {
+ const rows: ChartSeriesRow[] = [{ date: "2025-06-02", portfolio: 0 }, { date: "2026-10-28", portfolio: 0.1 }];
+ axis852.mockClear();
+ render(<LocaleProvider routeLocale="en"><PerformanceChart rows={rows} series={seriesFor()} pointMeta={{}} anchorDate={null} /></LocaleProvider>);
+ const spanDays = (Date.parse(rows[1].date) - Date.parse(rows[0].date)) / 86_400_000;
+ expect(rows.map(row => axis852.mock.calls[0][0].tickFormatter(row.date))).toEqual(rows.map(row => formatAxisDate(row.date, "en", spanDays)));
 });
