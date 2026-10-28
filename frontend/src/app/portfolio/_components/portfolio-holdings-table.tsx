@@ -52,7 +52,18 @@ export function PortfolioHoldingsTable({
               {h.name}
               {h.ticker || h.fund_code ? (
                 <span className="ml-1.5 text-xs text-muted-foreground">
-                  {cell(h.ticker ?? h.fund_code)}
+                  {h.ticker ? (
+                    <a
+                      href={`https://finance.yahoo.com/quote/${encodeURIComponent(h.ticker)}/`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline-offset-2 hover:underline"
+                    >
+                      {cell(h.ticker)}
+                    </a>
+                  ) : (
+                    cell(h.ticker ?? h.fund_code)
+                  )}
                 </span>
               ) : null}
               <WatchTierIcon tier={h.watch_tier} />

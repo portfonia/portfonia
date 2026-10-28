@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+import urllib.parse
 from datetime import date, datetime
 from string import Template
 from typing import Any
@@ -16,6 +17,11 @@ from typing import Any
 from app.core.config import get_settings
 from app.core.timezones import ET
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
+from app.services.instrument_symbols import (
+    InstrumentKey,
+    intelligence_identifier,
+    normalize_legacy_ticker,
+)
 from app.services.portfolio_calculator import format_fx_rates_as_of
 from app.services.price_anomaly_detector import trigger_description
 
@@ -277,6 +283,51 @@ def _build_section42_table(anomalies: list[dict[str, Any]]) -> str:
     if theme_detail_lines:
         result += "\n\n**Constituent breakdown:**\n" + "\n".join(theme_detail_lines)
     return result
+
+
+def _yahoo_quote_links(holdings: list[dict[str, Any]]) -> dict[str, str]:
+    """Map ticker holding identifiers to Yahoo Finance quote URLs (#848)."""
+    return {
+        intelligence_identifier(InstrumentKey("ticker", ticker)): (
+            "https://finance.yahoo.com/quote/"
+            + urllib.parse.quote(normalize_legacy_ticker(ticker), safe="")
+            + "/"
+        )
+        for holding in holdings
+        if (ticker := holding.get("ticker"))
+    }
+
+
+def _link_section42_identifiers(body: str, links: dict[str, str]) -> str:
+    """Link first-cell and constituent identifiers after translation (#848)."""
+    if not links:
+        return body
+    heading = re.search(r"^###\s*4\.2(?!\d)[^\n]*", body, re.MULTILINE)
+    if heading is None:
+        return body
+    start = heading.end()
+    next_heading = re.search(r"^#", body[start:], re.MULTILINE)
+    end = start + next_heading.start() if next_heading else len(body)
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9.])(?:"
+        + "|".join(re.escape(key) for key in sorted(links, key=len, reverse=True))
+        + r")(?![A-Za-z0-9.])"
+    )
+
+    def replace(match: re.Match[str]) -> str:
+        identifier = match.group()
+        return f"[{identifier}]({links[identifier]})"
+
+    lines = body[start:end].split("\n")
+    for index, line in enumerate(lines):
+        if line.startswith("|"):
+            cells = line.split("|", 2)
+            if len(cells) == 3:
+                cells[1] = pattern.sub(replace, cells[1])
+                lines[index] = "|".join(cells)
+        elif line.startswith("- "):
+            lines[index] = pattern.sub(replace, line)
+    return body[:start] + "\n".join(lines) + body[end:]
 
 
 def _inject_section42_table(body: str, table: str) -> str:
