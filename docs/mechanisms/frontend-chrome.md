@@ -671,3 +671,16 @@ committed. Pricing plan headers now carry their own surface: Briefing
 `bg-[#2b3236] text-[#eef3f1]`, Advanced `bg-advanced text-advanced-foreground`,
 Jade unchanged (`jade-surface`). OG images, emails and apple-touch/manifest
 icons are unchanged.
+
+## Chart styling convention (#850)
+
+All Recharts line, area and bar charts in the app follow this convention:
+- Series colors use `--chart-*` tokens or `performance-colors.ts`, never raw hex.
+- Axis ticks use `fill: "var(--muted-foreground)"`, `fontSize: 12`, `tickLine={false}` and `axisLine={false}`.
+- Percentage Y axes use `width={64}`.
+- `CartesianGrid` uses dashed `var(--border)` strokes and `vertical={false}`.
+- Tooltips use the card surface: `contentStyle` background `var(--card)` and border `var(--border)`, or a custom card tooltip.
+- Line charts use a line-swatch legend below the chart, following the Performance markup.
+- Date axes use `formatAxisDate`. Reference implementation: `performance-chart.tsx`.
+
+Origin: #831's technical chart shipped with Recharts defaults because this convention was not written down. Reviews check new or changed charts against this section.
