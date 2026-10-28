@@ -11,10 +11,11 @@ from unittest.mock import MagicMock, patch
 import httpx
 import openai
 import pytest
+from pydantic import ValidationError
 
 from app.core import llm
 from app.core.config import get_settings
-from app.schemas.holdings import ParsedRow, UploadPreview
+from app.schemas.holdings import IssueRow, ParsedRow, UploadPreview
 from app.services import holding_parser as holding_parser_module
 from app.services.holding_parser import (
     _classify_asset_class,
@@ -1731,7 +1732,11 @@ def test_unmapped_fund_identifier(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
 def test_postprocess_validation_log_excludes_amounts(caplog: pytest.LogCaptureFixture) -> None:
     row = _raw_row(
-        name="Review Sentinel Holding", currency="AED", shares=987654.321, avg_cost=13579.2468
+        name="Review Sentinel Holding",
+        currency="AED",
+        shares=987654.321,
+        avg_cost=13579.2468,
+        market_value=246813579.1357,
     )
     logging.getLogger("app.services.holding_parser").disabled = False
     with caplog.at_level(logging.WARNING, logger="app.services.holding_parser"):
@@ -1743,3 +1748,14 @@ def test_postprocess_validation_log_excludes_amounts(caplog: pytest.LogCaptureFi
     assert "Review Sentinel Holding" in caplog.text
     assert "987654.321" not in caplog.text
     assert "13579.2468" not in caplog.text
+    assert "246813579.1357" not in caplog.text
+
+
+def test_validation_summary_excludes_issue_row_raw() -> None:
+    with pytest.raises(ValidationError) as caught:
+        IssueRow.model_validate({"raw": "SENTINEL_RAW 100 shares @ 150"})
+
+    summary = holding_parser_module.summarize_validation_error(caught.value)
+
+    assert "reason:missing" in summary
+    assert "SENTINEL_RAW" not in summary

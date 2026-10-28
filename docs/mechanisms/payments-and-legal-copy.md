@@ -402,6 +402,17 @@ translations of the authoritative issue Design for owner review. The existing
 Terms numbering is preserved; Privacy sections 7–12 become 8–13. See
 [Personal agent API access](agent-api.md) for logging and revocation behavior.
 
+Issue #846 (2026-10-28) adds Privacy Policy paragraphs in all four locales:
+§2 states that holdings are user-entered and may be a paper or simulated
+portfolio and are not necessarily real holdings; real holdings are not
+required. §4 states that Portfonia's tools compute on user-entered data and protect
+linkable information as far as possible, with the user first and finally
+responsible for their own privacy; §6 states that service logs may contain
+email addresses, account identifiers and holding names/tickers, but never
+holding amounts or returns, and are kept for up to 90 days including after
+account deletion. The §6 deletion sentence now excepts service logs.
+Translations are implementation-authored for owner review.
+
 ## Home copy
 
 - `home.hero.eyebrow`: Limited public service

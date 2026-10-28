@@ -862,11 +862,14 @@ def _append_issue(
 
 
 AMOUNT_FIELDS = frozenset({"shares", "avg_cost", "current_value"})
+NO_INPUT_FIELDS = AMOUNT_FIELDS | {"raw"}  # IssueRow.raw is the user's original row text
 
 
 def _without_amounts(value: object) -> object:
     if isinstance(value, dict):
-        return {k: v for k, v in value.items() if k not in AMOUNT_FIELDS}
+        return {
+            k: v for k, v in value.items() if k in ParsedRow.model_fields and k not in AMOUNT_FIELDS
+        }
     return value
 
 
@@ -875,7 +878,7 @@ def summarize_validation_error(exc: ValidationError) -> str:
     for err in exc.errors(include_url=False):
         loc = ".".join(str(p) for p in err["loc"])
         part = f"{loc}:{err['type']} {err['msg']}"
-        if not AMOUNT_FIELDS.intersection(str(p) for p in err["loc"]):
+        if not NO_INPUT_FIELDS.intersection(str(p) for p in err["loc"]):
             part += f" input={_without_amounts(err.get('input'))!r}"
         parts.append(part)
     return "; ".join(parts)
