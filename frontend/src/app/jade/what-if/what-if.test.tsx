@@ -254,3 +254,10 @@ it("852 A1 uses chart tokens and omits the Recharts legend", () => {
  ]);
  expect(legend852).not.toHaveBeenCalled();
 });
+
+it("852 D4 lists HTML legend names in data.columns order", () => {
+ const { container } = render(<WhatIfResults data={fiveYear806} />);
+ const names = [...container.querySelectorAll("ul.flex.flex-wrap.items-center > li")].map(item => item.textContent);
+ // This suite's translation mock returns the catalog key for each name.
+ expect(names).toEqual(fiveYear806.columns.map(column => `columns.${column.key}`));
+});

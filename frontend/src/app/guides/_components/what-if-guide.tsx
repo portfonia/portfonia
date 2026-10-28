@@ -62,7 +62,7 @@ export function WhatIfGuide({ example, figureOnly = false }: { example: WhatIfEx
             </LineChart>
           </ResponsiveContainer>
         </div>
-        <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">{ruleKeys.map(rule => ({ key: rule, name: rules(rule), color: colors[rule] })).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0).map(({ key, name, color }) => <li key={key} className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-4 rounded-full" style={{ backgroundColor: color }} />{name}</li>)}</ul>
+        <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">{ruleKeys.map(rule => ({ key: rule, name: rules(rule), color: colors[rule] })).map(({ key, name, color }) => <li key={key} className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-4 rounded-full" style={{ backgroundColor: color }} />{name}</li>)}</ul>
         <figcaption className="mt-3 break-words text-xs leading-relaxed text-foreground/70">{t("chartCaption", values)}</figcaption>
       </figure>
       <div className="max-w-full overflow-x-auto">
