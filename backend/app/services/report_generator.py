@@ -653,16 +653,15 @@ def _render_full_md(
     # §2.5 forward calendar is code-built from stored events + holdings (#1) and
     # inserted before §3: calendar facts mapped to exposed holdings, no forecast.
     if forward_events:
-        cleaned = _inject_forward_block(
-            cleaned,
-            _build_forward_block(
-                forward_events,
-                portfolio.get("holdings", []),
-                news_items,
-                report_date_str,
-                leverage_links,
-            ),
+        forward_block = _build_forward_block(
+            forward_events,
+            portfolio.get("holdings", []),
+            news_items,
+            report_date_str,
+            leverage_links,
         )
+        if forward_block:
+            cleaned = _inject_forward_block(cleaned, forward_block)
         # R-6: events scheduled for the report's own date are no longer "forward"
         # — promote them to a "today" note at the top of §2 (calendar fact only,
         # results not yet in this report's data).

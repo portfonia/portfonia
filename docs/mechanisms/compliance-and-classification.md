@@ -356,8 +356,12 @@ and direction alongside forward events. Earnings exposure lists direct
 holdings followed by product labels such as `MU-Bull-2X (2x MU)` or
 `MU-Bear-2X (-2x MU)`. The `leverage_links` data is not part of any prompt.
 For non-English reports, the rendered §2.5 block is translated with the rest of
-the body, like every other code-built section. Old report inputs without links
-retain existing rendering. Watch text and the ticker fallback are unchanged.
+the body, like every other code-built section. Earnings events render only when
+the reader's holdings expose them: a direct ticker match or a registered
+leveraged product whose `underlying_ticker` matches. Watch text is unchanged.
+Report inputs stored before #839 carry no `leverage_links`, so an earnings row
+reached only through such a product no longer renders on regenerate;
+`report_inputs` and capture are untouched (#840).
 
 Holdings writes enqueue detection only for non-null tickers with automatic
 pricing and `capture_supported=True`, absent from registrations and the YAML

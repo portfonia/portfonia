@@ -133,7 +133,7 @@ def test_forward_leverage_labels_and_old_inputs() -> None:
     assert report_sections._forward_exposure(event, holdings, links)[0] == ["MU-Bull-2X (2x MU)"]
     links["MUU"]["direction"] = "bear"
     assert report_sections._forward_exposure(event, holdings, links)[0] == ["MU-Bull-2X (-2x MU)"]
-    assert report_sections._forward_exposure(event, holdings)[0] == ["MU"]
+    assert report_sections._forward_exposure(event, holdings)[0] == []
 
 
 def test_enqueue_excludes_registered_mapped_marked_and_unsupported(db_session: Session) -> None:
@@ -226,9 +226,11 @@ def test_regenerate_render_reads_persisted_leverage_links(db_session: Session) -
             db_session, report_id, user_id=TEST_USER_ID, mode="render", output_lang="en"
         )
         assert rendered.report_md is not None
-        calendar = rendered.report_md.split("## §2.5 Forward Calendar", 1)[1].split("## §3", 1)[0]
         if with_links:
+            calendar = rendered.report_md.split("## §2.5 Forward Calendar", 1)[1].split("## §3", 1)[
+                0
+            ]
             assert label in calendar
         else:
-            assert label not in calendar
-            assert "| MU earnings | MU |" in calendar
+            assert "## §2.5 Forward Calendar" not in rendered.report_md
+            assert "MU earnings" not in rendered.report_md

@@ -351,7 +351,7 @@ def _forward_exposure(
             if link and link["underlying"] == tk:
                 sign = "-" if link["direction"] == "bear" else ""
                 exposed.append(f"{h['name']} ({sign}{link['multiple']}x {tk})")
-        return (exposed or [tk]), "reported results vs expectations for this holding"
+        return exposed, "reported results vs expectations for this holding"
 
     low = event.get("name", "").lower()
     if "fomc" in low:
@@ -384,6 +384,20 @@ def _forward_exposure(
     return ([h["name"] for h in holdings if _us_equity(h)], "relevance to US-exposed holdings")
 
 
+def _reader_events(
+    events: list[dict[str, Any]],
+    holdings: list[dict[str, Any]],
+    leverage_links: dict[str, dict[str, str]] | None = None,
+) -> list[dict[str, Any]]:
+    """Keep macro events and earnings with exposure in the reader's holdings."""
+    return [
+        event
+        for event in events
+        if event.get("event_type") != "earnings"
+        or _forward_exposure(event, holdings, leverage_links)[0]
+    ]
+
+
 def _forward_delay_risk(news_items: list[dict[str, Any]]) -> bool:
     """True if window news mentions a funding lapse that could delay US releases."""
     for it in news_items:
@@ -409,6 +423,9 @@ def _build_forward_block(
     the report's own day are tagged '(today)' and also promoted to a §2 lead note
     (R-6).
     """
+    events = _reader_events(events, holdings, leverage_links)
+    if not events:
+        return ""
     lines = [
         "## §2.5 Forward Calendar",
         "",
@@ -459,6 +476,7 @@ def _build_today_events_block(
     prior close (see R-5), so any same-day release's result is by construction not
     reflected here — stated, never forecast. Empty input → empty string.
     """
+    events = _reader_events(events, holdings, leverage_links)
     today = [e for e in events if str(e.get("scheduled_date", ""))[:10] == report_date_str]
     if not today:
         return ""

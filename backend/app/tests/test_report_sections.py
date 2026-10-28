@@ -309,6 +309,40 @@ def test_build_forward_block_renders_table_and_delay_caveat() -> None:
     assert "delay scheduled BLS/BEA releases" in md  # caveat appended
 
 
+def test_build_forward_block_omits_foreign_earnings() -> None:
+    events = [
+        {
+            "event_type": "earnings",
+            "name": "NVDA earnings",
+            "ticker": "NVDA",
+            "scheduled_date": "2026-11-19",
+        },
+        {"event_type": "macro", "name": "CPI", "scheduled_date": "2026-11-13"},
+    ]
+    holdings = [{"ticker": "AAPL", "name": "Apple", "asset_type": "stock", "market": "US"}]
+    md = sec._build_forward_block(events, holdings, [])
+    assert "| 2026-11-13 | CPI |" in md
+    assert "NVDA" not in md
+
+
+def test_build_forward_block_empty_for_foreign_earnings_only() -> None:
+    events = [{"event_type": "earnings", "name": "NVDA earnings", "ticker": "NVDA"}]
+    assert sec._build_forward_block(events, [{"ticker": "AAPL", "name": "Apple"}], []) == ""
+
+
+def test_today_events_block_omits_foreign_earnings() -> None:
+    events = [
+        {
+            "event_type": "earnings",
+            "name": "NVDA earnings",
+            "ticker": "NVDA",
+            "scheduled_date": "2026-11-19",
+        }
+    ]
+    holdings = [{"ticker": "AAPL", "name": "Apple"}]
+    assert sec._build_today_events_block(events, holdings, "2026-11-19") == ""
+
+
 def test_inject_forward_block_inserts_before_section3() -> None:
     body = "## §2 Macro Events\nstuff\n## §3 Holdings Context\nmore"
     out = sec._inject_forward_block(body, "## §2.5 Forward Calendar\nX")
