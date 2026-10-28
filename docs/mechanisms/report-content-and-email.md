@@ -32,6 +32,10 @@ re-render-safe); the LLM writes only prose/attribution. Current shape:
   yfinance. Calendar facts only, no forecasting. China forward intel out of
   scope. T+0 events get a lead-note promotion under §2 ("results not yet in
   this report's data").
+  Earnings events render only when one of the reader's holdings is exposed
+  (the same ticker or a registered leveraged product with that underlying,
+  #839); foreign earnings events are dropped at render time, including on
+  regenerate, and an empty filtered list means no §2.5 block (#840).
 - **Holding-relevant news** (`holding_news.py` + `config/holding_news_keywords.yml`) —
   merges pool keyword recall with scheduled instrument-news links for the
   user's stocks with available headlines, deduplicates by URL hash and
