@@ -2,14 +2,16 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useLocale } from "@/app/_components/locale-provider";
+import { formatAxisDate } from "@/app/portfolio/performance/_components/performance-format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getTechnicalSeries, getTechnicalTable, type TechnicalSeriesOut, type TechnicalTableOut } from "@/lib/api";
 
 const metrics = ["pct_vs_sma50", "pct_vs_sma200", "pct_in_52w_range", "vol_20d_annualized"] as const;
 const labels = ["sma50", "sma200", "range", "volatility"] as const;
-// Bright series exceed 3:1 on the dark card surface.
-const colors = ["#60a5fa", "#fbbf24", "#c084fc", "#34d399"];
+// The #824 chart tokens are verified at >= 3:1 on the dark card surface.
+const colors = ["var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
 function todayET(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
@@ -24,6 +26,7 @@ function percent(value: number | null, whole = false): string {
 }
 
 export function TechnicalPageBody({ initialTable, initialLoadError }: { initialTable: TechnicalTableOut | null; initialLoadError: boolean }) {
+  const { locale } = useLocale();
   const t = useTranslations("portfolio.technical");
   const today = todayET();
   const [table, setTable] = useState(initialTable);
@@ -60,6 +63,8 @@ export function TechnicalPageBody({ initialTable, initialLoadError }: { initialT
     });
   }
   const displayedSeries = series?.ticker === ticker && series.start === start && series.end === end ? series : null;
+  const points = displayedSeries?.points;
+  const spanDays = points && points.length >= 2 ? (Date.parse(points[points.length - 1].date) - Date.parse(points[0].date)) / 86_400_000 : 0;
   return <div className="space-y-8">
     <h1 className="font-serif text-2xl">{t("title")}</h1>
     <Card>
@@ -82,7 +87,7 @@ export function TechnicalPageBody({ initialTable, initialLoadError }: { initialT
           <label className="flex flex-col gap-1 text-sm">{t("start")}<input type="date" max={today} value={start} onChange={event => setStart(event.target.value)} className="rounded border border-border bg-background p-2" /></label>
           <label className="flex flex-col gap-1 text-sm">{t("end")}<input type="date" max={today} value={end} onChange={event => setEnd(event.target.value)} className="rounded border border-border bg-background p-2" /></label>
         </div>
-        {tooLong ? <p role="alert" className="text-sm text-destructive">{t("rangeTooLong")}</p> : invalid ? <p role="alert" className="text-sm text-destructive">{t("invalidRange")}</p> : seriesError ? <p role="alert" className="text-sm text-destructive">{t("loadError")}</p> : displayedSeries?.points.length ? <div className="h-80"><ResponsiveContainer width="100%" height="100%"><LineChart data={displayedSeries.points}><CartesianGrid stroke="var(--border)" strokeDasharray="3 3" /><XAxis dataKey="date" /><YAxis tickFormatter={value => `${Math.round(Number(value) * 100)}%`} /><Tooltip formatter={value => percent(value === undefined ? null : Number(value))} /><Legend />{metrics.map((key, index) => <Line key={key} dataKey={key} name={t(labels[index])} stroke={colors[index]} strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />)}</LineChart></ResponsiveContainer></div> : displayedSeries && <p>{t("noPoints")}</p>}
+        {tooLong ? <p role="alert" className="text-sm text-destructive">{t("rangeTooLong")}</p> : invalid ? <p role="alert" className="text-sm text-destructive">{t("invalidRange")}</p> : seriesError ? <p role="alert" className="text-sm text-destructive">{t("loadError")}</p> : displayedSeries?.points.length ? <div><div className="h-80"><ResponsiveContainer width="100%" height="100%"><LineChart data={displayedSeries.points}><CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} tickLine={false} axisLine={false} minTickGap={24} tickFormatter={value => formatAxisDate(String(value), locale, spanDays)} /><YAxis tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} tickLine={false} axisLine={false} width={64} tickFormatter={value => `${Math.round(Number(value) * 100)}%`} /><Tooltip contentStyle={{ background: "var(--card)", borderColor: "var(--border)" }} formatter={value => percent(value === undefined ? null : Number(value))} />{metrics.map((key, index) => <Line key={key} dataKey={key} name={t(labels[index])} stroke={colors[index]} strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />)}</LineChart></ResponsiveContainer></div><ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">{metrics.map((key, index) => <li key={key} className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-4 rounded-full" style={{ backgroundColor: colors[index] }} />{t(labels[index])}</li>)}</ul></div> : displayedSeries && <p>{t("noPoints")}</p>}
       </CardContent>
     </Card>
   </div>;
