@@ -644,11 +644,12 @@ def test_parse_holdings_upload_validation_error_excludes_input(
     mock_session_cls: MagicMock, mock_parse: MagicMock, caplog: pytest.LogCaptureFixture
 ) -> None:
     class QuantityInput(BaseModel):
-        quantity: float
+        shares: float
+        currency: int
 
     sentinel = "SENSITIVE_QUANTITY_846"
     with pytest.raises(ValidationError) as caught:
-        QuantityInput.model_validate({"quantity": sentinel})
+        QuantityInput.model_validate({"shares": sentinel, "currency": "CURRENCY_SENTINEL_846"})
     mock_parse.side_effect = caught.value
     job_id = uuid.uuid4()
     job = _make_job(job_id)
@@ -668,4 +669,6 @@ def test_parse_holdings_upload_validation_error_excludes_input(
     assert sentinel not in job.error
     for output in (caplog.text, job.error):
         assert "ValidationError" in output
-        assert "quantity:float_parsing" in output
+        assert "shares:float_parsing" in output
+        assert "currency:int_parsing" in output
+        assert "CURRENCY_SENTINEL_846" in output

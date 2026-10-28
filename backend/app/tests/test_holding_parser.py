@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -1726,3 +1727,19 @@ def test_unmapped_fund_identifier(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert ident({"asset_type": "etf", "ticker": None, "fund_code": None}) is None
     assert ident({"asset_type": "other", "ticker": "ZZETF"}) is None
     holding_parser_module._parse_ticker_asset_class.cache_clear()
+
+
+def test_postprocess_validation_log_excludes_amounts(caplog: pytest.LogCaptureFixture) -> None:
+    row = _raw_row(
+        name="Review Sentinel Holding", currency="AED", shares=987654.321, avg_cost=13579.2468
+    )
+    logging.getLogger("app.services.holding_parser").disabled = False
+    with caplog.at_level(logging.WARNING, logger="app.services.holding_parser"):
+        _postprocess([row])
+
+    assert "Dropping row 0" in caplog.text
+    assert "currency:value_error" in caplog.text
+    assert "'AED'" in caplog.text
+    assert "Review Sentinel Holding" in caplog.text
+    assert "987654.321" not in caplog.text
+    assert "13579.2468" not in caplog.text

@@ -416,8 +416,10 @@ legitimate local state is `.env` (uploaded via `scp`).
 - User holdings are sensitive. Encrypt at rest. **Never** include raw user
   holdings in training data, LLM fine-tuning datasets, or third-party logs.
 - Application logs are persisted on the production host for 90 days
-  (journald, #846) and never contain holding identifiers tied to a user or
-  report, quantities, values, weights, cost basis or returns.
+  (journald, #846). Logs may contain email addresses, user ids and holding
+  names/tickers, but never holding amounts (quantities, cost basis, market
+  values), portfolio weights or returns. Parse failures log the exception
+  type plus `loc:type msg` and non-amount input values.
 - When sending holdings to an external LLM, scope the payload to what the
   current report needs. Do not attach the full portfolio history "just in case".
 - **Scheduled intelligence isolation (enforced):** collection and paid

@@ -132,11 +132,13 @@ All eight Compose services use the `journald` log driver with
   Compose change are owner-run follow-ups.
 - **Syslog copy**: `ForwardToSyslog=yes` (Ubuntu default) also copies lines
   to `/var/log/syslog`, rotated weekly with 4 kept.
-- **Log data rule**: logs may contain email addresses and user ids, retained
-  for audit including after account deletion. They must never contain
-  holding identifiers tied to a user or report, quantities, values,
-  weights, cost basis or returns. Parse failures log and store the exception
-  `type` plus pydantic `loc:type` only.
+- **Log data rule**: logs may contain email addresses, user ids and holding
+  names/tickers, including when tied to a user or report, retained for audit
+  including after account deletion. Currency, market, broker and other
+  non-amount values should also be logged. Logs must never contain holding
+  amounts (`shares`, `avg_cost`, `current_value`: quantities, cost basis,
+  market values), portfolio weights or returns. Parse failures log and store
+  the exception type plus pydantic `loc:type msg` and non-amount input values.
 - **Read current-container logs**:
   `docker compose logs --since 2h celery-worker`.
 - **Read across container recreations**:

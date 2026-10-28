@@ -177,9 +177,8 @@ def test_acceptance_1_high_weight_low_evidence_short_paragraph_logs_mismatch(
     with caplog.at_level(logging.WARNING, logger="app.services.section3_proportionality"):
         mismatches = check_section3_proportionality("report-1", _full_body(section3), [holding])
     assert mismatches == 1
-    assert "holding_index=0" in caplog.text
+    assert "AAPL" in caplog.text
     assert "direction=short" in caplog.text
-    assert "AAPL" not in caplog.text
     assert "0.3" not in caplog.text
     assert "report-1" in caplog.text
 
@@ -209,7 +208,7 @@ def test_acceptance_2_low_weight_high_evidence_long_paragraph_logs_mismatch(
             "report-2", _full_body(long_analysis), [holding]
         )
     assert mismatches == 1
-    assert "holding_index=0" in caplog.text
+    assert "AAPL" in caplog.text
     assert "direction=long" in caplog.text
 
 

@@ -181,8 +181,8 @@ action — see below).
   are meant to feed a config-driven target weight into, at the call site
   below, not inside the checker itself.
 - `check_section3_proportionality(report_id, full_body_markdown, holdings)`
-  — logs one `WARNING` per out-of-range holding (identifier, weight,
-  evidence score, actual length, expected range) plus one `INFO` line for
+  — logs one `WARNING` per out-of-range holding (identifier, evidence score,
+  actual length, direction; no weight or expected range, #846) plus one `INFO` line for
   mixed-paragraph count. Returns an int (mismatch count) for
   tests/metrics only — callers must not branch on it.
 

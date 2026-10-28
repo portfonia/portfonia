@@ -861,6 +861,26 @@ def _append_issue(
     row["issues"] = issues
 
 
+AMOUNT_FIELDS = frozenset({"shares", "avg_cost", "current_value"})
+
+
+def _without_amounts(value: object) -> object:
+    if isinstance(value, dict):
+        return {k: v for k, v in value.items() if k not in AMOUNT_FIELDS}
+    return value
+
+
+def summarize_validation_error(exc: ValidationError) -> str:
+    parts: list[str] = []
+    for err in exc.errors(include_url=False):
+        loc = ".".join(str(p) for p in err["loc"])
+        part = f"{loc}:{err['type']} {err['msg']}"
+        if not AMOUNT_FIELDS.intersection(str(p) for p in err["loc"]):
+            part += f" input={_without_amounts(err.get('input'))!r}"
+        parts.append(part)
+    return "; ".join(parts)
+
+
 def _postprocess(
     raw_rows: list[dict[str, Any]],
     on_invalid_row: Callable[[dict[str, Any], str], None] | None = None,
@@ -887,7 +907,7 @@ def _postprocess(
     # lots — e.g. the same ETF at two brokers — are both preserved. (issue #50)
     seen: set[tuple[str | None, ...]] = set()
 
-    for row in raw_rows:
+    for index, row in enumerate(raw_rows):
         row["issues"] = _coerce_issue_list(row.get("issues"))
 
         # Normalize asset_type to the known set BEFORE validation so an off-list
@@ -1043,7 +1063,10 @@ def _postprocess(
             parsed = ParsedRow.model_validate(row)
         except ValidationError as exc:
             logging.getLogger(__name__).warning(
-                "Dropping row that failed ParsedRow validation: %s (row=%r)", exc, row
+                "Dropping row %d that failed ParsedRow validation: %s (row=%r)",
+                index,
+                summarize_validation_error(exc),
+                _without_amounts(row),
             )
             if on_invalid_row is not None:
                 on_invalid_row(row, str(exc))
@@ -1262,8 +1285,8 @@ def parse(text: str) -> UploadPreview:
             # bugs into a classified, retryable-looking RuntimeError —
             # routing them through holdings_tasks' normal parse-failure path
             # (a `logger.warning`) instead of its unexpected-exception path
-            # (`logger.exception`, full traceback), which is the outer
-            # handler this loop is not meant to preempt.
+            # (`logger.error` with formatted stack frames and no exception
+            # message), which is the outer handler this loop must not preempt.
             code = classify(exc)
             last_exc = exc
             if not is_retryable(exc):

@@ -460,8 +460,9 @@ def capture_fx_task(self: Any) -> dict[str, Any]:
     Wrapped in a `capture.fx` operational_events run (issue #509): durable,
     Postgres-backed evidence of whether this attempt ran and what it found,
     independent of container stdout logs — a `docker compose up --build`
-    recreate wipes those, which blocked verifying a prior catch-up attempt
-    during this issue's own investigation.
+    recreate wiped those, which blocked verifying a prior catch-up attempt
+    during this issue's own investigation. Container logs persist via journald
+    since #846.
     """
     from app.core.database import SessionLocal
     from app.services.fx_fetcher import capture_fx_rates

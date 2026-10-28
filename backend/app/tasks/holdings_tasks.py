@@ -144,10 +144,7 @@ def parse_holdings_upload(job_id: str) -> dict[str, str]:
         except Exception as exc:
             summary = type(exc).__name__
             if isinstance(exc, pydantic.ValidationError):
-                summary += " " + "; ".join(
-                    f"{'.'.join(str(p) for p in err['loc'])}:{err['type']}"
-                    for err in exc.errors(include_input=False, include_url=False)
-                )
+                summary += " " + holding_parser.summarize_validation_error(exc)
             logger.error(
                 "parse_holdings_upload: job %s unexpected error %s\n%s",
                 job_id,
