@@ -30,6 +30,14 @@ from app.models.forward_event import ForwardEvent
 
 logger = logging.getLogger(__name__)
 
+_NO_FUNDAMENTALS = "No fundamentals data found"
+
+
+class _NoFundamentalsFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return _NO_FUNDAMENTALS not in record.getMessage()
+
+
 _FRED_BASE = "https://api.stlouisfed.org/fred/release/dates"
 
 # How far ahead a scheduled event counts as "current": the horizon §2.5
@@ -131,19 +139,32 @@ def fetch_earnings_dates(
 
     end = today + timedelta(days=horizon_days)
     out: list[ForwardEventData] = []
-    for ticker in tickers:
-        try:
-            cal = yf.Ticker(ticker).calendar or {}
-            dates = cal.get("Earnings Date") or []
-            if isinstance(dates, date):
-                dates = [dates]
-            for d in dates:
-                if isinstance(d, datetime):
-                    d = d.date()
-                if isinstance(d, date) and today <= d <= end:
-                    out.append(ForwardEventData("earnings", ticker, ticker, d, "yfinance"))
-        except Exception:
-            logger.exception("earnings fetch failed for %s", ticker)
+    no_calendar: list[str] = []
+    yf_logger = logging.getLogger("yfinance")
+    flt = _NoFundamentalsFilter()
+    yf_logger.addFilter(flt)
+    try:
+        for ticker in tickers:
+            try:
+                cal = yf.Ticker(ticker).calendar or {}
+                dates = cal.get("Earnings Date") or []
+                if isinstance(dates, date):
+                    dates = [dates]
+                if not dates:
+                    no_calendar.append(ticker)
+                for d in dates:
+                    if isinstance(d, datetime):
+                        d = d.date()
+                    if isinstance(d, date) and today <= d <= end:
+                        out.append(ForwardEventData("earnings", ticker, ticker, d, "yfinance"))
+            except Exception:
+                logger.exception("earnings fetch failed for %s", ticker)
+    finally:
+        yf_logger.removeFilter(flt)
+    if no_calendar:
+        logger.info(
+            "earnings calendar empty for %d tickers: %s", len(no_calendar), ", ".join(no_calendar)
+        )
     return out
 
 
