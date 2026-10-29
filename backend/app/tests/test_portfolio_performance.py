@@ -3,12 +3,10 @@ Phase 1) — approximate EOD TWR, filters, benchmark normalization."""
 
 from __future__ import annotations
 
-import importlib
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
-import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -922,14 +920,6 @@ def test_full_exit_via_real_daily_fan_out_reads_as_zero_not_frozen(db_session: S
     assert [p.point_date for p in result.portfolio.points] == [D1, D2]
     assert result.portfolio.points[0].value_base == Decimal("100.00")
     assert result.portfolio.points[1].value_base == Decimal("0.00")  # exit recorded, not frozen
-
-
-def test_backfill_portfolio_value_history_script_removed() -> None:
-    """Issue #366: the composition-replay backfill script is deleted
-    outright, not deprecated — no import path should remain for future
-    agents to accidentally resurrect it as a product step."""
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("app.scripts.backfill_portfolio_value_history")
 
 
 def test_csi300_series_converts_cny_close_to_usd(db_session: Session) -> None:

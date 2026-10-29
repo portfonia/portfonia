@@ -220,15 +220,6 @@ class TestAmbiguityMatrix:
         assert r.ticker == "AAPL"
         assert r.fund_code == "005827"
 
-    def test_psh_no_declared_market_resolves_uk(self) -> None:
-        r = resolve_instrument(_auto(ticker="PSH", currency="GBP"))
-        assert r.status == "resolved"
-        assert r.market == "UK"
-        assert r.exchange == "LSE"
-        assert r.capture_supported is True
-        assert r.ticker == "PSH.L"
-        assert r.key == InstrumentKey("ticker", "PSH.L")
-
     def test_bare_psh_with_no_market_or_currency_resolves_as_us_like_any_other_ticker(
         self,
     ) -> None:

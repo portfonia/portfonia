@@ -167,8 +167,26 @@ def test_capture_does_not_write_tencent_when_anchor_disagrees(db_session: Sessio
     assert csi_dates == {date(2026, 9, 3), date(2026, 9, 9)}
 
 
-def test_live_tencent_kline_endpoint_returns_csi300_day_bars() -> None:
-    closes = benchmark_prices._fetch_tencent_csi300_closes(date(2026, 7, 15), date(2026, 9, 9))
-    assert date(2026, 7, 17) in closes
-    assert date(2026, 7, 20) in closes
-    assert benchmark_prices._csi300_closes_agree(closes[date(2026, 7, 17)], Decimal("4529.10"))
+def test_fetch_tencent_csi300_closes_keeps_only_bars_inside_window() -> None:
+    payload = {
+        "code": 0,
+        "data": {
+            "sh000300": {
+                "day": [
+                    ["2026-07-14", "1", "4500.00", "1", "1"],
+                    ["2026-07-17", "1", "4529.10", "1", "1"],
+                    ["2026-07-20", "1", "4540.00", "1", "1"],
+                    ["2026-09-10", "1", "4600.00", "1", "1"],
+                ],
+            }
+        },
+    }
+    with patch("app.services.benchmark_prices.httpx.Client") as client:
+        response = client.return_value.__enter__.return_value.get.return_value
+        response.raise_for_status.return_value = None
+        response.json.return_value = payload
+        closes = benchmark_prices._fetch_tencent_csi300_closes(date(2026, 7, 15), date(2026, 9, 9))
+    assert closes == {
+        date(2026, 7, 17): Decimal("4529.10"),
+        date(2026, 7, 20): Decimal("4540.00"),
+    }
