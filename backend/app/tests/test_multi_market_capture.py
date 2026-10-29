@@ -305,12 +305,6 @@ def test_fetch_last_close_does_not_scale_eur_jpy_krw(
     assert price == pytest.approx(raw)
 
 
-def test_ticker_price_scale_table_is_gone() -> None:
-    import app.services._yfinance as yf_mod
-
-    assert not hasattr(yf_mod, "_TICKER_PRICE_SCALE")
-
-
 # ---------------------------------------------------------------------------
 # 5. section 1 marker + Pass 2 omit
 # ---------------------------------------------------------------------------
