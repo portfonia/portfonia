@@ -159,7 +159,7 @@
   --muted-foreground: #8fa19d;
   --accent: #142a32;
   --accent-foreground: #eef3f1;
-  --destructive: #e5484d;
+  --destructive: #f07a7d;
   --urgent: oklch(0.26 0.028 356);
   --border: rgba(238, 243, 241, 0.1);
   --input: rgba(238, 243, 241, 0.14);
