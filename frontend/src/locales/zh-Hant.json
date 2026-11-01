@@ -5,6 +5,10 @@
     "calculatingSlow": "此計算最多可能需要一分鐘。請保持此頁面開啟。"
   },
   "menu": {
+    "theme": "主題",
+    "themeDark": "深色",
+    "themeLight": "淺色",
+    "themeSystem": "跟隨系統",
     "trigger": "開始使用",
     "language": "語言",
     "login": "登入",

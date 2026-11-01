@@ -61,19 +61,19 @@ export function buildAllocationData(allocation: Allocation | null): BuiltAllocat
 // Chosen for readability on both the light and dark card backgrounds this
 // app supports (see globals.css).
 export const ASSET_CLASS_COLORS: Record<string, string> = {
-  STOCK: "#8ab4f8",
-  EQUITY_US_BROAD: "#4fc3f7",
-  EQUITY_US_TECH: "#64b5f6",
-  EQUITY_DM: "#81c995",
-  EQUITY_CN: "#ffb74d",
-  EQUITY_EM: "#f6c453",
-  EQUITY_BROAD: "#4dd0e1",
-  REIT: "#ba68c8",
-  PRECIOUS_METALS: "#d4af37",
-  ENERGY: "#ef5350",
-  COMMODITY: "#a1887f",
-  BOND_FUND: "#90a4ae",
-  CASH_EQUIV: "#66bb6a",
+  STOCK: "var(--asset-stock)",
+  EQUITY_US_BROAD: "var(--asset-equity-us-broad)",
+  EQUITY_US_TECH: "var(--asset-equity-us-tech)",
+  EQUITY_DM: "var(--asset-equity-dm)",
+  EQUITY_CN: "var(--asset-equity-cn)",
+  EQUITY_EM: "var(--asset-equity-em)",
+  EQUITY_BROAD: "var(--asset-equity-broad)",
+  REIT: "var(--asset-reit)",
+  PRECIOUS_METALS: "var(--asset-precious-metals)",
+  ENERGY: "var(--asset-energy)",
+  COMMODITY: "var(--asset-commodity)",
+  BOND_FUND: "var(--asset-bond-fund)",
+  CASH_EQUIV: "var(--asset-cash-equiv)",
 };
 
-export const DEFAULT_ASSET_CLASS_COLOR = "#9e9e9e";
+export const DEFAULT_ASSET_CLASS_COLOR = "var(--asset-default)";

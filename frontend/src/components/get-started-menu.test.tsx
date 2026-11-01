@@ -1,6 +1,6 @@
 import { JADE_BI_DATA_URI } from "@/components/icons/jade-bi";
 import { catalogs } from "@/locales";
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -129,6 +129,24 @@ describe("GetStartedMenu", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("856 A4 inserts mobile theme items for guests and signed-in users only when supplied", async () => {
+    for (const authed of [false, true]) {
+      for (const supplied of [true, false]) {
+        __resetSessionSignalsForTests();
+        getUser.mockResolvedValue({ data: { user: authed ? { email: "themes@example.com" } : null } });
+        render(<LocaleProvider routeLocale={null}><GetStartedMenu {...(supplied ? { themeItems: <span data-testid="theme-items" /> } : {})} /></LocaleProvider>);
+        await openMenu(userEvent.setup());
+        const items = screen.queryByTestId("theme-items");
+        expect(Boolean(items)).toBe(supplied);
+        if (supplied) {
+          expect(items?.parentElement).toHaveClass("sm:hidden");
+          expect(items?.previousElementSibling).toHaveAttribute("role", "separator");
+        }
+        cleanup();
+      }
+    }
   });
 
   it("renders nothing while the verified session check is in flight", () => {

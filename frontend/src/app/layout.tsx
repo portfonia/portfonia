@@ -1,4 +1,5 @@
 import { getRouteLocale } from "@/lib/seo-server";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { SITE_URL } from "@/lib/seo";
 import { catalogs } from "@/locales";
 import type { Metadata } from "next";
@@ -39,9 +40,11 @@ export default async function RootLayout({
   const routeLocale = await getRouteLocale();
   return (
     <html
+      suppressHydrationWarning
       lang={routeLocale ?? "en"}
       className={`dark ${geistSans.variable} ${geistMono.variable} ${newsreader.variable} h-full antialiased`}
     >
+      <head><script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} /></head>
       <body className="min-h-full flex flex-col">
         <LocaleProvider routeLocale={routeLocale}>
           <AppShell>

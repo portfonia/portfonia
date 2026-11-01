@@ -148,7 +148,7 @@ The per-issue index text that stood here until 2026-10-21 is archived in
 - [Credit ledger](docs/mechanisms/credit-ledger.md) — balances, append-only ledger, purchases/refunds, purge protection, relinquishment, referral rewards and clawbacks.
 - [Subscription](docs/mechanisms/subscription.md) — plans and charges, cancel/resume/unsubscribe, scheduled lifecycle, Daily Advanced, Jade tier and offers.
 - [Payments and legal copy](docs/mechanisms/payments-and-legal-copy.md) — Paddle checkout, webhook crediting, refunds, Pricing comparison and legal pages.
-- [Frontend chrome](docs/mechanisms/frontend-chrome.md) — shared `SiteHeader`, menus and locale switcher, onboarding flow, public SEO pages and locale URLs, Jade page and logo, calculating overlay.
+- [Frontend chrome](docs/mechanisms/frontend-chrome.md) — shared `SiteHeader`, menus and locale switcher, onboarding flow, public SEO pages and locale URLs, Jade page and logo, calculating overlay, light and dark themes.
 - [Admin surface](docs/mechanisms/admin-surface.md) — `/admin/*` token auth, rotation and audit logging.
 - [Backup and ops](docs/mechanisms/backup-and-ops.md) — daily `pg_dump` to object storage, restore drills, container instance-principal IMDS SNAT dependency.
 - Playbooks: [documentation governance](docs/playbooks/documentation-governance.md) (incl. public surface sync), [full-context review](docs/playbooks/full-context-review.md), [git and review identities](docs/playbooks/git-and-review-incidents.md), [LLM and data handling](docs/playbooks/llm-and-data-handling.md), [regression notes](docs/playbooks/regression-notes.md), [testing notes](docs/playbooks/testing-notes.md).
@@ -720,7 +720,7 @@ pre-push responsibility documented in the CI-First Protocol.
 - Respect `NO_COLOR` for any terminal output.
 - **Frontend contrast floor**: text at least 4.5:1 and non-text marks (chart
   series, focus rings, borders that carry meaning) at least 3:1, measured
-  against the actual dark surface they sit on. Decline a review request that
+  in each theme against the actual surface they sit on. Decline a review request that
   would go below the floor and record the ratio (see the full-context review
   playbook's "Recording review outcomes in the PR").
 - Boundary validation: validate at system boundaries (HTTP handlers, file

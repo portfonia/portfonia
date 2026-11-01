@@ -57,7 +57,7 @@ export function LegalDocument({ doc, afterIntro }: { doc: LegalDocKey; afterIntr
         ))}
       </div>
 
-      <nav className="mt-12 flex flex-wrap gap-4 border-t border-white/10 pt-6 text-sm text-muted-foreground">
+      <nav className="mt-12 flex flex-wrap gap-4 border-t border-border pt-6 text-sm text-muted-foreground">
         {documentOrder.filter((key) => key !== doc).map((key) => (
           <Link key={key} href={href(`/${key}`)} className="underline">
             {t.nav[key]}

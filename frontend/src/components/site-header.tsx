@@ -8,9 +8,12 @@ import { splitLocalePrefix } from "@/lib/seo";
 import { useLocalizedHref } from "@/app/_components/locale-provider";
 import { GetStartedMenu } from "@/components/get-started-menu";
 import { JadeBi } from "@/components/icons/jade-bi";
+import { useThemePreference } from "@/hooks/use-theme-preference";
+import { ThemeSwitcher, ThemeMenuItems } from "@/components/theme-switcher";
 import { LocaleSwitcher } from "@/components/locale-switcher";
 
 export function SiteHeader() {
+  const { preference, setPreference } = useThemePreference();
   const pathname = usePathname();
   const href = useLocalizedHref();
   const isHome = splitLocalePrefix(pathname).path === "/";
@@ -23,14 +26,15 @@ export function SiteHeader() {
   // native <select> with the same Base UI Menu styling as GetStartedMenu.
   return (
     <header className="sticky top-4 z-20 flex justify-center px-4">
-      <nav className="flex w-full max-w-4xl items-center justify-between gap-2 rounded-full border border-white/10 bg-card/70 px-3 py-3 backdrop-blur-md sm:gap-4 sm:px-5">
+      <nav className="flex w-full max-w-4xl items-center justify-between gap-2 rounded-full border border-border bg-card/70 px-3 py-3 backdrop-blur-md sm:gap-4 sm:px-5">
         <Link href={isHome ? "#top" : href("/")} className="inline-flex items-center gap-2 font-serif text-lg tracking-tight">
           <JadeBi className="size-6 shrink-0" />
           {tCommon("brandName")}
         </Link>
         <div className="flex min-w-0 items-center gap-2 sm:gap-4">
           <LocaleSwitcher />
-          <GetStartedMenu />
+          <ThemeSwitcher preference={preference} onSelect={setPreference} />
+          <GetStartedMenu themeItems={<ThemeMenuItems preference={preference} onSelect={setPreference} />} />
         </div>
       </nav>
     </header>

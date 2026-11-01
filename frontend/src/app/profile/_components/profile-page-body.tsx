@@ -315,7 +315,7 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
             <div className="flex flex-col gap-1.5">
               <select
                 aria-label={t("reportLanguageLabel")}
-                className="w-full rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm"
+                className="w-full rounded-md border border-border bg-transparent px-2 py-1.5 text-sm"
                 value={me.report_language}
                 disabled={reportLanguage.pending}
                 onChange={(e) =>
@@ -337,7 +337,7 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
             <div className="flex flex-col gap-1.5">
               <select
                 aria-label={t("reportCurrencyLabel")}
-                className="w-full rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm"
+                className="w-full rounded-md border border-border bg-transparent px-2 py-1.5 text-sm"
                 value={me.report_currency}
                 disabled={reportCurrency.pending}
                 onChange={(e) =>
@@ -360,7 +360,7 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
               <select
                 disabled={isJade || noVerifiedRecipient || subscription.pending}
                 aria-label={t("reportScheduleHeading")}
-                className="w-full rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm"
+                className="w-full rounded-md border border-border bg-transparent px-2 py-1.5 text-sm"
                 value={isJade ? me.subscription.cadence : me.subscription.status === "active" ? me.subscription.type ?? "" : ""}
                 onChange={(e) => void subscription.choose(e.target.value as SubscriptionType | "cancel")}
               >
