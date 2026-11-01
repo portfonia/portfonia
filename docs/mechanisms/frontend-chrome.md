@@ -99,6 +99,8 @@ for the full before/after and decision rationale.
   treat that as worth a design-doc note, not a silent second
   implementation).
 
+Below `sm`, the shared `SiteHeader` bar uses tighter padding and gaps and a narrower locale trigger so its controls and focus ring fit at 375 px (#857).
+
 ### Profile page + menu icons (issue #220, 2026-08-27)
 
 - **`AUTHED_ENTRIES`'s first entry is `profile` → `/profile`, not `home` →

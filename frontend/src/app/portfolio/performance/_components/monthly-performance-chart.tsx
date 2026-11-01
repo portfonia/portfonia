@@ -118,7 +118,8 @@ export function MonthlyPerformanceChart({
             width={64}
           />
           <ReferenceLine y={0} stroke="var(--muted-foreground)" />
-          <Tooltip content={tooltipContent} cursor={MONTHLY_CHART_CURSOR} />
+          {/* 80 is the YAxis width (64) plus the right margin (16), so the tooltip fits the plot area Recharts clamps it to; 100% would not, because the tooltip is already capped at the container width and starts 64px in. */}
+          <Tooltip content={tooltipContent} cursor={MONTHLY_CHART_CURSOR} wrapperStyle={{ maxWidth: "calc(100% - 80px)" }} />
           <Bar
             dataKey="portfolio"
             name={t("monthlyPortfolioLabel")}

@@ -23,12 +23,12 @@ export function SiteHeader() {
   // native <select> with the same Base UI Menu styling as GetStartedMenu.
   return (
     <header className="sticky top-4 z-20 flex justify-center px-4">
-      <nav className="flex w-full max-w-4xl items-center justify-between gap-4 rounded-full border border-white/10 bg-card/70 px-5 py-3 backdrop-blur-md">
+      <nav className="flex w-full max-w-4xl items-center justify-between gap-2 rounded-full border border-white/10 bg-card/70 px-3 py-3 backdrop-blur-md sm:gap-4 sm:px-5">
         <Link href={isHome ? "#top" : href("/")} className="inline-flex items-center gap-2 font-serif text-lg tracking-tight">
           <JadeBi className="size-6 shrink-0" />
           {tCommon("brandName")}
         </Link>
-        <div className="flex items-center gap-4">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-4">
           <LocaleSwitcher />
           <GetStartedMenu />
         </div>

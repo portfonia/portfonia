@@ -51,6 +51,7 @@ export function LocaleSwitcher() {
 
   return (
     <MenuDropdown
+      triggerClassName="px-2.5 sm:px-4"
       trigger={
         <>
           <Flag locale={current.value} />

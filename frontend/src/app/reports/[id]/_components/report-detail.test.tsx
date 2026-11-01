@@ -28,3 +28,16 @@ it("acceptance_18 renders HTML and downloads exact Markdown and prints", async (
   await user.click(screen.getByRole("button", { name: "Print / Save as PDF" })); expect(print).toHaveBeenCalledOnce();
   vi.restoreAllMocks(); vi.unstubAllGlobals();
 });
+
+
+it("preserves the table scroll wrapper when opening and cancelling a download", async () => {
+  const report = { id: "r1", report_date: "2026-10-03", report_type: "incremental", session_node: "manual", status: "success", report_md: "# Stored briefing", report_body_html: "<table><tbody><tr><td>A</td></tr></tbody></table>", prompt_version: null, disclaimer_version: null, generated_at: null, email_sent_at: null, created_at: "2026-10-03T00:00:00Z" };
+  const user = userEvent.setup();
+  const { container } = render(<LocaleProvider routeLocale={null}><ReportDetail report={report} /></LocaleProvider>);
+  expect(container.querySelectorAll(".report-table-scroll")).toHaveLength(1);
+  await user.click(screen.getByRole("button", { name: "Download Markdown" }));
+  const dialog = await screen.findByRole("alertdialog");
+  expect(container.querySelectorAll(".report-table-scroll")).toHaveLength(1);
+  await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  expect(container.querySelectorAll(".report-table-scroll")).toHaveLength(1);
+});

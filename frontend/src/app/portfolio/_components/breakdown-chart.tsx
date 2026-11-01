@@ -125,7 +125,7 @@ export function BreakdownChart({
             ) : null}
             <ul className="flex flex-col gap-1.5 text-sm">
               {slices.map((slice, index) => (
-                <li key={slice.key} className="flex items-center justify-between gap-3">
+                <li key={slice.key} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
                   <span className="flex items-center gap-2 truncate">
                     <span
                       aria-hidden="true"
@@ -136,7 +136,7 @@ export function BreakdownChart({
                     />
                     <span className="truncate">{slice.name}</span>
                   </span>
-                  <span className="shrink-0 tabular-nums text-foreground/80">
+                  <span className="ml-auto text-right tabular-nums text-foreground/80">
                     {slice.formatted}
                     {showShareOfTotal && total > 0
                       ? ` (${((slice.value / total) * 100).toFixed(1)}%)`

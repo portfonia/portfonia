@@ -120,7 +120,7 @@ export function GetStartedMenu() {
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       {errorNotice}
       <MenuDropdown
         triggerClassName={session.status === "authed" && session.jade ? "jade-surface" : session.status === "authed" && session.advanced ? "bg-advanced text-advanced-foreground hover:bg-advanced/90" : undefined}
