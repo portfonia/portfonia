@@ -71,7 +71,7 @@ const AUTHED_ENTRIES = [
   { id: "agent", href: "/agent", Icon: Bot },
 ] as const satisfies { id: string; href: string; Icon: ComponentType<{ className?: string }> }[];
 
-export function GetStartedMenu() {
+export function GetStartedMenu({ themeItems }: { themeItems?: React.ReactNode }) {
   const t = useTranslations("menu");
   const session = useSession();
   const [logoutFailed, setLogoutFailed] = useState(false);
@@ -141,6 +141,8 @@ export function GetStartedMenu() {
         {session.status === "guest" && <MenuItemLink href="/agent"><Bot aria-hidden="true" className="size-4" />{t("agent")}</MenuItemLink>}
         {session.status === "guest" && <MenuItemLink href="/jade"><JadeBi className="size-4" />{t("jade")}</MenuItemLink>}
 
+        {session.status === "guest" && themeItems && <div className="sm:hidden"><MenuSeparator />{themeItems}</div>}
+
         {session.status === "authed" && (
           <>
             {AUTHED_ENTRIES.map(({ id, href, Icon }) => (
@@ -149,6 +151,7 @@ export function GetStartedMenu() {
                 {t(id)}
               </MenuItemLink>
             ))}
+            {themeItems && <div className="sm:hidden"><MenuSeparator />{themeItems}</div>}
             <MenuSeparator />
             <div
               className="truncate px-3 py-2 text-xs text-muted-foreground"

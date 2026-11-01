@@ -173,7 +173,7 @@ export function HomeProductPreviews({ technicalPreview }: { technicalPreview?: R
   return (
     <section id="product-previews" className="px-6 py-16 sm:py-20">
       <div className="mx-auto flex max-w-4xl flex-col gap-16">
-        <div className="rounded-2xl border border-white/10 bg-card p-7 sm:p-11">
+        <div className="rounded-2xl border border-border bg-card p-7 sm:p-11">
           <h2 className="max-w-[18ch] font-serif text-2xl sm:text-3xl">{copy.startCtaHeading}</h2>
           <p className="mt-4 max-w-xl text-base leading-relaxed text-foreground/70">{copy.startCtaBody}</p>
           <Link
@@ -184,16 +184,16 @@ export function HomeProductPreviews({ technicalPreview }: { technicalPreview?: R
           </Link>
         </div>
         <div>
-          <div className="mb-8 border-b border-white/10 pb-5">
+          <div className="mb-8 border-b border-border pb-5">
             <h2 className="font-serif text-2xl sm:text-3xl">{copy.riskHeading}</h2>
           </div>
           <p className="mb-6 max-w-2xl text-base leading-relaxed text-foreground/70">{copy.riskBody}</p>
-          <div className="min-w-0 space-y-6 rounded-xl border border-white/10 bg-card p-4" data-testid="home-risk-preview">
+          <div className="min-w-0 space-y-6 rounded-xl border border-border bg-card p-4" data-testid="home-risk-preview">
             <HomeRiskPreview />
           </div>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-card p-7 sm:p-11">
+        <div className="rounded-2xl border border-border bg-card p-7 sm:p-11">
           <h2 className="max-w-[18ch] font-serif text-2xl sm:text-3xl">{copy.riskCtaHeading}</h2>
           <p className="mt-4 max-w-xl text-base leading-relaxed text-foreground/70">{copy.riskCtaBody}</p>
           <Link
@@ -205,7 +205,7 @@ export function HomeProductPreviews({ technicalPreview }: { technicalPreview?: R
         </div>
 
         <div>
-          <div className="mb-8 border-b border-white/10 pb-5">
+          <div className="mb-8 border-b border-border pb-5">
             <h2 className="font-serif text-2xl sm:text-3xl">{copy.portfolioHeading}</h2>
           </div>
           <p className="mb-6 max-w-2xl text-base leading-relaxed text-foreground/70">{copy.portfolioBody}</p>
@@ -241,13 +241,13 @@ export function HomeProductPreviews({ technicalPreview }: { technicalPreview?: R
         </div>
 
         <div>
-          <div className="mb-8 border-b border-white/10 pb-5">
+          <div className="mb-8 border-b border-border pb-5">
             <h2 className="font-serif text-2xl sm:text-3xl">{copy.performanceHeading}</h2>
           </div>
           <p className="mb-6 max-w-2xl text-base leading-relaxed text-foreground/70">{copy.performanceBody}</p>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_16rem]">
             <div
-              className="min-w-0 rounded-xl border border-white/10 bg-card p-4"
+              className="min-w-0 rounded-xl border border-border bg-card p-4"
               data-testid="home-performance-preview"
               data-series={JSON.stringify(passedSeries)}
               data-points={JSON.stringify(
@@ -273,7 +273,7 @@ export function HomeProductPreviews({ technicalPreview }: { technicalPreview?: R
                 ))}
               </ul>
             </div>
-            <div className="rounded-xl border border-white/10 bg-card p-6">
+            <div className="rounded-xl border border-border bg-card p-6">
               <p className="text-sm text-muted-foreground">{copy.metricLabel}</p>
               <p className="mt-2 font-serif text-4xl tabular-nums">{copy.metricValue}</p>
               <p className="mt-2 font-mono text-xs uppercase tracking-wide text-muted-foreground">
@@ -283,7 +283,7 @@ export function HomeProductPreviews({ technicalPreview }: { technicalPreview?: R
           </div>
           <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div
-              className="min-w-0 rounded-xl border border-white/10 bg-card p-4"
+              className="min-w-0 rounded-xl border border-border bg-card p-4"
               data-testid="home-allocation-preview"
               data-asset-classes={HOME_ALLOCATION_CLASSES.join(",")}
               data-asset-class-names={JSON.stringify(assetClassNames)}
@@ -312,7 +312,7 @@ export function HomeProductPreviews({ technicalPreview }: { technicalPreview?: R
               </ul>
             </div>
             <div
-              className="min-w-0 rounded-xl border border-white/10 bg-card p-4"
+              className="min-w-0 rounded-xl border border-border bg-card p-4"
               data-testid="home-monthly-preview"
               data-benchmark-name={tPerf("benchmarkNames.sp500")}
               data-benchmark-color={SP500_COLOR}
@@ -350,7 +350,7 @@ export function HomeProductPreviews({ technicalPreview }: { technicalPreview?: R
 
         {technicalPreview}
 
-        <div className="rounded-2xl border border-white/10 bg-card p-7 sm:p-11">
+        <div className="rounded-2xl border border-border bg-card p-7 sm:p-11">
           <h2 className="max-w-[18ch] font-serif text-2xl sm:text-3xl">{copy.ctaHeading}</h2>
           <p className="mt-4 max-w-xl text-base leading-relaxed text-foreground/70">{copy.ctaBody}</p>
           <Link

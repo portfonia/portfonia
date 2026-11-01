@@ -69,7 +69,7 @@ export function pct(value: string | null): string {
   return value === null ? "—" : `${(Number(value) * 100).toFixed(1)}%`;
 }
 
-export const GAUGE_COLORS = ["#36a67a", "#8b6bd6", "#d7ad45", "#df8744", "#d65c88"] as const;
+export const GAUGE_COLORS = ["var(--gauge-1)", "var(--gauge-2)", "var(--gauge-3)", "var(--gauge-4)", "var(--gauge-5)"] as const;
 export const RISK_COLORS = [GAUGE_COLORS[0], GAUGE_COLORS[2], GAUGE_COLORS[4]];
 export const DEVIATION_COLORS = [GAUGE_COLORS[4], GAUGE_COLORS[2], GAUGE_COLORS[0], GAUGE_COLORS[2], GAUGE_COLORS[4]];
 

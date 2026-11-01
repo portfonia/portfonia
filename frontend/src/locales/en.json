@@ -5,6 +5,10 @@
     "calculatingSlow": "This calculation can take up to a minute. Please keep this page open."
   },
   "menu": {
+    "theme": "Theme",
+    "themeDark": "Dark",
+    "themeLight": "Light",
+    "themeSystem": "Follow system",
     "trigger": "Get Started",
     "language": "Language",
     "login": "Log in",

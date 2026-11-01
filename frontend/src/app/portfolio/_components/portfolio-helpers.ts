@@ -105,7 +105,7 @@ export function fallbackOrValue(value: string | null, translatedFallback: string
 export function pnlColorClass(value: string | null): string {
   if (value === null) return "text-foreground/60";
   const n = Number(value);
-  if (n > 0) return "text-emerald-600 dark:text-emerald-400";
+  if (n > 0) return "text-emerald-700 dark:text-emerald-400";
   if (n < 0) return "text-destructive";
   return "text-foreground";
 }

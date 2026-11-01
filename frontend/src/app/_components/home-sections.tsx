@@ -31,8 +31,8 @@ function BoldText({ text }: { text: string }) {
 
 const TABLE_CLS = "w-full min-w-[36rem] border-collapse text-left text-xs";
 const TH_CLS =
-  "whitespace-nowrap border-b border-white/15 px-2 py-2 font-mono font-medium uppercase tracking-wide text-muted-foreground";
-const TD_CLS = "border-b border-white/5 px-2 py-1.5 align-top text-foreground/70";
+  "whitespace-nowrap border-b border-foreground/15 px-2 py-2 font-mono font-medium uppercase tracking-wide text-muted-foreground";
+const TD_CLS = "border-b border-foreground/5 px-2 py-1.5 align-top text-foreground/70";
 
 export function HomeSections() {
   const t = useHomeMessages();
@@ -50,7 +50,7 @@ export function HomeSections() {
           className="hero-pulse pointer-events-none absolute left-1/2 top-[-220px] h-[900px] w-[900px] -translate-x-1/2 rounded-full"
           style={{
             background:
-              "radial-gradient(circle, rgba(220,170,74,0.10) 0%, rgba(220,170,74,0.035) 38%, transparent 68%)",
+              "radial-gradient(circle, color-mix(in srgb, var(--brand) 10%, transparent) 0%, color-mix(in srgb, var(--brand) 3.5%, transparent) 38%, transparent 68%)",
           }}
         />
         <div className="relative mx-auto max-w-3xl">
@@ -79,7 +79,7 @@ export function HomeSections() {
             >
               {t.hero.ctaPrimary}
             </Link>
-            <a href="#how" className="rounded-md border border-white/10 px-6 py-3 text-sm font-semibold">
+            <a href="#how" className="rounded-md border border-border px-6 py-3 text-sm font-semibold">
               {t.hero.ctaSecondary} →
             </a>
           </div>
@@ -88,7 +88,7 @@ export function HomeSections() {
 
       <section id="audience" className="px-6 py-16 sm:py-20">
         <div className="mx-auto max-w-4xl">
-          <div className="mb-8 border-b border-white/10 pb-5">
+          <div className="mb-8 border-b border-border pb-5">
             <h2 className="font-serif text-2xl sm:text-3xl">{t.audience.heading}</h2>
           </div>
           <div className="space-y-5 text-base leading-relaxed text-foreground/70 sm:text-lg">
@@ -101,7 +101,7 @@ export function HomeSections() {
 
       <section id="how" className="px-6 py-16 sm:py-20">
         <div className="mx-auto max-w-4xl">
-          <div className="mb-10 flex flex-col gap-2 border-b border-white/10 pb-5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
+          <div className="mb-10 flex flex-col gap-2 border-b border-border pb-5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
             <h2 className="font-serif text-2xl sm:text-3xl">{t.how.heading}</h2>
             <span className="font-mono text-xs uppercase tracking-wide text-muted-foreground sm:whitespace-nowrap">
               {t.how.tag}
@@ -110,13 +110,15 @@ export function HomeSections() {
 
           {/* Fixed-size generated PNG; no image optimizer is needed. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`/og/${locale}`} alt={tSeo("ogImageAlt")} width={1200} height={630} loading="lazy" className="mb-10 h-auto w-full rounded-2xl border border-white/10" />
+          <img src={`/og/${locale}/light`} alt={tSeo("ogImageAlt")} width={1200} height={630} loading="lazy" className="dark:hidden mb-10 h-auto w-full rounded-2xl border border-border" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={`/og/${locale}`} alt={tSeo("ogImageAlt")} width={1200} height={630} loading="lazy" className="hidden dark:block mb-10 h-auto w-full rounded-2xl border border-border" />
 
           <div className="grid gap-4 sm:grid-cols-3">
             {t.how.cards.map((card, i) => (
               <div
                 key={card.title}
-                className="flex flex-col gap-3 rounded-xl border border-white/10 bg-card p-6 shadow-[0_25px_50px_-22px_rgba(0,0,0,0.55)]"
+                className="flex flex-col gap-3 rounded-xl border border-border bg-card p-6 shadow-[0_25px_50px_-22px_rgba(0,0,0,0.18)] dark:shadow-[0_25px_50px_-22px_rgba(0,0,0,0.55)]"
               >
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary text-brand">
                   <svg
@@ -133,7 +135,7 @@ export function HomeSections() {
                 </div>
                 <h3 className="font-serif text-lg">{card.title}</h3>
                 <p className="text-sm leading-relaxed text-foreground/70">{card.body}</p>
-                <div className="mt-auto flex flex-wrap gap-2 border-t border-white/10 pt-3">
+                <div className="mt-auto flex flex-wrap gap-2 border-t border-border pt-3">
                   {card.tags.map((tag) => (
                     <span
                       key={tag}
@@ -147,7 +149,7 @@ export function HomeSections() {
             ))}
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-6 rounded-xl border border-white/10 bg-card p-6">
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-6 rounded-xl border border-border bg-card p-6">
             <p className="max-w-[34ch] text-sm text-foreground/70">
               <strong className="font-semibold text-foreground">{t.how.confidenceLead}</strong>{" "}
               — {t.how.confidenceBody}
@@ -156,7 +158,7 @@ export function HomeSections() {
               {TIER_KEYS.map((key) => (
                 <span
                   key={key}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5 font-mono text-xs"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 font-mono text-xs"
                 >
                   <span
                     className="h-1.5 w-1.5 rounded-full"
@@ -172,14 +174,14 @@ export function HomeSections() {
 
       <section id="preview" className="px-6 py-16 sm:py-20">
         <div className="mx-auto max-w-4xl">
-          <div className="mb-10 flex flex-col gap-2 border-b border-white/10 pb-5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
+          <div className="mb-10 flex flex-col gap-2 border-b border-border pb-5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
             <h2 className="font-serif text-2xl sm:text-3xl">{t.preview.heading}</h2>
             <span className="font-mono text-xs uppercase tracking-wide text-muted-foreground sm:whitespace-nowrap">
               {t.preview.tag}
             </span>
           </div>
 
-          <div className="rounded-2xl border border-dashed border-white/15 bg-card p-6 sm:p-8">
+          <div className="rounded-2xl border border-dashed border-foreground/15 bg-card p-6 sm:p-8">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 font-mono text-xs uppercase tracking-wide text-muted-foreground">
               <span className="h-1.5 w-1.5 rounded-full bg-foreground/40" />
               {t.preview.badge}
@@ -213,14 +215,14 @@ export function HomeSections() {
               </table>
             </div>
 
-            <div className="mb-7 space-y-1.5 border-t border-white/10 pt-5 text-sm leading-relaxed text-foreground/70">
+            <div className="mb-7 space-y-1.5 border-t border-border pt-5 text-sm leading-relaxed text-foreground/70">
               {t.preview.distributionLines.map((line) => (
                 <p key={line}><BoldText text={line} /></p>
               ))}
             </div>
 
             {/* §2 Macro events */}
-            <div className="space-y-2 border-t border-white/10 pt-6">
+            <div className="space-y-2 border-t border-border pt-6">
               <h3 className="font-serif text-base">{t.preview.macroTitle}</h3>
               <p className="text-sm leading-relaxed text-foreground/70">{t.preview.macro.overview}</p>
               <p className="text-sm font-medium text-foreground/85">{t.preview.macro.anchor.question}</p>
@@ -235,7 +237,7 @@ export function HomeSections() {
             </div>
 
             {/* §2.5 Forward calendar */}
-            <div className="mt-6 space-y-3 border-t border-white/10 pt-6">
+            <div className="mt-6 space-y-3 border-t border-border pt-6">
               <h3 className="font-serif text-base">{t.preview.calendarTitle}</h3>
               <p className="text-sm leading-relaxed text-foreground/70">{t.preview.calendarNote}</p>
               <div className="overflow-x-auto">
@@ -261,7 +263,7 @@ export function HomeSections() {
             </div>
 
             {/* §3 Holdings context */}
-            <div className="mt-6 space-y-2 border-t border-white/10 pt-6">
+            <div className="mt-6 space-y-2 border-t border-border pt-6">
               <h3 className="font-serif text-base">{t.preview.analysisTitle}</h3>
               {t.preview.analysisItems.map((item, i) => (
                 <div key={item.heading} className={i > 0 ? "mt-4 space-y-2" : "space-y-2"}>
@@ -274,7 +276,7 @@ export function HomeSections() {
             </div>
 
             {/* §4 Exposure & price data */}
-            <div className="mt-6 space-y-3 border-t border-white/10 pt-6">
+            <div className="mt-6 space-y-3 border-t border-border pt-6">
               <h3 className="font-serif text-base">{t.preview.radarTitle}</h3>
               <p className="text-sm leading-relaxed text-foreground/70">{t.preview.concentrationBody}</p>
               <div className="overflow-x-auto">
@@ -311,7 +313,7 @@ export function HomeSections() {
 
             </div>
 
-            <p className="mt-6 border-t border-white/10 pt-5 text-sm text-muted-foreground">
+            <p className="mt-6 border-t border-border pt-5 text-sm text-muted-foreground">
               {t.preview.footnote}
             </p>
           </div>
@@ -349,14 +351,14 @@ export function HomeSections() {
       <HomeJadeTools />
 
       <section id="boundary" className="px-6 py-16 sm:py-20">
-        <div className="mx-auto max-w-4xl rounded-2xl border border-white/10 bg-card p-7 sm:p-11">
+        <div className="mx-auto max-w-4xl rounded-2xl border border-border bg-card p-7 sm:p-11">
           <div className="mb-7 flex flex-wrap items-start justify-between gap-8">
             <h2 className="max-w-[18ch] font-serif text-2xl sm:text-3xl">{t.boundary.heading}</h2>
             <p className="max-w-[40ch] text-sm leading-relaxed text-foreground/70">{t.boundary.body}</p>
           </div>
           <ul className="grid gap-x-10 sm:grid-cols-2">
             {t.boundary.items.map((item) => (
-              <li key={item} className="flex gap-3.5 border-t border-white/10 py-4 text-sm leading-snug text-foreground/70">
+              <li key={item} className="flex gap-3.5 border-t border-border py-4 text-sm leading-snug text-foreground/70">
                 <span className="shrink-0 font-mono text-muted-foreground">—</span>
                 {item}
               </li>
@@ -367,7 +369,7 @@ export function HomeSections() {
 
       <section id="faq" className="px-6 py-16 sm:py-20">
         <div className="mx-auto max-w-4xl">
-          <div className="mb-10 flex flex-col gap-2 border-b border-white/10 pb-5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
+          <div className="mb-10 flex flex-col gap-2 border-b border-border pb-5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
             <h2 className="font-serif text-2xl sm:text-3xl">{t.faq.heading}</h2>
             <span className="font-mono text-xs uppercase tracking-wide text-muted-foreground sm:whitespace-nowrap">
               {t.faq.tag}
@@ -388,13 +390,13 @@ export function HomeSections() {
         <div className="mx-auto flex max-w-4xl items-center gap-3.5 text-sm text-muted-foreground">
           <span
             className="h-2 w-2 shrink-0 rounded-full bg-brand"
-            style={{ boxShadow: "0 0 0 3px rgba(220,170,74,0.14)" }}
+            style={{ boxShadow: "0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent)" }}
           />
           {t.status}
         </div>
       </section>
 
-      <footer className="border-t border-white/10 px-6 py-10">
+      <footer className="border-t border-border px-6 py-10">
         <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-5">
           <span className="font-serif text-base text-foreground/70">{tCommon("brandName")}</span>
           <span className="text-right font-mono text-xs leading-relaxed text-muted-foreground">

@@ -47,6 +47,11 @@ const ANCHOR_HREFS = ["#boundary", "#how", "#preview", "#faq"];
 
 describe("SiteHeader", () => {
   beforeEach(() => {
+    vi.stubGlobal("matchMedia", () => ({
+      matches: false,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
     getUser.mockReturnValue(new Promise(() => {}));
   });
 

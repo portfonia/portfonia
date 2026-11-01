@@ -5,6 +5,10 @@
     "calculatingSlow": "Este cálculo puede tardar hasta un minuto. Mantenga esta página abierta."
   },
   "menu": {
+    "theme": "Tema",
+    "themeDark": "Oscuro",
+    "themeLight": "Claro",
+    "themeSystem": "Seguir el sistema",
     "trigger": "Comenzar",
     "language": "Idioma",
     "login": "Iniciar sesión",

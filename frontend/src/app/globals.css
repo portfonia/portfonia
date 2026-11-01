@@ -65,44 +65,40 @@
   --jade-foreground: #f4fbf6;
   --advanced: #d4af37;
   --advanced-foreground: #1a1a1a;
-  /* Brand accent + confidence-label tiers (issue #94) — light-mode values,
-     tuned for contrast on a white ground. Unused while the app renders dark
-     by default (`<html class="dark">` in layout.tsx, PR B / issue #94); kept
-     so the tokens aren't dark-only if a light mode returns later. */
-  --brand: #9c7a2e;
+  --brand: #80611a;
   --brand-foreground: #fffaf0;
-  --tier-established: #1f8a5f;
-  --tier-probable: #9c7a2e;
-  --tier-speculative: #64748b;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+  --tier-established: #1a7350;
+  --tier-probable: #80611a;
+  --tier-speculative: #5a6a80;
+  --background: #f6f8f7;
+  --foreground: #0b1a20;
+  --card: #ffffff;
+  --card-foreground: #0b1a20;
+  --popover: #ffffff;
+  --popover-foreground: #0b1a20;
+  --primary: #0b1a20;
+  --primary-foreground: #f6f8f7;
+  --secondary: #e8eeec;
+  --secondary-foreground: #0b1a20;
+  --muted: #eef2f0;
+  --muted-foreground: #50625e;
+  --accent: #e8eeec;
+  --accent-foreground: #0b1a20;
+  --destructive: #b01e24;
   /* Urgency fill for incomplete-setup states (issue #269): soft pink in
      light mode, muted rose in dark — distinct from the red `danger` card
      border (destructive action), see profile-page-body.tsx. */
   --urgent: oklch(0.965 0.022 356);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --border: rgba(5, 15, 19, 0.12);
+  --input: rgba(5, 15, 19, 0.16);
+  --ring: #80611a;
+  --chart-1: #16252b;
+  --chart-2: #1f7a54;
+  --chart-3: #2f6fb0;
+  --chart-4: #a3429a;
+  --chart-5: #8f6a14;
   /* Issue #433: CSI 300 keeps its own Performance-page token for historical reasons. */
-  --chart-csi300: #9c7a2e;
+  --chart-csi300: #8f6a14;
   /* 0.75rem (not shadcn's 0.625rem default) is the approved homepage value
      (issue #94), promoted to the shared default in PR B once the whole app
      went dark — no longer scoped locally via HomeShell's inline override. */
@@ -115,6 +111,25 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --gauge-1: #1f8a5f;
+  --gauge-2: #7355c4;
+  --gauge-3: #a87c10;
+  --gauge-4: #c05f1c;
+  --gauge-5: #bf3f70;
+  --asset-stock: #3b6fd4;
+  --asset-equity-us-broad: #0284b8;
+  --asset-equity-us-tech: #2563a8;
+  --asset-equity-dm: #2e8b57;
+  --asset-equity-cn: #c2701a;
+  --asset-equity-em: #a07c0a;
+  --asset-equity-broad: #0e8fa0;
+  --asset-reit: #9c46ad;
+  --asset-precious-metals: #96760f;
+  --asset-energy: #d13b38;
+  --asset-commodity: #86665a;
+  --asset-bond-fund: #5f7682;
+  --asset-cash-equiv: #3d8b40;
+  --asset-default: #757575;
 }
 
 .dark {
@@ -164,6 +179,25 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --gauge-1: #36a67a;
+  --gauge-2: #8b6bd6;
+  --gauge-3: #d7ad45;
+  --gauge-4: #df8744;
+  --gauge-5: #d65c88;
+  --asset-stock: #8ab4f8;
+  --asset-equity-us-broad: #4fc3f7;
+  --asset-equity-us-tech: #64b5f6;
+  --asset-equity-dm: #81c995;
+  --asset-equity-cn: #ffb74d;
+  --asset-equity-em: #f6c453;
+  --asset-equity-broad: #4dd0e1;
+  --asset-reit: #ba68c8;
+  --asset-precious-metals: #d4af37;
+  --asset-energy: #ef5350;
+  --asset-commodity: #a1887f;
+  --asset-bond-fund: #90a4ae;
+  --asset-cash-equiv: #66bb6a;
+  --asset-default: #9e9e9e;
 }
 
 @layer base {
@@ -179,11 +213,9 @@
   }
   html {
     @apply font-sans;
-    /* App is dark by default (PR B, issue #94) — tells native widgets
-       (scrollbars, form controls, date pickers) to render dark instead of
-       the browser's light UA default. */
-    color-scheme: dark;
+    color-scheme: light;
   }
+  html.dark { color-scheme: dark; }
 }
 
 /* Homepage hero ambient pulse (issue #94) — slow and low-opacity by design;
@@ -259,9 +291,13 @@
 
 select:not([multiple]):not([size]) {
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238fa19d' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2350625e' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 0.75rem center;
   background-size: 1rem 1rem;
   padding-inline-end: 2.25rem;
+}
+
+.dark select:not([multiple]):not([size]) {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238fa19d' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
 }

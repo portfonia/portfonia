@@ -10,11 +10,12 @@ per-route header implementation — that duplication (`HomeNav` vs a separate
 for the full before/after and decision rationale.
 
 - **Current shape**: `SiteHeader` renders as a `<header>` landmark
-  (floating rounded pill, `sticky top-4`, backdrop-blur, dark). `AppShell`
+  (floating rounded pill, `sticky top-4`, backdrop-blur). `AppShell`
   (`frontend/src/app/_components/app-shell.tsx`, renamed from the old
   home-only `HomeShell`) and `LocaleProvider` both wrap the whole app from
   root layout, not just the home page. Universal on every route:
-  brand/home link and the Get Started dropdown menu
+  brand/home link, theme control (in the bar at `sm` and above, in the menu below `sm`),
+  and the Get Started dropdown menu
   (`components/get-started-menu.tsx` — auth-gated entry registry: guest
   sees only Log in; authed sees the full `AUTHED_ENTRIES` list (Profile,
   Holdings, Portfolio, Questionnaire, as of issue #320/PR #322 — the
@@ -649,7 +650,7 @@ with `active`, caller-translated `label`, `children`, and optional `className`.
 It contains no domain imports or catalog lookups. Its relative, min-width-zero
 wrapper marks active work with `aria-busy`; the child wrapper is inert while
 active. An absolute full-region pointer layer shows a spinner and polite status
-label over a translucent dark-theme surface. Inactive children remain interactive.
+label over a translucent surface. Inactive children remain interactive.
 The optional `slow` (default false) and caller-translated `slowNotice` props replace the spinner with a stationary hourglass and add a second notice line inside the badge; requests with timeouts above 30 seconds use this mode for the whole wait, without a timer (#804).
 
 Jade replay uses it around the complete settings/results/method region, which
@@ -674,11 +675,38 @@ committed. Pricing plan headers now carry their own surface: Briefing
 Jade unchanged (`jade-surface`). OG images, emails and apple-touch/manifest
 icons are unchanged.
 
+## Light and dark themes (#856)
+
+`lib/theme.ts` defines the `dark`, `light` and `system` preferences. Local
+storage key `portfonia:theme` holds only `dark` or `light`; an absent or invalid
+value follows the system. Storage read failures return `system`. Existing
+visitors follow their OS preference on their next load. Preferences do not
+sync between open tabs until the next load.
+
+The root layout always renders a constant `dark` class with
+`suppressHydrationWarning`. A plain blocking inline script in `<head>` reads
+storage and the `(prefers-color-scheme: light)` media query before first paint.
+On any script error, or with JavaScript disabled, the server-rendered dark
+class remains. No server theme lookup, cookie or provider is involved.
+
+`SiteHeader` calls `useThemePreference` once. The desktop `ThemeSwitcher` sits
+between `LocaleSwitcher` and `GetStartedMenu`, hidden below `sm`. On phones,
+`ThemeMenuItems` appears in `GetStartedMenu` after Jade for guests and after
+the authenticated entries for signed-in users. The three checkbox rows select
+Dark, Light or Follow system. Selecting a theme applies it immediately even
+if storage cannot be written; Follow system removes the key and listens for
+OS preference changes. Explicit choices remove that listener.
+
+Both themes use CSS tokens for page surfaces, series, gauges and asset colors.
+The home page embeds `/og/{locale}/light` in light mode and `/og/{locale}` in
+dark mode. Share metadata keeps the dark image. Report print colors, fixed
+plan surfaces, Paddle checkout and Altcha keep their existing appearance.
+
 ## Chart styling convention (#850)
 
 All Recharts charts follow this convention (existing charts brought into line by #852).
 
-- Series colors: `--chart-*` tokens or `performance-colors.ts`, never raw hex. Non-series scales such as the risk gauge `GAUGE_COLORS` are outside this rule.
+- Series, gauge and asset colors all use CSS tokens: `--chart-*` (including references in `performance-colors.ts`), `--gauge-*` and `--asset-*`, never raw hex.
 - Axis ticks: `tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}`, `tickLine={false}`, `axisLine={false}`.
 - Percentage Y axes: `width={64}`.
 - Grid: `CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false}`.

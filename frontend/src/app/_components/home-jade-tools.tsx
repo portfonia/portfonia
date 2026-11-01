@@ -51,11 +51,11 @@ export function HomeJadeTools() {
     <section id="jade-tools" className="px-6 py-16 sm:py-20">
       <div className="mx-auto flex max-w-4xl flex-col gap-16">
         <div>
-          <div className="mb-8 border-b border-white/10 pb-5">
+          <div className="mb-8 border-b border-border pb-5">
             <h2 className="font-serif text-2xl sm:text-3xl">{t("jadeTools.heading")}</h2>
           </div>
           <p className="mb-6 max-w-2xl text-base leading-relaxed text-foreground/70">{t("jadeTools.body")}</p>
-          <div className="min-w-0 rounded-xl border border-white/10 bg-card p-4" data-testid="home-jade-replay-chart">
+          <div className="min-w-0 rounded-xl border border-border bg-card p-4" data-testid="home-jade-replay-chart">
             <figure>
               <div className="h-60 w-full min-w-0" aria-label={jade("replay.title")}>
                 <ReplayChart
@@ -74,14 +74,14 @@ export function HomeJadeTools() {
         </div>
         <ul className="grid gap-4 sm:grid-cols-2">
           {TOOLS.map(([tool, route]) => (
-            <li key={tool} className="rounded-lg border border-white/10 p-4">
+            <li key={tool} className="rounded-lg border border-border p-4">
               <Link href={href(`/guides/jade-${route}`)} className="font-semibold underline">{jade(`${tool}.title`)}</Link>
               <p className="mt-2 text-sm leading-relaxed text-foreground/70">{guides(`index.summaries.${route}`)}</p>
             </li>
           ))}
         </ul>
         <Link href={href("/guides")} className="text-sm underline">{jade("guideLinks.index")}</Link>
-        <div className="rounded-2xl border border-white/10 bg-card p-7 sm:p-11">
+        <div className="rounded-2xl border border-border bg-card p-7 sm:p-11">
           <h2 className="max-w-[18ch] font-serif text-2xl sm:text-3xl">{t("jadeTools.ctaHeading")}</h2>
           <p className="mt-4 max-w-xl text-base leading-relaxed text-foreground/70">{t("jadeTools.ctaBody")}</p>
           <Link href="/holdings" className="mt-8 inline-flex rounded-md bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground">

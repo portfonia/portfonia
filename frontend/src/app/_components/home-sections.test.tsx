@@ -550,11 +550,17 @@ describe("HomeSections product previews (issue #549)", () => {
 });
 
 
-it.each(LOCALES)("issue #702 shows the %s product image before the sample report", (locale) => {
+it.each(LOCALES)("856 A8 shows both %s themed product images before the sample report", (locale) => {
   const { container } = render(<LocaleProvider routeLocale={locale}><HomeSections /></LocaleProvider>);
   const preview = container.querySelector("#preview");
   const how = container.querySelector("#how");
-  const image = how?.querySelector("img");
+  const images = how?.querySelectorAll("img");
+  expect(images).toHaveLength(2);
+  const image = images?.[1];
+  expect(images?.[0]).toHaveAttribute("src", `/og/${locale}/light`);
+  expect(images?.[0]).toHaveClass("dark:hidden");
+  expect(image).toHaveClass("hidden", "dark:block");
+  for (const embedded of Array.from(images ?? [])) expect(embedded).toHaveAttribute("loading", "lazy");
   expect(preview?.querySelector("img")).toBeNull();
   expect(image).toHaveAttribute("src", `/og/${locale}`);
   expect(image).toHaveAttribute("alt", catalogs[locale].seo.ogImageAlt);
@@ -604,7 +610,7 @@ it.each(LOCALES)("#741 renders the %s macro anchor, two holdings and first CTA i
   for (let i = 0; i < ids.length - 1; i++) {
     expect(container.querySelector(`#${ids[i]}`)?.compareDocumentPosition(container.querySelector(`#${ids[i + 1]}`)!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   }
-  const image = container.querySelector("#how img");
+  const image = container.querySelector("#how img.hidden");
   expect(image).toHaveAttribute("src", `/og/${locale}`);
   expect(image?.compareDocumentPosition(screen.getByRole("heading", { name: home.how.cards[0].title }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   expect(container.querySelector("#preview img")).toBeNull();
