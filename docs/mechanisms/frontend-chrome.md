@@ -10,11 +10,12 @@ per-route header implementation — that duplication (`HomeNav` vs a separate
 for the full before/after and decision rationale.
 
 - **Current shape**: `SiteHeader` renders as a `<header>` landmark
-  (floating rounded pill, `sticky top-4`, backdrop-blur, dark). `AppShell`
+  (floating rounded pill, `sticky top-4`, backdrop-blur). `AppShell`
   (`frontend/src/app/_components/app-shell.tsx`, renamed from the old
   home-only `HomeShell`) and `LocaleProvider` both wrap the whole app from
   root layout, not just the home page. Universal on every route:
-  brand/home link and the Get Started dropdown menu
+  brand/home link, theme control (in the bar at `sm` and above, in the menu below `sm`),
+  and the Get Started dropdown menu
   (`components/get-started-menu.tsx` — auth-gated entry registry: guest
   sees only Log in; authed sees the full `AUTHED_ENTRIES` list (Profile,
   Holdings, Portfolio, Questionnaire, as of issue #320/PR #322 — the

@@ -19,7 +19,7 @@ export function SiteHeader() {
   const isHome = splitLocalePrefix(pathname).path === "/";
   const tCommon = useTranslations("common");
 
-  // One bar shape on every route (issue #207 R1): brand + language + menu.
+  // One bar shape on every route (issue #207 R1): brand + language + theme + menu.
   // The locale switcher used to be home-only because messages.ts had no zh
   // map — now that every route reads the same catalog (issue #209), it
   // shows everywhere. Issue #350 item 4: LocaleSwitcher replaces the plain

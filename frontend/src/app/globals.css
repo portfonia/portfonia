@@ -84,7 +84,7 @@
   --muted-foreground: #50625e;
   --accent: #e8eeec;
   --accent-foreground: #0b1a20;
-  --destructive: #c8252b;
+  --destructive: #b01e24;
   /* Urgency fill for incomplete-setup states (issue #269): soft pink in
      light mode, muted rose in dark — distinct from the red `danger` card
      border (destructive action), see profile-page-body.tsx. */
