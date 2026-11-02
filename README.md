@@ -30,7 +30,7 @@ Portfonia exists to close that gap with a narrow scope: take a user's real holdi
 - Layer 2 — how it relates to your holdings (contextual mapping)
 - Layer 3 — signals worth watching (pointer to observation)
 
-**Accounts, not a shared instance.** Invite-only signup, JWKS-verified sessions, server-enforced idle timeout — and user isolation is enforced at the identity layer itself (every service call takes an explicit user id; there is no ambient "current user" a bug could leave unfiltered), not left to per-query `WHERE` clauses to get right every time.
+**Accounts, not a shared instance.** Public signup, JWKS-verified sessions, server-enforced idle timeout — and user isolation is enforced at the identity layer itself (every service call takes an explicit user id; there is no ambient "current user" a bug could leave unfiltered), not left to per-query `WHERE` clauses to get right every time.
 
 **Admin channel, no UI.** Operational tasks (manual report triggers, user management, cadence overrides) run through a token-authenticated `/admin/*` API, deliberately independent of user auth — it has to keep working even if the user auth system doesn't. No admin UI exists; it isn't needed for the endpoints to be usable.
 
@@ -60,9 +60,9 @@ Every report carries a single bilingual disclaimer in its footer (injected at th
 
 ## Status
 
-Ring 1 — invite-only closed beta, multi-user. Ring 0 validated the core hypothesis: an LLM mapping market information onto an individual portfolio produces *cognitive lift* the user does not already get from their broker app, the financial press, or generic newsletters. Ring 1 built what running that for more than one person requires — real accounts, the shared compute layer above, and an admin channel to operate it. See the [v0.8.0 release](https://github.com/portfonia/portfonia/releases/tag/v0.8.0) for what shipped.
+Ring 1 — limited public service, multi-user. Ring 0 validated the core hypothesis: an LLM mapping market information onto an individual portfolio produces *cognitive lift* the user does not already get from their broker app, the financial press, or generic newsletters. Ring 1 built what running that for more than one person requires — real accounts, the shared compute layer above, and an admin channel to operate it. See the [v0.8.0 release](https://github.com/portfonia/portfonia/releases/tag/v0.8.0) for what shipped.
 
-Public sign-up depends on the beta holding up across real invited users.
+Public signup is open, with optional invitation links.
 
 ## Architecture
 

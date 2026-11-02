@@ -2,6 +2,7 @@
 
 import { useActionState, useState, type FormEvent } from "react";
 import Link from "next/link";
+import Script from "next/script";
 import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
@@ -37,14 +38,6 @@ export function SignupForm({
   );
   const [mismatch, setMismatch] = useState(false);
   const [tosError, setTosError] = useState(false);
-
-  if (!inviteToken) {
-    return (
-      <p className="mx-auto max-w-sm text-center text-sm text-destructive" role="alert">
-        {t("missingInvite")}
-      </p>
-    );
-  }
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     const form = new FormData(e.currentTarget);
@@ -141,6 +134,10 @@ export function SignupForm({
           {t("tosLabelSuffix")}
         </label>
       </div>
+
+      <Script src="/altcha.js" type="module" strategy="afterInteractive" />
+      <altcha-widget challengeurl="/api/auth/signup/altcha-challenge" name="altcha" />
+      {inviteToken && state?.error && <Link href="/signup" className="text-sm underline">{t("signupWithoutInvite")}</Link>}
 
       {mismatch ? (
         <p className="text-sm text-destructive" role="alert">

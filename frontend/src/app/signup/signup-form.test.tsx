@@ -54,11 +54,11 @@ describe("SignupForm", () => {
     vi.clearAllMocks();
   });
 
-  it("shows a missing-invite message and no form when there is no invite token", () => {
-    renderForm("");
-
-    expect(screen.getByText(/missing its invite token/i)).toBeInTheDocument();
-    expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument();
+  it("renders public signup fields and Altcha without an invitation", () => {
+    const { container } = renderForm("");
+    expect(email()).toBeInTheDocument();
+    expect(password()).toBeInTheDocument();
+    expect(container.querySelector('altcha-widget')).toHaveAttribute("challengeurl", "/api/auth/signup/altcha-challenge");
   });
 
   it("submits the invite token, email, password, and tos_accepted to the signup action", async () => {

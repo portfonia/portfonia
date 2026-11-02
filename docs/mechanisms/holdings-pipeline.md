@@ -2,6 +2,8 @@
 
 ### Async holdings upload (issue #77/#82/#85)
 
+Issue #870 limits uploads to 10 per hour per user, before file reads or job creation.
+
 `POST /holdings/upload` used to run `holding_parser.parse()` synchronously
 inside the request — up to 3 sequential LLM attempts that could take
 minutes, fragile against any interruption on the long-lived connection in

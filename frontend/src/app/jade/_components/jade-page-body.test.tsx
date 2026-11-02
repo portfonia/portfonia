@@ -133,7 +133,7 @@ it("801 A8 guest and non-Jade see six demo figures while Jade has no demo", asyn
   }
   expect(screen.queryByRole("button", { name: "subscribe" }) !== null).toBe(user === me);
   if (!user) {
-   expect(screen.getByRole("link", { name: "guest.waitlist" })).toHaveAttribute("href", "/waitlist");
+   expect(screen.getByRole("link", { name: "guest.signup" })).toHaveAttribute("href", "/signup");
    expect(screen.getByRole("link", { name: "guest.login" })).toHaveAttribute("href", "/login");
    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   }

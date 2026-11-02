@@ -24,13 +24,14 @@
     "editHoldings": "编辑持仓",
     "reports": "报告中心",
     "agent": "AI智能体",
-    "jade": "润玉平台"
+    "jade": "润玉平台",
+    "signup": "注册"
   },
   "auth": {
     "loginHeading": "登录",
     "loginSubtitle": "欢迎回来。",
     "signupHeading": "创建账户",
-    "signupSubtitle": "注册需要有效的邀请链接。",
+    "signupSubtitle": "如果您收到了邀请链接，请通过该链接注册。",
     "emailLabel": "邮箱",
     "passwordLabel": "密码",
     "confirmPasswordLabel": "确认密码",
@@ -45,17 +46,6 @@
     "loggingIn": "正在登录...",
     "signupButton": "创建账户",
     "signingUp": "正在创建账户...",
-    "missingInvite": "链接缺少邀请令牌，请向邀请你的人索取新链接。",
-    "waitlistHint": "本项目当前处于内部测试阶段，如有兴趣，可以",
-    "waitlistLink": "加入等候清单",
-    "waitlistHeading": "加入等候清单",
-    "waitlistSubtitle": "留下邮箱，申请邀请。",
-    "waitlistSubmit": "加入等候清单",
-    "waitlistSubmitting": "提交中...",
-    "waitlistReceived": "我们已收到你的申请。",
-    "waitlistEmailRequired": "请输入邮箱。",
-    "waitlistCaptchaRequired": "请完成验证。",
-    "waitlistError": "提交失败，请重试。",
     "alreadyHaveAccount": "已经有账户？",
     "backToLogin": "返回登录",
     "tooManyAttempts": "尝试次数过多，请稍后再试。",
@@ -64,7 +54,6 @@
     "signupThrownError": "注册失败。",
     "errorMissingCredentials": "请输入邮箱和密码。",
     "errorInvalidCredentials": "邮箱或密码错误。",
-    "errorMissingInviteToken": "该注册链接缺少邀请令牌。",
     "errorInvalidSignupInput": "请输入有效邮箱和至少 8 位的密码。",
     "forgotPasswordLink": "忘记密码？",
     "forgotPasswordHeading": "重置密码",
@@ -80,7 +69,12 @@
     "resetPasswordSubmit": "更新密码",
     "resetPasswordSubmitting": "更新中……",
     "resetPasswordSuccess": "密码已更新，正在跳转到登录页……",
-    "resetPasswordFailed": "密码更新失败，该链接可能已过期，请重新申请。"
+    "resetPasswordFailed": "密码更新失败，该链接可能已过期，请重新申请。",
+    "signupRejected": "无法使用这些信息创建账户。如果您已有账户，请登录。",
+    "signupWithoutInvite": "不使用邀请链接注册",
+    "signupCaptchaRequired": "请完成验证。",
+    "signupHint": "还没有账户？",
+    "signupLink": "注册"
   },
   "holdings": {
     "pageTitle": "持仓",
@@ -237,7 +231,8 @@
     },
     "exportDescription": "当前持仓导出（可重新导入）",
     "templateDescription": "持仓上传模板",
-    "changeHistoryLink": "变更记录"
+    "changeHistoryLink": "变更记录",
+    "uploadTooMany": "上传次数过多，请稍后再试。"
   },
   "questionnaire": {
     "pageTitle": "报告偏好",
@@ -513,7 +508,7 @@
     "deleteAccountSubscription": "当前订阅立即终止，本期未使用的部分不予返还。",
     "deleteAccountTokens": "你的全部 API token 将被吊销。",
     "deleteAccountGift": "你的 {gift_balance} 赠送 credits 也将一并清除。",
-    "deleteAccountReregister": "以后如用同一邮箱重新注册，需要新的邀请，且不会再获得注册赠送的 credits。",
+    "deleteAccountReregister": "以后如用同一邮箱重新注册，不会再获得注册赠送的 credits。",
     "deleteAccountEmailLabel": "输入你的账户邮箱以确认",
     "deleteAccountContinue": "继续",
     "deleteAccountPurchased": "你将放弃购买所得的 {cash_balance} credits（按每个 US$1 购入）。",
@@ -1275,7 +1270,7 @@
     "resellerNotice": "我们的订单流程由在线经销商 Paddle.com 执行。Paddle.com 是我们所有订单的记录商户（Merchant of Record），负责处理所有客户服务咨询及退货。",
     "terms": {
       "title": "服务条款",
-      "lastUpdated": "最后更新：2026-10-13",
+      "lastUpdated": "最后更新：2026-11-01",
       "intro": "本服务条款规范您对 Portfonia 的使用。请与我们的隐私政策及退款政策一并阅读。",
       "sections": [
         {
@@ -1295,7 +1290,7 @@
           "heading": "3. 资格与账户",
           "body": [
             "您须具备订立有约束力合同的能力方可使用本服务。您有责任对登录凭据保密，并对账户下的所有活动负责。",
-            "本服务以有限公开服务的形式提供：注册可能仅限于已加入候补名单或收到邀请的用户，功能可能随服务发展而调整。"
+            "本服务以有限公开服务的形式提供。我们可随时限制或暂停新用户注册。功能可能随服务发展而调整，服务也可能随时中断或质量下降。"
           ]
         },
         {
@@ -1762,10 +1757,6 @@
         "title": "定价 — Portfonia",
         "description": "每周、隔日（周一、周三、周五）或工作日每日简报，以及润玉组合风险工具，以 US$10 起的预付服务点数支付。购买后 120 天内，未使用的已购点数可申请退款。"
       },
-      "waitlist": {
-        "title": "加入候补名单 — Portfonia",
-        "description": "申请 Portfonia 邀请，获取将市场新闻和宏观动态映射到您跨券商持仓的简报服务。"
-      },
       "privacy": {
         "title": "隐私政策 — Portfonia",
         "description": "Portfonia 如何收集、加密、使用和删除您的账户与持仓数据。"
@@ -1859,8 +1850,8 @@
       }
     ],
     "cta": {
-      "waitlist": "加入候补名单",
-      "pricing": "查看定价"
+      "pricing": "查看定价",
+      "signup": "注册"
     }
   },
   "notFound": {
@@ -1874,8 +1865,8 @@
       "notice": "示例数据：以下所有图表均使用公开指南中固定的 SPY 和 AGG 示例组合，并非您的持仓。"
     },
     "guest": {
-      "waitlist": "加入候补名单",
-      "login": "登录"
+      "login": "登录",
+      "signup": "注册"
     },
     "whatIf": {
       "errors": {

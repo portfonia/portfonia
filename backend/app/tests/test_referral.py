@@ -151,6 +151,7 @@ def test_signup_attribution(
     response = app_client.post(
         "/auth/signup",
         json={
+            "altcha": "valid",
             "invite_token": invite.token,
             "email": "referee@example.com",
             "password": "a-long-password",
@@ -632,3 +633,8 @@ def test_refund_routes_clawback_and_signed_rejection(
     assert child.credit_cash_balance == Decimal("7")
     balanced(db_session, parent)
     balanced(db_session, child)
+
+
+@pytest.fixture(autouse=True)
+def _signup_altcha(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.routers.auth.verify_signup_solution", lambda _: True)

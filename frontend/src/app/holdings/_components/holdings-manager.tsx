@@ -106,7 +106,9 @@ export function HoldingsManager({
     } catch (err) {
       if (isNextRedirectError(err)) throw err;
       setError(
-        `${t("errorUploadFailed")}: ${err instanceof ApiError ? err.message : String(err)}`,
+        err instanceof ApiError && err.status === 429
+          ? t("uploadTooMany")
+          : `${t("errorUploadFailed")}: ${err instanceof ApiError ? err.message : String(err)}`,
       );
     } finally {
       setUploading(false);

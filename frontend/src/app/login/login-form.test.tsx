@@ -97,24 +97,23 @@ describe("LoginForm", () => {
     await waitFor(() => expect(clearPendingLogin).toHaveBeenCalled());
   });
 
-  it("links an interested visitor to the public waitlist", () => {
+  it("links visitors to public signup", () => {
     renderForm();
 
-    expect(screen.getByText(/internal testing/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /join the waitlist/i })).toHaveAttribute("href", "/waitlist");
-    expect(screen.queryByRole("link", { name: /sign ?up/i })).not.toBeInTheDocument();
+    expect(screen.getByText(catalogs.en.auth.signupHint)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: catalogs.en.auth.signupLink })).toHaveAttribute("href", "/signup");
   });
 
-  it("joins the waitlist hint and link with one space in English", () => {
+  it("joins the signup hint and link with one space in English", () => {
     renderForm();
 
-    const link = screen.getByRole("link", { name: /join the waitlist/i });
+    const link = screen.getByRole("link", { name: catalogs.en.auth.signupLink });
     expect(link.parentElement?.textContent).toBe(
-      "Portfonia is in internal testing. If you're interested, you can join the waitlist",
+      `${catalogs.en.auth.signupHint} ${catalogs.en.auth.signupLink}`,
     );
   });
 
-  it("joins the waitlist hint and link with no space in Chinese", async () => {
+  it("joins the signup hint and link with one space in Chinese", async () => {
     const original = Object.getOwnPropertyDescriptor(window, "localStorage");
     Object.defineProperty(window, "localStorage", {
       value: { getItem: () => "zh-Hans", setItem: () => undefined },
@@ -123,10 +122,10 @@ describe("LoginForm", () => {
     try {
       renderForm();
 
-      const { waitlistHint, waitlistLink } = catalogs["zh-Hans"].auth;
-      const link = await screen.findByRole("link", { name: waitlistLink });
-      expect(waitlistHint.endsWith(" ")).toBe(false);
-      expect(link.parentElement?.textContent).toBe(`${waitlistHint}${waitlistLink}`);
+      const { signupHint, signupLink } = catalogs["zh-Hans"].auth;
+      const link = await screen.findByRole("link", { name: signupLink });
+      expect(signupHint.endsWith(" ")).toBe(false);
+      expect(link.parentElement?.textContent).toBe(`${signupHint} ${signupLink}`);
     } finally {
       if (original) Object.defineProperty(window, "localStorage", original);
     }

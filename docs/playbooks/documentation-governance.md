@@ -97,7 +97,7 @@ invitation emails and the invitation unsubscribe page have no `es` copy).
 | Surface | Source files |
 |---|---|
 | Homepage | `frontend/src/app/page.tsx`, `frontend/src/app/_components/home-*.tsx`, `frontend/src/app/_components/home-risk-sample.ts`, `frontend/src/app/_components/home-real-data.fixture.json`; `home` in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
-| About, Pricing, Waitlist, and legal pages | `frontend/src/app/{about,pricing,waitlist,privacy,terms,refund}`; page copy and legal catalogs in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
+| About, Pricing, and legal pages | `frontend/src/app/{about,pricing,privacy,terms,refund}`; page copy and legal catalogs in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
 | Guides index and guide pages | `frontend/src/app/guides`; guide catalogs in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |
 | Public agent documentation | `frontend/src/app/agent`, `frontend/public/agent.md`, `frontend/public/llms.txt`. |
 | Login, signup, forgot-password, reset-password, verify-email, unsubscribe, and localized 404 | `frontend/src/app/{login,signup,forgot-password,reset-password,verify-email,unsubscribe}`, `frontend/src/app/not-found.tsx`; catalogs in `frontend/src/locales/{en,es,zh-Hans,zh-Hant}.json`. |

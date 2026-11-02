@@ -1,4 +1,4 @@
-"""User-facing auth endpoints. Invite-gated signup; login is the Auth provider."""
+"""User-facing auth endpoints. Public signup with optional invitations; login is the Auth provider."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -27,7 +27,9 @@ from app.models.invite import Invite
 from app.models.user import User
 from app.services.altcha_challenge import (
     create_forgot_password_challenge,
+    create_signup_challenge,
     verify_forgot_password_solution,
+    verify_signup_solution,
 )
 from app.services.auth_provider import (
     AuthProviderError,
@@ -63,7 +65,14 @@ def invite_email(
 
 
 class SignupRequest(BaseModel):
-    invite_token: str
+    invite_token: str | None = None
+    altcha: str
+
+    @field_validator("invite_token")
+    @classmethod
+    def normalize_invite_token(cls, value: str | None) -> str | None:
+        return value.strip() or None if value is not None else None
+
     email: str
     password: SecretStr = Field(min_length=8)
     # Required true, never defaulted (Ring 1-Onboarding.md §2.5) — Literal[True]
@@ -88,20 +97,28 @@ class SignupResponse(BaseModel):
 @router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED)
 def signup(
     req: SignupRequest,
+    request: Request,
     session: Session = Depends(get_session),
-    _: None = Depends(rate_limit_signup),
 ) -> SignupResponse:
-    """Invite-gated registration. Password is forwarded to the Auth provider
+    """Public registration with an optional invitation. Password is forwarded to the Auth provider
     in memory and is never logged or persisted.
     """
+    if not verify_signup_solution(req.altcha):
+        raise HTTPException(status_code=400, detail="invalid captcha")
+    rate_limit_signup(request)
     email = req.email.strip().lower()
     new_id = uuid.uuid4()
     sub: str | None = None
     try:
-        guard_known_invite_token(session, req.invite_token)
+        if req.invite_token is not None:
+            guard_known_invite_token(session, req.invite_token)
         if signup_email_taken(session, email):
             raise InviteRejected(INVITE_REJECTED_MESSAGE)
-        invite_id = redeem_invite(session, req.invite_token, used_by=new_id, email=email)
+        invite_id = (
+            redeem_invite(session, req.invite_token, used_by=new_id, email=email)
+            if req.invite_token is not None
+            else None
+        )
         sub = create_auth_user(email, req.password.get_secret_value())
         user = User(
             id=new_id,
@@ -196,6 +213,11 @@ def signup(
     except Exception:
         logger.exception("signup: failed to enqueue account-email verification for user %s", new_id)
     return SignupResponse(id=user.id, email=user.email)
+
+
+@router.get("/signup/altcha-challenge")
+def signup_altcha_challenge() -> dict[str, object]:
+    return create_signup_challenge()
 
 
 class ForgotPasswordRequest(BaseModel):

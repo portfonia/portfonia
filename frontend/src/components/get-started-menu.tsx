@@ -23,6 +23,7 @@ import {
   ChevronDown,
   ClipboardList,
   LogIn,
+  UserPlus,
   LogOut,
   User,
 } from "lucide-react";
@@ -138,6 +139,7 @@ export function GetStartedMenu({ themeItems }: { themeItems?: React.ReactNode })
           </MenuItemLink>
         )}
 
+        {session.status === "guest" && <MenuItemLink href="/signup"><UserPlus aria-hidden="true" className="size-4" />{t("signup")}</MenuItemLink>}
         {session.status === "guest" && <MenuItemLink href="/agent"><Bot aria-hidden="true" className="size-4" />{t("agent")}</MenuItemLink>}
         {session.status === "guest" && <MenuItemLink href="/jade"><JadeBi className="size-4" />{t("jade")}</MenuItemLink>}
 

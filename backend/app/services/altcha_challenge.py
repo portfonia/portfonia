@@ -109,24 +109,24 @@ def _change_password_hmac_key() -> str:
     return f"{_hmac_key()}:change-password"
 
 
-def _waitlist_hmac_key() -> str:
-    return f"{_hmac_key()}:waitlist"
+def _signup_hmac_key() -> str:
+    return f"{_hmac_key()}:signup"
 
 
-def create_waitlist_challenge() -> dict[str, object]:
+def create_signup_challenge() -> dict[str, object]:
     options = altcha_v1.ChallengeOptions(
-        hmac_key=_waitlist_hmac_key(),
+        hmac_key=_signup_hmac_key(),
         expires=datetime.now(tz=ET) + CHALLENGE_TTL,
     )
     challenge: altcha_v1.Challenge = altcha_v1.create_challenge(options)
     return cast(dict[str, object], challenge.to_dict())
 
 
-def verify_waitlist_solution(payload_b64: str) -> bool:
+def verify_signup_solution(payload_b64: str) -> bool:
     if not payload_b64:
         return False
     try:
-        ok, _err = altcha_v1.verify_solution(payload_b64, _waitlist_hmac_key(), check_expires=True)
+        ok, _err = altcha_v1.verify_solution(payload_b64, _signup_hmac_key(), check_expires=True)
     except Exception:
         return False
     return ok

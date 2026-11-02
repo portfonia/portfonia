@@ -175,6 +175,7 @@ def test_signup_and_create_invite_share_one_lookup(
     resp = app_client.post(
         "/auth/signup",
         json={
+            "altcha": "valid",
             "invite_token": "any-token",
             "email": "mirror@example.com",
             "password": "a-long-enough-password",
@@ -310,3 +311,8 @@ def test_concurrent_redeem_succeeds_exactly_once(session_test_db: None) -> None:
         assert used == row.used_by_user_id
         check.delete(row)
         check.commit()
+
+
+@pytest.fixture(autouse=True)
+def _signup_altcha(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.routers.auth.verify_signup_solution", lambda _: True)

@@ -43,10 +43,7 @@ async function signupBackendHeaders(): Promise<Record<string, string>> {
   return out;
 }
 
-// Registration is backend-mediated (Ring 1-B design doc §6.5 decision 3a):
-// the invite is redeemed and the Auth-provider account is created server-
-// side by our own FastAPI backend, not by calling Supabase directly from
-// here — that keeps invite-gating on our server, which is the whole point.
+// Registration and optional invitation redemption are backend-mediated.
 export async function signup(
   _prevState: SignupState | undefined,
   formData: FormData,
@@ -61,8 +58,9 @@ export async function signup(
   const uiLocale = resolveLocale(formData);
   const auth = catalogs[uiLocale].auth;
 
-  if (!inviteToken) {
-    return { error: auth.errorMissingInviteToken };
+  const altcha = String(formData.get("altcha") ?? "");
+  if (!altcha) {
+    return { error: auth.signupCaptchaRequired };
   }
   if (!email || password.length < 8) {
     return { error: auth.errorInvalidSignupInput };
@@ -72,7 +70,8 @@ export async function signup(
     method: "POST",
     headers: await signupBackendHeaders(),
     body: JSON.stringify({
-      invite_token: inviteToken,
+      ...(inviteToken ? { invite_token: inviteToken } : {}),
+      altcha,
       email,
       password,
       tos_accepted: tosAccepted,
@@ -81,6 +80,7 @@ export async function signup(
   });
 
   if (!res.ok) {
+    if (res.status === 400) return { error: auth.signupRejected };
     const body = (await res.json().catch(() => null)) as { detail?: unknown } | null;
     const detail = typeof body?.detail === "string" ? body.detail : null;
     if (res.status === 429) {

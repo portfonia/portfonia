@@ -24,13 +24,14 @@
     "editHoldings": "編輯持倉",
     "reports": "報告中心",
     "agent": "AI 智能體",
-    "jade": "潤玉平台"
+    "jade": "潤玉平台",
+    "signup": "註冊"
   },
   "auth": {
     "loginHeading": "登入",
     "loginSubtitle": "歡迎回來。",
     "signupHeading": "建立帳戶",
-    "signupSubtitle": "註冊需要有效的邀請連結。",
+    "signupSubtitle": "如果您收到了邀請連結，請透過該連結註冊。",
     "emailLabel": "電子郵件",
     "passwordLabel": "密碼",
     "confirmPasswordLabel": "確認密碼",
@@ -45,17 +46,6 @@
     "loggingIn": "登入中...",
     "signupButton": "建立帳戶",
     "signingUp": "建立帳戶中...",
-    "missingInvite": "連結缺少邀請權杖，請向邀請你的人索取新連結。",
-    "waitlistHint": "本專案目前處於內部測試階段，如有興趣，可以",
-    "waitlistLink": "加入等候清單",
-    "waitlistHeading": "加入等候清單",
-    "waitlistSubtitle": "留下電子郵件，申請邀請。",
-    "waitlistSubmit": "加入等候清單",
-    "waitlistSubmitting": "提交中...",
-    "waitlistReceived": "我們已收到你的申請。",
-    "waitlistEmailRequired": "請輸入電子郵件。",
-    "waitlistCaptchaRequired": "請完成驗證。",
-    "waitlistError": "提交失敗，請重試。",
     "alreadyHaveAccount": "已經有帳戶？",
     "backToLogin": "返回登入",
     "tooManyAttempts": "嘗試次數過多，請稍後再試。",
@@ -64,7 +54,6 @@
     "signupThrownError": "註冊失敗。",
     "errorMissingCredentials": "請輸入電子郵件和密碼。",
     "errorInvalidCredentials": "電子郵件或密碼錯誤。",
-    "errorMissingInviteToken": "此註冊連結缺少邀請權杖。",
     "errorInvalidSignupInput": "請輸入有效的電子郵件和至少 8 位的密碼。",
     "forgotPasswordLink": "忘記密碼？",
     "forgotPasswordHeading": "重設密碼",
@@ -80,7 +69,12 @@
     "resetPasswordSubmit": "更新密碼",
     "resetPasswordSubmitting": "更新中……",
     "resetPasswordSuccess": "密碼已更新，正在跳轉至登入頁……",
-    "resetPasswordFailed": "密碼更新失敗，此連結可能已過期，請重新申請。"
+    "resetPasswordFailed": "密碼更新失敗，此連結可能已過期，請重新申請。",
+    "signupRejected": "無法使用這些資訊建立帳戶。如果您已有帳戶，請登入。",
+    "signupWithoutInvite": "不使用邀請連結註冊",
+    "signupCaptchaRequired": "請完成驗證。",
+    "signupHint": "還沒有帳戶？",
+    "signupLink": "註冊"
   },
   "holdings": {
     "pageTitle": "持倉",
@@ -237,7 +231,8 @@
     },
     "exportDescription": "目前持倉匯出（可重新匯入）",
     "templateDescription": "持倉上傳範本",
-    "changeHistoryLink": "變更記錄"
+    "changeHistoryLink": "變更記錄",
+    "uploadTooMany": "上傳次數過多，請稍後再試。"
   },
   "questionnaire": {
     "pageTitle": "報告偏好",
@@ -513,7 +508,7 @@
     "deleteAccountSubscription": "目前的訂閱立即終止，本期未使用的部分不予退還。",
     "deleteAccountTokens": "您的全部 API token 將被撤銷。",
     "deleteAccountGift": "您的 {gift_balance} 贈送 credits 也將一併清除。",
-    "deleteAccountReregister": "日後如以同一電子郵件地址重新註冊，需要新的邀請，且不會再獲得註冊贈送的 credits。",
+    "deleteAccountReregister": "日後如以同一電子郵件地址重新註冊，不會再獲得註冊贈送的 credits。",
     "deleteAccountEmailLabel": "輸入您的帳戶電子郵件地址以確認",
     "deleteAccountContinue": "繼續",
     "deleteAccountPurchased": "您將放棄購買所得的 {cash_balance} credits（以每個 US$1 購入）。",
@@ -1275,7 +1270,7 @@
     "resellerNotice": "我們的訂單流程由線上經銷商 Paddle.com 執行。Paddle.com 是我們所有訂單的記錄商戶（Merchant of Record），負責處理所有客戶服務詢問及退貨。",
     "terms": {
       "title": "服務條款",
-      "lastUpdated": "最後更新：2026-10-13",
+      "lastUpdated": "最後更新：2026-11-01",
       "intro": "本服務條款規範您對 Portfonia 的使用。請與我們的隱私政策及退款政策一併閱讀。",
       "sections": [
         {
@@ -1295,7 +1290,7 @@
           "heading": "3. 資格與帳戶",
           "body": [
             "您須具備訂立有拘束力契約的能力方可使用本服務。您有責任對登入憑證保密，並對帳戶下的所有活動負責。",
-            "本服務以有限公開服務的形式提供：註冊可能僅限於已加入候補名單或收到邀請的使用者，功能可能隨服務發展而調整。"
+            "本服務以有限公開服務的形式提供。我們可隨時限制或暫停新使用者註冊。功能可能隨服務發展而調整，服務也可能隨時中斷或品質下降。"
           ]
         },
         {
@@ -1762,10 +1757,6 @@
         "title": "定價 — Portfonia",
         "description": "每週、隔日（週一、週三、週五）或工作日每日簡報，以及潤玉組合風險工具，以 US$10 起的預付服務點數支付。購買後 120 天內，未使用的已購點數可申請退款。"
       },
-      "waitlist": {
-        "title": "加入候補名單 — Portfonia",
-        "description": "申請 Portfonia 邀請，取得將市場新聞和總經動態對應到您跨券商持倉的簡報服務。"
-      },
       "privacy": {
         "title": "隱私政策 — Portfonia",
         "description": "Portfonia 如何收集、加密、使用和刪除您的帳戶與持倉資料。"
@@ -1859,8 +1850,8 @@
       }
     ],
     "cta": {
-      "waitlist": "加入候補名單",
-      "pricing": "查看定價"
+      "pricing": "查看定價",
+      "signup": "註冊"
     }
   },
   "notFound": {
@@ -1874,8 +1865,8 @@
       "notice": "範例資料：以下所有圖表均使用公開指南中固定的 SPY 和 AGG 範例組合，並非您的持倉。"
     },
     "guest": {
-      "waitlist": "加入候補名單",
-      "login": "登入"
+      "login": "登入",
+      "signup": "註冊"
     },
     "whatIf": {
       "errors": {

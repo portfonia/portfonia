@@ -8,7 +8,7 @@ it.each(["en", "zh-Hans", "zh-Hant"] as Locale[])("renders five %s sections and 
   expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(5);
   for (const section of catalogs[locale].about.sections) expect(screen.getByRole("heading", { name: section.heading })).toBeInTheDocument();
   const prefix = locale === "en" ? "" : `/${locale}`;
-  expect(screen.getByRole("link", { name: catalogs[locale].about.cta.waitlist })).toHaveAttribute("href", `${prefix}/waitlist`);
+  expect(screen.getByRole("link", { name: catalogs[locale].about.cta.signup })).toHaveAttribute("href", "/signup");
   expect(screen.getByRole("link", { name: catalogs[locale].about.cta.pricing })).toHaveAttribute("href", `${prefix}/pricing`);
 });
 

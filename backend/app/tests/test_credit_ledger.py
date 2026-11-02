@@ -420,6 +420,7 @@ def test_signup_purge_and_resignup(
         response = app_client.post(
             "/auth/signup",
             json={
+                "altcha": "valid",
                 "invite_token": invite.token,
                 "email": email,
                 "password": "a-long-enough-password",
@@ -492,6 +493,7 @@ def test_signup_with_zero_grant(
     response = app_client.post(
         "/auth/signup",
         json={
+            "altcha": "valid",
             "invite_token": invite.token,
             "email": "zero-signup@example.com",
             "password": "a-long-enough-password",
@@ -529,3 +531,8 @@ def test_backfill_dry_run_apply_and_replay(
     )
     assert len(rows) == 2
     assert all(row.note == "backfill: registered before credit ledger" for row in rows)
+
+
+@pytest.fixture(autouse=True)
+def _signup_altcha(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.routers.auth.verify_signup_solution", lambda _: True)
