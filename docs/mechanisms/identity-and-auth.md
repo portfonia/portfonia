@@ -1239,8 +1239,7 @@ New entries are pending, `source='referral'`, with nullable UUID
 `source='organic'`. Only a new entry queues the public waitlist's plain-English
 notice, adding `Referred by: {referrer email}`, after commit. Enqueue errors
 are logged without changing success. There is no Altcha or user history
-endpoint. The public waitlist endpoint and #672 sender, eligibility, quota
-and digest are unchanged. Sent invites retain `created_by` as the root Admin;
+endpoint. The #672 sender, eligibility, quota and digest are unchanged; #870 later retired the public endpoint. Sent invites retain `created_by` as the root Admin;
 never put the referrer there, because attribution comes only from
 `waitlist_entries.referrer_user_id` and `created_by` is never read for it.
 

@@ -485,9 +485,9 @@ header and the Holdings "current holdings" action row wrap.
 
 Issues #702, #735, #737, #739, #763 and #799 provide English (unprefixed), `/es`, `/zh-Hans`, and
 `/zh-Hant` versions of
-`/`, `/about`, `/pricing`, `/waitlist`, `/privacy`, `/terms`, `/refund`,
+`/`, `/about`, `/pricing`, `/privacy`, `/terms`, `/refund`,
 `/guides/jade-replay`, `/guides/jade-var`, `/guides`, `/guides/jade-stress`,
-`/guides/jade-style`, `/guides/jade-tracking`, `/guides/jade-what-if`, and `/agent/guide` (fifteen public SEO pages).
+`/guides/jade-style`, `/guides/jade-tracking`, `/guides/jade-what-if`, and `/agent/guide` (fourteen public SEO pages).
 Issue #766 leaves this page set unchanged and removes two controls the owner
 rejected. The guide renders no trailing link in any locale, and Pricing
 renders no buy-credits button after the legal text. The old guide link used

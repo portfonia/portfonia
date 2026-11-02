@@ -100,7 +100,7 @@ describe("LoginForm", () => {
   it("links visitors to public signup", () => {
     renderForm();
 
-    expect(screen.getByText(catalogs.en.auth.signupHint)).toBeInTheDocument();
+    expect(screen.getByText(catalogs.en.auth.signupHint.trimEnd())).toBeInTheDocument();
     expect(screen.getByRole("link", { name: catalogs.en.auth.signupLink })).toHaveAttribute("href", "/signup");
   });
 
@@ -109,11 +109,11 @@ describe("LoginForm", () => {
 
     const link = screen.getByRole("link", { name: catalogs.en.auth.signupLink });
     expect(link.parentElement?.textContent).toBe(
-      `${catalogs.en.auth.signupHint} ${catalogs.en.auth.signupLink}`,
+      `${catalogs.en.auth.signupHint}${catalogs.en.auth.signupLink}`,
     );
   });
 
-  it("joins the signup hint and link with one space in Chinese", async () => {
+  it("joins the signup hint and link with no space in Chinese", async () => {
     const original = Object.getOwnPropertyDescriptor(window, "localStorage");
     Object.defineProperty(window, "localStorage", {
       value: { getItem: () => "zh-Hans", setItem: () => undefined },
@@ -125,7 +125,7 @@ describe("LoginForm", () => {
       const { signupHint, signupLink } = catalogs["zh-Hans"].auth;
       const link = await screen.findByRole("link", { name: signupLink });
       expect(signupHint.endsWith(" ")).toBe(false);
-      expect(link.parentElement?.textContent).toBe(`${signupHint} ${signupLink}`);
+      expect(link.parentElement?.textContent).toBe(`${signupHint}${signupLink}`);
     } finally {
       if (original) Object.defineProperty(window, "localStorage", original);
     }

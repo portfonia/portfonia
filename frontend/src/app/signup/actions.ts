@@ -10,6 +10,7 @@ const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 export interface SignupState {
   error: string | null;
+  rejected?: boolean;
 }
 
 // See login/actions.ts's resolveLocale — same reasoning.
@@ -80,7 +81,7 @@ export async function signup(
   });
 
   if (!res.ok) {
-    if (res.status === 400) return { error: auth.signupRejected };
+    if (res.status === 400) return { error: auth.signupRejected, rejected: true };
     const body = (await res.json().catch(() => null)) as { detail?: unknown } | null;
     const detail = typeof body?.detail === "string" ? body.detail : null;
     if (res.status === 429) {

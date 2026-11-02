@@ -13,6 +13,7 @@ vi.mock("@/hooks/use-session", () => ({ markPendingLogin, clearPendingLogin }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import { SignupForm } from "./signup-form";
+import { catalogs } from "@/locales";
 
 function renderForm(inviteToken: string, lockedEmail: string | null = null) {
   return render(
@@ -36,6 +37,23 @@ async function fillForm(user: ReturnType<typeof userEvent.setup>, pw: string) {
 }
 
 describe("SignupForm", () => {
+  it("offers signup without an invitation only after rejection", async () => {
+    signup.mockResolvedValueOnce({ error: catalogs.en.auth.signupThrownError });
+    signup.mockResolvedValueOnce({ error: catalogs.en.auth.signupRejected, rejected: true });
+    const user = userEvent.setup();
+    const first = renderForm("tok-abc");
+    await fillForm(user, "correcthorse");
+    await user.click(screen.getByRole("button", { name: catalogs.en.auth.signupButton }));
+    await screen.findByText(catalogs.en.auth.signupThrownError);
+    expect(screen.queryByRole("link", { name: catalogs.en.auth.signupWithoutInvite })).not.toBeInTheDocument();
+    first.unmount();
+
+    renderForm("tok-abc");
+    await fillForm(user, "correcthorse");
+    await user.click(screen.getByRole("button", { name: catalogs.en.auth.signupButton }));
+    expect(await screen.findByRole("link", { name: catalogs.en.auth.signupWithoutInvite })).toHaveAttribute("href", "/signup");
+  });
+
   it("keeps a bound email read-only and includes it in submitted FormData", async () => {
     signup.mockResolvedValue({ error: null });
     const user = userEvent.setup();

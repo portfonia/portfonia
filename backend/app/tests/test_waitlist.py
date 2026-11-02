@@ -1,4 +1,4 @@
-"""Issue #566 public waitlist and ops flow on real PostgreSQL."""
+"""Issue #566 waitlist Ops flow on real PostgreSQL."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def test_mint_sent_and_manual_status(app_client: TestClient, db_session: Session
     assert app_client.get(path, headers=_headers()).json()["link_expired"] is True
 
 
-def test_purpose_distinct_and_validation(app_client: TestClient) -> None:
+def test_admin_waitlist_validation(app_client: TestClient) -> None:
     assert (
         app_client.get("/admin/waitlist", headers=_headers(), params={"stage": "bogus"}).status_code
         == 422

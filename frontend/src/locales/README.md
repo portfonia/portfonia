@@ -50,6 +50,7 @@ unprefixed auth pages: locale defaults to English and is restored from
 
 Issue #702 adds locale URLs only for the seven public SEO pages: `/`,
 `/about`, `/pricing`, `/waitlist`, `/privacy`, `/terms`, and `/refund`.
+Issue #870 later retired `/waitlist`, which now redirects to `/signup`.
 English is unprefixed; Spanish uses `/es`, and Simplified and Traditional
 Chinese use `/zh-Hans` and `/zh-Hant`. Proxy rewrites these URLs to the existing page routes and
 forwards `x-portfonia-locale`; the root layout and page metadata read it

@@ -137,7 +137,7 @@ export function SignupForm({
 
       <Script src="/altcha.js" type="module" strategy="afterInteractive" />
       <altcha-widget challengeurl="/api/auth/signup/altcha-challenge" name="altcha" />
-      {inviteToken && state?.error && <Link href="/signup" className="text-sm underline">{t("signupWithoutInvite")}</Link>}
+      {inviteToken && state?.rejected && <Link href="/signup" className="text-sm underline">{t("signupWithoutInvite")}</Link>}
 
       {mismatch ? (
         <p className="text-sm text-destructive" role="alert">

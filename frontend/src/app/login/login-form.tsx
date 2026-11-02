@@ -68,7 +68,7 @@ export function LoginForm({ next }: { next?: string }) {
         {t("forgotPasswordLink")}
       </Link>
       <p className="text-center text-xs text-muted-foreground">
-        {t("signupHint")} <Link href="/signup" className="underline">{t("signupLink")}</Link>
+        {t("signupHint")}<Link href="/signup" className="underline">{t("signupLink")}</Link>
       </p>
     </form>
   );

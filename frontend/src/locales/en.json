@@ -73,7 +73,7 @@
     "signupRejected": "We could not create an account with these details. If you already have an account, log in.",
     "signupWithoutInvite": "Sign up without the invitation link",
     "signupCaptchaRequired": "Please complete the verification.",
-    "signupHint": "Don't have an account?",
+    "signupHint": "Don't have an account? ",
     "signupLink": "Sign up"
   },
   "holdings": {

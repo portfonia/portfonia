@@ -73,7 +73,7 @@
     "signupRejected": "No pudimos crear una cuenta con estos datos. Si ya tiene una cuenta, inicie sesión.",
     "signupWithoutInvite": "Registrarse sin el enlace de invitación",
     "signupCaptchaRequired": "Complete la verificación.",
-    "signupHint": "¿No tiene una cuenta?",
+    "signupHint": "¿No tiene una cuenta? ",
     "signupLink": "Registrarse"
   },
   "holdings": {

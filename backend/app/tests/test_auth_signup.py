@@ -28,7 +28,7 @@ def _fake_auth_provider(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     return create
 
 
-def test_signup_without_invite_rejected(
+def test_signup_unknown_invite_rejected(
     app_client: TestClient, db_session: Session, _fake_auth_provider: MagicMock
 ) -> None:
     before = db_session.execute(select(User)).scalars().all()
