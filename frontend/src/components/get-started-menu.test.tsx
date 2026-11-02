@@ -191,7 +191,7 @@ describe("GetStartedMenu", () => {
   });
 
   describe("logged out (R4)", () => {
-    it("offers Log in and AI Agent with no holdings, signup or account rows", async () => {
+    it("offers Log in, Sign up and AI Agent without account rows", async () => {
       getUser.mockResolvedValue({ data: { user: null } });
       const user = userEvent.setup();
       renderMenu();
@@ -201,7 +201,7 @@ describe("GetStartedMenu", () => {
       expect(menu.textContent).toContain("Log in");
       expect(menu.textContent).toContain("AI Agent");
       expect(menu.textContent).not.toContain("Holdings");
-      expect(menu.textContent).not.toContain("Sign up");
+      expect(screen.getByRole("menuitem", { name: catalogs.en.menu.signup })).toHaveAttribute("href", "/signup");
       expect(menu.textContent).not.toContain("Log out");
       expect(menu.querySelector('input[type="email"]')).toBeNull();
     });
@@ -238,7 +238,7 @@ describe("GetStartedMenu", () => {
       expect(menu.textContent).toContain("a@b.com");
       expect(screen.getByRole("menuitem", { name: "Log out" })).toBeInTheDocument();
       expect(menu.textContent).not.toContain("Log in");
-      expect(menu.textContent).not.toContain("Sign up");
+      expect(menu.textContent).not.toContain(catalogs.en.menu.signup);
     });
 
     it("no longer offers a separate Edit holdings entry (issue #319 item 1)", async () => {

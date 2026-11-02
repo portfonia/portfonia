@@ -309,7 +309,7 @@ describe("7i locale headers on returned responses", () => {
     ["/pricing", "GET", {}, "en"],
     ["/pricing/", "GET", {}, "en"],
     ["/pricing?_rsc=x", "GET", { RSC: "1" }, "en"],
-    ["/waitlist", "POST", { "Next-Action": "action-id" }, "en"],
+    ["/signup", "POST", { "Next-Action": "action-id" }, null],
     ["/zh-Hans/waitlist", "GET", {}, "zh-Hans"],
     ["/login", "GET", {}, null],
   ] as const)("forwards URL locale for %s %s", async (path, method, headers, expected) => {

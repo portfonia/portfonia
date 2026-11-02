@@ -24,13 +24,14 @@
     "editHoldings": "Editar posiciones",
     "reports": "Informes",
     "agent": "Agente de IA",
-    "jade": "Jade"
+    "jade": "Jade",
+    "signup": "Registrarse"
   },
   "auth": {
     "loginHeading": "Iniciar sesión",
     "loginSubtitle": "Le damos la bienvenida de nuevo.",
     "signupHeading": "Cree su cuenta",
-    "signupSubtitle": "Necesita un enlace de invitación válido para registrarse.",
+    "signupSubtitle": "Si recibió un enlace de invitación, regístrese a través de él.",
     "emailLabel": "Correo electrónico",
     "passwordLabel": "Contraseña",
     "confirmPasswordLabel": "Confirmar contraseña",
@@ -45,17 +46,6 @@
     "loggingIn": "Iniciando sesión...",
     "signupButton": "Crear cuenta",
     "signingUp": "Creando cuenta...",
-    "missingInvite": "Este enlace no contiene el token de invitación. Pida un enlace nuevo a quien le invitó.",
-    "waitlistHint": "Portfonia está en pruebas internas. Si le interesa, puede ",
-    "waitlistLink": "inscribirse en la lista de espera",
-    "waitlistHeading": "Inscríbase en la lista de espera",
-    "waitlistSubtitle": "Deje su correo electrónico para solicitar una invitación.",
-    "waitlistSubmit": "Inscribirse",
-    "waitlistSubmitting": "Enviando...",
-    "waitlistReceived": "Hemos recibido su solicitud.",
-    "waitlistEmailRequired": "Ingrese su correo electrónico.",
-    "waitlistCaptchaRequired": "Complete el widget de verificación.",
-    "waitlistError": "No se pudo enviar su solicitud. Inténtelo de nuevo.",
     "alreadyHaveAccount": "¿Ya tiene una cuenta?",
     "backToLogin": "Iniciar sesión",
     "tooManyAttempts": "Demasiados intentos. Inténtelo más tarde.",
@@ -64,7 +54,6 @@
     "signupThrownError": "No se pudo crear la cuenta.",
     "errorMissingCredentials": "Ingrese su correo electrónico y contraseña.",
     "errorInvalidCredentials": "Correo electrónico o contraseña incorrectos.",
-    "errorMissingInviteToken": "Este enlace de registro no contiene el token de invitación.",
     "errorInvalidSignupInput": "Ingrese un correo electrónico válido y una contraseña de al menos 8 caracteres.",
     "forgotPasswordLink": "¿Olvidó su contraseña?",
     "forgotPasswordHeading": "Restablezca su contraseña",
@@ -80,7 +69,12 @@
     "resetPasswordSubmit": "Actualizar contraseña",
     "resetPasswordSubmitting": "Actualizando...",
     "resetPasswordSuccess": "Su contraseña se ha actualizado. Redirigiendo al inicio de sesión...",
-    "resetPasswordFailed": "No se pudo actualizar su contraseña. Es posible que el enlace haya vencido; solicite uno nuevo."
+    "resetPasswordFailed": "No se pudo actualizar su contraseña. Es posible que el enlace haya vencido; solicite uno nuevo.",
+    "signupRejected": "No pudimos crear una cuenta con estos datos. Si ya tiene una cuenta, inicie sesión.",
+    "signupWithoutInvite": "Registrarse sin el enlace de invitación",
+    "signupCaptchaRequired": "Complete la verificación.",
+    "signupHint": "¿No tiene una cuenta? ",
+    "signupLink": "Registrarse"
   },
   "holdings": {
     "pageTitle": "Posiciones",
@@ -237,7 +231,8 @@
     },
     "exportDescription": "Exportación de posiciones actuales (reimportable)",
     "templateDescription": "Plantilla para cargar posiciones",
-    "changeHistoryLink": "Historial de cambios"
+    "changeHistoryLink": "Historial de cambios",
+    "uploadTooMany": "Demasiadas cargas. Inténtelo de nuevo más tarde."
   },
   "questionnaire": {
     "pageTitle": "Preferencias de informes",
@@ -513,7 +508,7 @@
     "deleteAccountSubscription": "Una suscripción activa termina inmediatamente; no se devuelve la parte no utilizada del período actual.",
     "deleteAccountTokens": "Se revocarán todos sus tokens de API.",
     "deleteAccountGift": "También se borrarán sus {gift_balance} créditos de regalo.",
-    "deleteAccountReregister": "Si vuelve a registrarse con el mismo correo, necesitará una nueva invitación y no recibirá otra vez el crédito de registro.",
+    "deleteAccountReregister": "Si vuelve a registrarse con el mismo correo, no recibirá otra vez el crédito de registro.",
     "deleteAccountEmailLabel": "Escriba el correo de su cuenta para confirmar",
     "deleteAccountContinue": "Continuar",
     "deleteAccountPurchased": "Renuncia a {cash_balance} créditos comprados (a US$1 por crédito).",
@@ -1275,7 +1270,7 @@
     "resellerNotice": "Nuestro proceso de pedidos se realiza mediante nuestro revendedor en línea Paddle.com. Paddle.com es el comerciante registrado (Merchant of Record) para todos nuestros pedidos. Paddle atiende todas las consultas de servicio al cliente y gestiona las devoluciones.",
     "terms": {
       "title": "Términos de servicio",
-      "lastUpdated": "Última actualización: 2026-10-13",
+      "lastUpdated": "Última actualización: 2026-11-01",
       "intro": "Estos Términos de servicio rigen su uso de Portfonia. Léalos junto con nuestra Política de privacidad y Política de reembolsos.",
       "sections": [
         {
@@ -1295,7 +1290,7 @@
           "heading": "3. Elegibilidad y cuentas",
           "body": [
             "Debe tener capacidad para celebrar un contrato vinculante para usar el Servicio. Usted es responsable de mantener confidenciales sus credenciales y de toda actividad en su cuenta.",
-            "El Servicio se ofrece como servicio público limitado: el registro puede limitarse a personas de la lista de espera o con invitación, y las funciones pueden cambiar durante su desarrollo."
+            "El Servicio se ofrece como servicio público limitado. Podemos limitar o suspender los nuevos registros en cualquier momento. Las funciones pueden cambiar durante su desarrollo, y el Servicio puede interrumpirse o su calidad puede disminuir en cualquier momento."
           ]
         },
         {
@@ -1762,10 +1757,6 @@
         "title": "Precios — Portfonia",
         "description": "Resúmenes semanales, Lun/Mié/Vie o diarios de lunes a viernes y herramientas de riesgo Jade, con créditos prepagados desde US$10. Créditos comprados sin usar reembolsables en 120 días."
       },
-      "waitlist": {
-        "title": "Lista de espera — Portfonia",
-        "description": "Solicite una invitación a Portfonia, un servicio de resúmenes que relaciona noticias de mercado y novedades macro con sus posiciones en varios corredores."
-      },
       "privacy": {
         "title": "Política de privacidad — Portfonia",
         "description": "Cómo Portfonia recopila, cifra, usa y elimina sus datos de cuenta y posiciones."
@@ -1859,8 +1850,8 @@
       }
     ],
     "cta": {
-      "waitlist": "Inscribirse en la lista de espera",
-      "pricing": "Ver precios"
+      "pricing": "Ver precios",
+      "signup": "Registrarse"
     }
   },
   "notFound": {
@@ -1874,8 +1865,8 @@
       "notice": "Datos de ejemplo: todos los gráficos a continuación usan una cartera fija de SPY y AGG de las guías públicas. No son sus posiciones."
     },
     "guest": {
-      "waitlist": "Unirse a la lista de espera",
-      "login": "Iniciar sesión"
+      "login": "Iniciar sesión",
+      "signup": "Registrarse"
     },
     "whatIf": {
       "errors": {

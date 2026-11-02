@@ -138,6 +138,7 @@ def test_signup_sixth_request_in_one_minute_is_429(
         return app_client.post(
             "/auth/signup",
             json={
+                "altcha": "valid",
                 "invite_token": issued.token,
                 "email": f"{uuid.uuid4().hex}@example.com",
                 "password": "a-long-enough-password",
@@ -149,6 +150,7 @@ def test_signup_sixth_request_in_one_minute_is_429(
     blocked = app_client.post(
         "/auth/signup",
         json={
+            "altcha": "valid",
             "invite_token": "x",
             "email": "blocked@example.com",
             "password": "a-long-enough-password",
@@ -168,6 +170,7 @@ def test_unknown_token_does_not_create_per_token_key(
     app_client.post(
         "/auth/signup",
         json={
+            "altcha": "valid",
             "invite_token": "totally-unknown-token",
             "email": "n@example.com",
             "password": "a-long-enough-password",
@@ -187,6 +190,7 @@ def test_eleventh_failure_on_known_invite_is_429(
     issued = create_invite(db_session, created_by=_CREATOR, email="bound@example.com")
     db_session.commit()
     payload = {
+        "altcha": "valid",
         "invite_token": issued.token,
         "email": "wrong@example.com",
         "password": "a-long-enough-password",
@@ -261,6 +265,7 @@ def test_client_id_from_request_uses_peer() -> None:
 def test_signup_xff_keys_limiter_not_peer(app_client: TestClient, backend: InMemoryBackend) -> None:
     """A signup carrying X-Forwarded-For is keyed on that client, not the peer."""
     payload = {
+        "altcha": "valid",
         "invite_token": "x",
         "email": "xff@example.com",
         "password": "a-long-enough-password",
@@ -289,6 +294,7 @@ def test_signup_xff_keys_limiter_not_peer(app_client: TestClient, backend: InMem
 def test_signup_xff_ipv6_keys_slash_64(app_client: TestClient, backend: InMemoryBackend) -> None:
     """ProxyHeadersMiddleware rewrites the peer; limiter still keys /64."""
     payload = {
+        "altcha": "valid",
         "invite_token": "x",
         "email": "xff6@example.com",
         "password": "a-long-enough-password",
@@ -568,3 +574,8 @@ def test_report_resend_cooldown_release_does_not_raise_on_redis_outage() -> None
         release_report_resend_cooldown("a@example.com")  # must not raise
     finally:
         rate_limit.set_backend(InMemoryBackend())
+
+
+@pytest.fixture(autouse=True)
+def _signup_altcha(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.routers.auth.verify_signup_solution", lambda _: True)

@@ -55,7 +55,7 @@ export function JadePageBody({ me, hadLoadError, guest, demo }: { me: Me | null;
       <CardContent className="flex flex-col gap-3 px-4 text-sm"><p>{t("intro")}</p><p>{t("price")}</p>
         <p>{t("guidesLead")}{separator}<Link className="underline" href={href("/guides")}>{t("guideLinks.index")}</Link></p></CardContent>
     </Card>
-    {guest && <Card><CardContent className="flex flex-wrap gap-4 pt-6 text-sm"><Link className="underline" href={href("/waitlist")}>{t("guest.waitlist")}</Link><Link className="underline" href={href("/login")}>{t("guest.login")}</Link></CardContent></Card>}
+    {guest && <Card><CardContent className="flex flex-wrap gap-4 pt-6 text-sm"><Link className="underline" href="/signup">{t("guest.signup")}</Link><Link className="underline" href={href("/login")}>{t("guest.login")}</Link></CardContent></Card>}
     {!guest && me && <Card><CardHeader><CardTitle>{profile("subscriptionLabel")}</CardTitle></CardHeader>
       <CardContent className="flex flex-wrap items-center gap-3 px-4 text-sm">
         {isJade ? <>

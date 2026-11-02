@@ -293,9 +293,10 @@ existing text for them verbatim.
    - You must be able to form a binding contract to use the Service. You
      are responsible for keeping your login credentials confidential and
      for all activity under your account.
-   - The Service is offered as a limited public service: sign-up may be
-     limited to people who have joined the waitlist or received an
-     invitation, and features may change as the Service develops.
+   - The Service is offered as a limited public service. We may limit or
+     pause new sign-ups at any time. Features may change as the Service
+     develops, and the Service may be interrupted or its quality may decline
+     at any time. (#870; Terms date: 2026-11-01.)
 4. **Payments and Credits** (new)
    - Paid plans are billed in prepaid service credits. Credits are sold in
      packs priced in US dollars (1 credit = US$1 at purchase); current

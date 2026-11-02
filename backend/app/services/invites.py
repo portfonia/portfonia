@@ -16,7 +16,7 @@ from app.models.user import User
 from app.models.waitlist_entry import WaitlistEntry
 from app.services.user_purge import _normalize_email as _normalize_email
 
-INVITE_REJECTED_MESSAGE = "invalid invite"
+INVITE_REJECTED_MESSAGE = "signup rejected"
 _DEFAULT_TTL = timedelta(days=14)
 
 
@@ -130,8 +130,10 @@ def list_invites(session: Session) -> list[Invite]:
 
 
 def resolve_attribution(
-    session: Session, invite_id: uuid.UUID, *, root_id: uuid.UUID
+    session: Session, invite_id: uuid.UUID | None, *, root_id: uuid.UUID
 ) -> tuple[uuid.UUID, uuid.UUID]:
+    if invite_id is None:
+        return root_id, root_id
     invite = session.get(Invite, invite_id)
     entry = (
         session.get(WaitlistEntry, invite.waitlist_entry_id)

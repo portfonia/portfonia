@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/app/_components/locale-provider";
+import { catalogs } from "@/locales";
 import type { Me } from "@/lib/api";
 import { ProfilePageBody } from "./profile-page-body";
 
@@ -128,7 +129,7 @@ it.each(["0.00", "3.01"])("16 discloses tokens, fingerprint, re-registration and
   const dialog = await open();
   expect(within(dialog).getByText(/All your API tokens will be revoked/)).toBeInTheDocument();
   expect(within(dialog).getByText(/one-way fingerprint/)).toBeInTheDocument();
-  expect(within(dialog).getByText(/you will need a new invitation/)).toBeInTheDocument();
+  expect(within(dialog).getByText(catalogs.en.profile.deleteAccountReregister)).toBeInTheDocument();
   expect(within(dialog).getByText(/unused part of the current period/)).toBeInTheDocument();
   if (gift === "0.00") expect(within(dialog).queryByText(/gift credits/)).toBeNull();
   else expect(within(dialog).getByText("Your 3.01 gift credits will also be cleared.")).toBeInTheDocument();

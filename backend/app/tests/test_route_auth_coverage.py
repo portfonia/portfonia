@@ -18,13 +18,12 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("POST", "/api-tokens/revoke-by-link"),  # HMAC-signed, 30-day link
         ("GET", "/auth/invite-email"),  # invite token plus Redis limit
-        ("POST", "/auth/signup"),  # invite token plus Redis limit
+        ("GET", "/auth/signup/altcha-challenge"),  # stateless Altcha challenge
+        ("POST", "/auth/signup"),  # Altcha plus Redis limit
         ("GET", "/auth/altcha-challenge"),  # stateless Altcha challenge
         ("POST", "/auth/forgot-password"),  # Altcha plus Redis limit
         ("GET", "/invitation-letters/unsubscribe"),  # HMAC-signed unsubscribe link
         ("POST", "/invitation-letters/unsubscribe"),  # HMAC-signed unsubscribe link
-        ("GET", "/waitlist/altcha-challenge"),  # stateless Altcha challenge
-        ("POST", "/waitlist"),  # Altcha plus Redis limit
         ("POST", "/webhooks/paddle"),  # Paddle signature verification
         ("GET", "/email-verifications/altcha-challenge"),  # stateless Altcha challenge
         ("GET", "/email-verifications/status"),  # verification token lookup

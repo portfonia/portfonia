@@ -28,13 +28,14 @@ def _fake_auth_provider(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     return create
 
 
-def test_signup_without_invite_rejected(
+def test_signup_unknown_invite_rejected(
     app_client: TestClient, db_session: Session, _fake_auth_provider: MagicMock
 ) -> None:
     before = db_session.execute(select(User)).scalars().all()
     resp = app_client.post(
         "/auth/signup",
         json={
+            "altcha": "valid",
             "invite_token": "no-such-token",
             "email": "new@example.com",
             "password": "a-long-enough-password",
@@ -58,6 +59,7 @@ def test_signup_with_valid_invite_creates_user(
     resp = app_client.post(
         "/auth/signup",
         json={
+            "altcha": "valid",
             "invite_token": issued.token,
             "email": "New@Example.com",
             "password": "a-long-enough-password",
@@ -86,6 +88,7 @@ def test_signup_persists_no_cadence_inactive_subscription_and_tos(
     resp = app_client.post(
         "/auth/signup",
         json={
+            "altcha": "valid",
             "invite_token": issued.token,
             "email": "weekly@example.com",
             "password": "a-long-enough-password",
@@ -116,6 +119,7 @@ def test_signup_stores_locale_from_request_when_present(
     resp = app_client.post(
         "/auth/signup",
         json={
+            "altcha": "valid",
             "invite_token": issued.token,
             "email": f"locale-{locale.lower()}@example.com",
             "password": "a-long-enough-password",
@@ -143,6 +147,7 @@ def test_signup_falls_back_to_en_locale_when_absent(
     resp = app_client.post(
         "/auth/signup",
         json={
+            "altcha": "valid",
             "invite_token": issued.token,
             "email": "no-locale@example.com",
             "password": "a-long-enough-password",
@@ -170,6 +175,7 @@ def test_signup_rejects_omitted_or_false_tos_accepted(
     before = db_session.execute(select(User)).scalars().all()
 
     payload = {
+        "altcha": "valid",
         "invite_token": issued.token,
         "email": "no-tos@example.com",
         "password": "a-long-enough-password",
@@ -206,6 +212,7 @@ def test_signup_deletes_auth_user_if_db_work_fails_after_create(
         app_client.post(
             "/auth/signup",
             json={
+                "altcha": "valid",
                 "invite_token": issued.token,
                 "email": "orphan@example.com",
                 "password": "a-long-enough-password",
@@ -228,6 +235,7 @@ def test_signup_validation_error_does_not_echo_password(app_client: TestClient) 
     resp = app_client.post(
         "/auth/signup",
         json={
+            "altcha": "valid",
             "invite_token": "x",
             "email": "a@example.com",
             "password": password,
@@ -247,6 +255,7 @@ def test_signup_validation_error_does_not_echo_password_alongside_missing_tos(
     resp = app_client.post(
         "/auth/signup",
         json={
+            "altcha": "valid",
             "invite_token": "x",
             "email": "a@example.com",
             "password": password,
@@ -271,6 +280,7 @@ def test_signup_rejected_invite_tags_failure_reason(
         resp = app_client.post(
             "/auth/signup",
             json={
+                "altcha": "valid",
                 "invite_token": "no-such-token",
                 "email": "new@example.com",
                 "password": "a-long-enough-password",
@@ -309,6 +319,7 @@ def test_signup_auth_provider_error_tags_failure_reason(
         resp = app_client.post(
             "/auth/signup",
             json={
+                "altcha": "valid",
                 "invite_token": issued.token,
                 "email": "auth-fail@example.com",
                 "password": "a-long-enough-password",
@@ -341,6 +352,7 @@ def test_signup_integrity_error_tags_failure_reason(
         resp = app_client.post(
             "/auth/signup",
             json={
+                "altcha": "valid",
                 "invite_token": issued.token,
                 "email": "integrity-fail@example.com",
                 "password": "a-long-enough-password",
@@ -380,6 +392,7 @@ def test_signup_compensation_failure_sends_ops_alert(
         app_client.post(
             "/auth/signup",
             json={
+                "altcha": "valid",
                 "invite_token": issued.token,
                 "email": "orphan2@example.com",
                 "password": "a-long-enough-password",
@@ -408,6 +421,7 @@ def test_signup_does_not_log_password(
         resp = app_client.post(
             "/auth/signup",
             json={
+                "altcha": "valid",
                 "invite_token": issued.token,
                 "email": "safe@example.com",
                 "password": password,
@@ -441,6 +455,7 @@ def test_signup_enqueues_account_email_verification(
     resp = app_client.post(
         "/auth/signup",
         json={
+            "altcha": "valid",
             "invite_token": issued.token,
             "email": "hook@example.com",
             "password": "a-long-enough-password",
@@ -467,6 +482,7 @@ def test_signup_failure_does_not_enqueue_account_email_verification(
     resp = app_client.post(
         "/auth/signup",
         json={
+            "altcha": "valid",
             "invite_token": "no-such-token",
             "email": "hook-fail@example.com",
             "password": "a-long-enough-password",
@@ -499,6 +515,7 @@ def test_signup_returns_201_even_if_enqueue_raises(
     resp = app_client.post(
         "/auth/signup",
         json={
+            "altcha": "valid",
             "invite_token": issued.token,
             "email": "enqueue-fail@example.com",
             "password": "a-long-enough-password",
@@ -554,6 +571,7 @@ def test_signup_sunday_backfills_seven_calendar_days(
         response = app_client.post(
             "/auth/signup",
             json={
+                "altcha": "valid",
                 "invite_token": issued.token,
                 "email": "sunday@example.com",
                 "password": "a-long-enough-password",
@@ -586,6 +604,7 @@ def test_acceptance_02_signup_english_default_preserves_traditional(
     issued = create_invite(db_session, created_by=_CREATOR)
     db_session.flush()
     payload: dict[str, str | bool] = {
+        "altcha": "valid",
         "invite_token": issued.token,
         "email": "acceptance-735@example.com",
         "password": "a-long-enough-password",
@@ -597,3 +616,8 @@ def test_acceptance_02_signup_english_default_preserves_traditional(
     assert response.status_code == 201
     row = db_session.execute(select(User).where(User.email == payload["email"])).scalar_one()
     assert row.locale == expected
+
+
+@pytest.fixture(autouse=True)
+def _signup_altcha(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.routers.auth.verify_signup_solution", lambda _: True)

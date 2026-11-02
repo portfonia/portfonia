@@ -8,6 +8,9 @@ const nextConfig: NextConfig = {
   output: "standalone",
   // #804: measured ~33 s; 90 s covers two concurrent submissions (~66 s) on the single-CPU host.
   experimental: { proxyTimeout: 90_000 },
+  async redirects() {
+    return ["/waitlist", "/es/waitlist", "/zh-Hans/waitlist", "/zh-Hant/waitlist"].map((source) => ({ source, destination: "/signup", permanent: true }));
+  },
   async rewrites() {
     return [
       {

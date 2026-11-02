@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_session
 from app.core.deps import Principal, current_principal
+from app.core.rate_limit import rate_limit_holdings_upload
 from app.models.holding import Holding
 from app.models.upload_job import UploadJob
 from app.models.user import User
@@ -79,6 +80,7 @@ async def upload_holdings(
     meantime — the backend finished and returned 200, but the client never
     saw it because the connection had already dropped.
     """
+    rate_limit_holdings_upload(user_id=str(principal.user_id))
     if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No filename provided."

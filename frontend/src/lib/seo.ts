@@ -7,7 +7,7 @@ export const SITE_URL = "https://portfonia.com";
 export const SEO_PAGES = {
   guideWhatIf: "/guides/jade-what-if",
   agentGuide: "/agent/guide",
-  home: "/", about: "/about", pricing: "/pricing", waitlist: "/waitlist",
+  home: "/", about: "/about", pricing: "/pricing",
   privacy: "/privacy", terms: "/terms", refund: "/refund",
   guideReplay: "/guides/jade-replay", guideVar: "/guides/jade-var",
   guides: "/guides", guideStress: "/guides/jade-stress", guideStyle: "/guides/jade-style", guideTracking: "/guides/jade-tracking",

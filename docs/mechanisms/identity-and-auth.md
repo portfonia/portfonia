@@ -869,6 +869,13 @@ never the sole source of the analytical framing — §1.4).
 
 ### Signup / invite anti-abuse — issue #190
 
+Issue #870 opens public signup: `invite_token` is optional (blank values become
+absent). Signup first verifies purpose-distinct Altcha from
+`GET /auth/signup/altcha-challenge`, then applies the existing Redis limits.
+Provided invitations retain their guard and atomic redemption; absent invitations
+attribute both ancestors to the root. Rejections use
+`INVITE_REJECTED_MESSAGE = "signup rejected"`.
+
 Public `POST /auth/signup` and ops `POST /admin/invites` had no bot/volume
 control (no Turnstile, no HTTP rate limit). Turnstile stays rejected:
 `challenges.cloudflare.com` is not reliable from Mainland China, a widget
@@ -1014,14 +1021,7 @@ a Next/Supabase action — no new backend change-password API.
 
 ### Waitlist (issue #566)
 
-The logged-out `/waitlist` page submits email and current UI locale through
-`POST /waitlist`, after a purpose-distinct Altcha challenge from
-`GET /waitlist/altcha-challenge`. The submission normalizes the email with
-`strip().lower()`, checks Altcha, then applies the existing fixed-window
-limiter: 5/IP/minute, 20/IP/hour, 3/email/hour (hashed Redis key), and a
-200/day global alert threshold. The response is always `200
-{"received": true}` for new, repeat, rejected, and already registered
-emails; validation, bad captcha, limit, and Redis errors retain 422/400/429/503.
+Issue #870 retired the public page and endpoints; the table, sender, Ops endpoints, and referrals remain.
 
 `waitlist_entries` stores one unique normalized email, its UI locale,
 manual `pending|invited|rejected` status, `link_sent_at`, and timestamps.
@@ -1239,8 +1239,7 @@ New entries are pending, `source='referral'`, with nullable UUID
 `source='organic'`. Only a new entry queues the public waitlist's plain-English
 notice, adding `Referred by: {referrer email}`, after commit. Enqueue errors
 are logged without changing success. There is no Altcha or user history
-endpoint. The public waitlist endpoint and #672 sender, eligibility, quota
-and digest are unchanged. Sent invites retain `created_by` as the root Admin;
+endpoint. The #672 sender, eligibility, quota and digest are unchanged; #870 later retired the public endpoint. Sent invites retain `created_by` as the root Admin;
 never put the referrer there, because attribution comes only from
 `waitlist_entries.referrer_user_id` and `created_by` is never read for it.
 

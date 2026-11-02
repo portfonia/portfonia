@@ -24,13 +24,14 @@
     "editHoldings": "Edit holdings",
     "reports": "Reports",
     "agent": "AI Agent",
-    "jade": "Jade"
+    "jade": "Jade",
+    "signup": "Sign up"
   },
   "auth": {
     "loginHeading": "Log in",
     "loginSubtitle": "Welcome back.",
     "signupHeading": "Create your account",
-    "signupSubtitle": "You'll need a valid invite link to sign up.",
+    "signupSubtitle": "If you received an invitation link, please sign up through it.",
     "emailLabel": "Email",
     "passwordLabel": "Password",
     "confirmPasswordLabel": "Confirm password",
@@ -45,17 +46,6 @@
     "loggingIn": "Logging in...",
     "signupButton": "Create account",
     "signingUp": "Creating account...",
-    "missingInvite": "This link is missing its invite token. Ask whoever invited you for a fresh link.",
-    "waitlistHint": "Portfonia is in internal testing. If you're interested, you can ",
-    "waitlistLink": "join the waitlist",
-    "waitlistHeading": "Join the waitlist",
-    "waitlistSubtitle": "Leave your email to request an invitation.",
-    "waitlistSubmit": "Join waitlist",
-    "waitlistSubmitting": "Submitting...",
-    "waitlistReceived": "Your request has been received.",
-    "waitlistEmailRequired": "Enter your email.",
-    "waitlistCaptchaRequired": "Please complete the verification widget.",
-    "waitlistError": "Could not submit your request. Try again.",
     "alreadyHaveAccount": "Already have an account?",
     "backToLogin": "Log in instead",
     "tooManyAttempts": "Too many attempts, try again later.",
@@ -64,7 +54,6 @@
     "signupThrownError": "Sign up failed.",
     "errorMissingCredentials": "Enter your email and password.",
     "errorInvalidCredentials": "Invalid email or password.",
-    "errorMissingInviteToken": "This sign-up link is missing its invite token.",
     "errorInvalidSignupInput": "Enter a valid email and a password of at least 8 characters.",
     "forgotPasswordLink": "Forgot password?",
     "forgotPasswordHeading": "Reset your password",
@@ -80,7 +69,12 @@
     "resetPasswordSubmit": "Update password",
     "resetPasswordSubmitting": "Updating...",
     "resetPasswordSuccess": "Your password has been updated. Redirecting to log in...",
-    "resetPasswordFailed": "Could not update your password. This link may have expired — request a new one."
+    "resetPasswordFailed": "Could not update your password. This link may have expired — request a new one.",
+    "signupRejected": "We could not create an account with these details. If you already have an account, log in.",
+    "signupWithoutInvite": "Sign up without the invitation link",
+    "signupCaptchaRequired": "Please complete the verification.",
+    "signupHint": "Don't have an account? ",
+    "signupLink": "Sign up"
   },
   "holdings": {
     "pageTitle": "Holdings",
@@ -237,7 +231,8 @@
     },
     "exportDescription": "Current holdings export (re-importable)",
     "templateDescription": "Holdings upload template",
-    "changeHistoryLink": "Change history"
+    "changeHistoryLink": "Change history",
+    "uploadTooMany": "Too many uploads. Please try again later."
   },
   "questionnaire": {
     "pageTitle": "Report preferences",
@@ -513,7 +508,7 @@
     "deleteAccountSubscription": "An active subscription ends immediately; the unused part of the current period is not returned.",
     "deleteAccountTokens": "All your API tokens will be revoked.",
     "deleteAccountGift": "Your {gift_balance} gift credits will also be cleared.",
-    "deleteAccountReregister": "If you sign up again later with the same email, you will need a new invitation and will not receive the sign-up credit again.",
+    "deleteAccountReregister": "If you sign up again later with the same email, you will not receive the sign-up credit again.",
     "deleteAccountEmailLabel": "Type your account email to confirm",
     "deleteAccountContinue": "Continue",
     "deleteAccountPurchased": "You are giving up {cash_balance} purchased credits (bought at US$1 per credit).",
@@ -1275,7 +1270,7 @@
     "resellerNotice": "Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our orders. Paddle provides all customer service inquiries and handles returns.",
     "terms": {
       "title": "Terms of Service",
-      "lastUpdated": "Last updated: 2026-10-13",
+      "lastUpdated": "Last updated: 2026-11-01",
       "intro": "These Terms of Service govern your use of Portfonia. Please read them together with our Privacy Policy and Refund Policy.",
       "sections": [
         {
@@ -1295,7 +1290,7 @@
           "heading": "3. Eligibility and Accounts",
           "body": [
             "You must be able to form a binding contract to use the Service. You are responsible for keeping your login credentials confidential and for all activity under your account.",
-            "The Service is offered as a limited public service: sign-up may be limited to people who have joined the waitlist or received an invitation, and features may change as the Service develops."
+            "The Service is offered as a limited public service. We may limit or pause new sign-ups at any time. Features may change as the Service develops, and the Service may be interrupted or its quality may decline at any time."
           ]
         },
         {
@@ -1762,10 +1757,6 @@
         "title": "Pricing — Portfonia",
         "description": "Weekly, Mon/Wed/Fri, or weekday daily briefings, and Jade portfolio risk tools, paid with prepaid credits from US$10. Unused purchased credits are refundable within 120 days."
       },
-      "waitlist": {
-        "title": "Join the waitlist — Portfonia",
-        "description": "Request an invitation to Portfonia, a briefing service that maps market news and macro developments onto the holdings you track across brokers."
-      },
       "privacy": {
         "title": "Privacy Policy — Portfonia",
         "description": "How Portfonia collects, encrypts, uses and deletes your account and holdings data."
@@ -1859,8 +1850,8 @@
       }
     ],
     "cta": {
-      "waitlist": "Join the waitlist",
-      "pricing": "View pricing"
+      "pricing": "View pricing",
+      "signup": "Sign up"
     }
   },
   "notFound": {
@@ -1874,8 +1865,8 @@
       "notice": "Sample data: every chart below uses a fixed SPY and AGG example portfolio from the public guides. It is not your holdings."
     },
     "guest": {
-      "waitlist": "Join the waitlist",
-      "login": "Log in"
+      "login": "Log in",
+      "signup": "Sign up"
     },
     "whatIf": {
       "errors": {

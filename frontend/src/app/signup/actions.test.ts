@@ -18,11 +18,13 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 import { signup } from "./actions";
+import { catalogs } from "@/locales";
 
 const originalFetch = global.fetch;
 
 function formData(fields: Record<string, string>) {
   const fd = new FormData();
+  fd.set("altcha", "valid");
   for (const [k, v] of Object.entries(fields)) fd.set(k, v);
   return fd;
 }
@@ -34,13 +36,21 @@ describe("signup action", () => {
     vi.resetAllMocks();
   });
 
-  it("rejects a missing invite token without calling the backend", async () => {
-    const state = await signup(
-      undefined,
-      formData({ invite_token: "", email: "a@b.com", password: "correcthorse" }),
-    );
+  it("sends signup without an invitation and forwards Altcha", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 400 }));
+    global.fetch = fetchMock;
+    await signup(undefined, formData({ email: "a@b.com", password: "correcthorse" }));
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body).not.toHaveProperty("invite_token");
+    expect(body.altcha).toBe("valid");
+  });
 
-    expect(state?.error).toBeTruthy();
+  it("requires Altcha before calling the backend", async () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock;
+    const state = await signup(undefined, formData({ altcha: "", email: "a@b.com", password: "correcthorse" }));
+    expect(state?.error).toBe(catalogs.en.auth.signupCaptchaRequired);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("rejects a short password without calling the backend", async () => {
@@ -145,7 +155,7 @@ describe("signup action", () => {
     expect(headers.has("x-real-ip")).toBe(false);
   });
 
-  it("surfaces the backend's rejection reason (expired/used/revoked invite) verbatim", async () => {
+  it("uses localized rejection copy for a 400 response", async () => {
     global.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ detail: "This invite is no longer valid." }), {
         status: 400,
@@ -162,7 +172,7 @@ describe("signup action", () => {
     }),
     );
 
-    expect(state?.error).toBe("This invite is no longer valid.");
+    expect(state?.error).toBe(catalogs.en.auth.signupRejected);
     expect(signInWithPassword).not.toHaveBeenCalled();
   });
 
