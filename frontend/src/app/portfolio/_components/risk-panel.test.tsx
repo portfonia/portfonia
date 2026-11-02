@@ -10,8 +10,9 @@ vi.mock("@/lib/api", async () => {
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
+import { catalogs } from "@/locales";
 import type { PortfolioRiskResponse } from "@/lib/api";
-import { RiskChartTooltip, RiskPanel, betaSegment, toTimestamp } from "./risk-panel";
+import { RiskChartTooltip, RiskPanel, SegmentedBar, betaSegment, toTimestamp } from "./risk-panel";
 
 // Recharts needs a reported size before it emits actual SVG paths.
 class SizedResizeObserver {
@@ -89,7 +90,7 @@ it("omits bar markers with no conclusion and keeps explanation behavior", async 
   expect(risk.querySelector('[data-testid="bar-marker"]')).toBeNull();
   expect(screen.getByRole("button", { name: /^Deviation:/ }).querySelector('[data-testid="bar-marker"]')).toBeNull();
   fireEvent.focus(risk);
-  expect(screen.getByRole("tooltip")).toHaveTextContent("No submitted investment questionnaire.");
+  expect(screen.getByRole("tooltip")).toHaveTextContent(catalogs.en.portfolio.riskPanel.reason.noQuestionnaire);
   fireEvent.blur(risk);
 });
 
@@ -166,4 +167,14 @@ it("draws every available benchmark without portfolio data, or one empty message
   rerender(<LocaleProvider routeLocale={null}><RiskPanel baseCurrency="CNY" /></LocaleProvider>);
   await waitFor(() => expect(container.querySelector('[role="img"]')).toBeNull());
   expect(screen.getByText("Volatility · annualized historical volatility").closest("section")).toHaveTextContent("Insufficient sample");
+});
+
+it("places three segment labels in equal grid columns", () => {
+  const segments = ["first", "middle", "last"].map((label) => ({ color: "red", label }));
+  render(<SegmentedBar segments={segments} activeIndex={null} />);
+  const row = screen.getByText(segments[0].label).parentElement;
+  for (const segment of segments) {
+    expect(screen.getByText(segment.label).parentElement).toBe(row);
+  }
+  expect(row).toHaveStyle({ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" });
 });

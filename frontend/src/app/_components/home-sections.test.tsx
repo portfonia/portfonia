@@ -503,7 +503,7 @@ describe("HomeSections product previews (issue #549)", () => {
     expect(overview.compareDocumentPosition(performance)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(performance.compareDocumentPosition(finalCta)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(screen.getByText(catalogs.en.home.productPreviews.riskBody)).toBeInTheDocument();
-    expect(screen.getByText("Opportunity decides how fast you can go; risk decides how steady the ride is. The two reinforce and constrain each other, and you need both. Here you can see how much your portfolio swings, how closely it moves with the market, and how far it sits from the tolerance you set.")).toBeInTheDocument();
+    expect(screen.getByText(catalogs.en.home.productPreviews.riskCtaBody)).toBeInTheDocument();
     expect(container.querySelectorAll('[data-testid="home-risk-preview"]')).toHaveLength(1);
   });
 
@@ -514,8 +514,8 @@ describe("HomeSections product previews (issue #549)", () => {
     expect(beta).toHaveTextContent("1.28");
     expect(beta.querySelector('[data-testid="beta-portfolio-marker"]')).not.toBeNull();
     expect(beta.querySelector('[data-testid="beta-reference-marker"]')).not.toBeNull();
-    expect(within(risk).getByRole("button", { name: /^Risk:/ })).toHaveTextContent("Caution");
-    expect(within(risk).getByRole("button", { name: /^Deviation:/ })).toHaveTextContent("Aggressive direction +1 tier");
+    expect(within(risk).getByRole("button", { name: /^Risk:/ })).toHaveTextContent(catalogs.en.portfolio.riskPanel.riskLabels.caution);
+    expect(within(risk).getByRole("button", { name: /^Deviation:/ })).toHaveTextContent(catalogs.en.portfolio.riskPanel.aggressiveDirection.replace("{count}", "1"));
     for (const value of ["16.0%", "11.0%", "17.3%", catalogs.en.portfolio.riskPanel.footnote]) {
       expect(within(risk).getByText(value)).toBeInTheDocument();
     }
@@ -541,7 +541,8 @@ describe("HomeSections product previews (issue #549)", () => {
       expect(series.window_start).toBe(series.points[0].date);
       expect(series.window_end).toBe("2026-09-18");
     }
-    expect(catalogs["zh-Hans"].home.productPreviews.riskCtaBody).toBe("收益机会决定你能走多快，风险决定你能走多稳。两者相辅相成，又互相制约，缺一不可。在这里看清组合的波动有多大、和大盘有多同步、离自己设定的承受范围有多远。");
+    render(<LocaleProvider routeLocale="zh-Hans"><HomeSections /></LocaleProvider>);
+    expect(screen.getByText(catalogs["zh-Hans"].home.productPreviews.riskCtaBody)).toBeInTheDocument();
     for (const locale of LOCALES) {
       const copy = catalogs[locale].home.productPreviews;
       for (const key of ["riskHeading", "riskBody", "riskCtaHeading", "riskCtaBody"] as const) expect(copy[key]).toBeTruthy();
