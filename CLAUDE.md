@@ -237,7 +237,7 @@ The per-issue index text that stood here until 2026-10-21 is archived in
 
 ## Product Boundary (NEVER VIOLATE)
 
-Portfonia is an **intelligence service**, not an advisory service.
+Portfonia is a **software tool**, not an advisory service.
 
 ### Three-layer output rule
 

@@ -19,7 +19,7 @@
     "profile": "個人中心",
     "portfolio": "持倉總覽",
     "portfolioPerformance": "績效表現",
-    "questionnaire": "投資風格",
+    "questionnaire": "報告偏好",
     "sessionExpired": "登入已逾時。",
     "editHoldings": "編輯持倉",
     "reports": "報告中心",
@@ -240,7 +240,7 @@
     "changeHistoryLink": "變更記錄"
   },
   "questionnaire": {
-    "pageTitle": "投資風格",
+    "pageTitle": "報告偏好",
     "pageSubtitle": "用於調整報告側重的事實與角度。每個問題都已預填合理的預設值——不想更改可直接跳到儲存，也可以隨時回來重新作答。",
     "onboardingPageTitle": "讓我們定制你的報告",
     "onboardingPageSubtitle": "預填的預設值與系統框架一致。儲存即可使用預設值，或跳過並繼續錄入持倉。",
@@ -371,7 +371,7 @@
         "question": "報告應重點關注哪些方面？",
         "hint": "決定外部新聞中哪一類在報告裡占更大篇幅。",
         "options": {
-          "MACRO": "總體經濟信號",
+          "MACRO": "總經事件",
           "FUNDAMENTALS": "個股基本面",
           "GEOPOLITICS": "地緣政治動態",
           "BALANCED": "以上均衡涵蓋"
@@ -388,7 +388,7 @@
   "profile": {
     "pageTitle": "個人中心",
     "missingSetupHeading": "完成帳戶設定",
-    "missingSetupQuestionnaire": "設定投資風格",
+    "missingSetupQuestionnaire": "設定報告偏好",
     "missingSetupHoldings": "錄入持倉",
     "accountHeading": "帳戶",
     "accountEmailLabel": "電子郵件",
@@ -424,7 +424,7 @@
     "holdingsNavOverview": "持倉總覽",
     "holdingsNavPerformance": "業績表現",
     "holdingsNavManagement": "持倉管理",
-    "holdingsNavInvestmentStyle": "投資風格",
+    "holdingsNavInvestmentStyle": "報告偏好",
     "reportManagementHeading": "報告管理",
     "reportScheduleHeading": "報告週期",
     "reportScheduleOptions": {
@@ -509,7 +509,7 @@
       "no_subscription": "目前沒有可執行此操作的有效訂閱。",
       "jade_managed": "您的潤玉訂閱由潤玉平台管理。"
     },
-    "deleteAccountDisclosure": "您的持倉、個人化投資設定與報告將被清除。credits 與交易紀錄基於會計與稅務目的予以保留，並與您的電子郵件地址解除關聯，僅保留該電子郵件地址的單向指紋，用途僅限於防止重複發放註冊贈送的 credits。",
+    "deleteAccountDisclosure": "您的持倉、報告偏好與報告將被清除。credits 與交易紀錄基於會計與稅務目的予以保留，並與您的電子郵件地址解除關聯，僅保留該電子郵件地址的單向指紋，用途僅限於防止重複發放註冊贈送的 credits。",
     "deleteAccountSubscription": "目前的訂閱立即終止，本期未使用的部分不予退還。",
     "deleteAccountTokens": "您的全部 API token 將被撤銷。",
     "deleteAccountGift": "您的 {gift_balance} 贈送 credits 也將一併清除。",
@@ -548,14 +548,14 @@
       "betaExplanation": "組合在觀察期內相對 S&P 500 的歷史敏感度，不預測未來結果。",
       "risk": "Risk",
       "riskSubtitle": "個人化風險觀察",
-      "riskExplanation": "綜合歷史波動，以及問卷中的風險承受偏好、期限與目標。",
+      "riskExplanation": "綜合歷史波動，以及報告偏好中的風險偏好、期限與目標。",
       "deviation": "偏離度",
       "deviationSubtitle": "問卷偏好 ↔ 實際持倉",
       "deviationExplanation": "比較問卷中的風險偏好、風格與市場偏好，以及已估值持倉的資產和市場結構。",
       "riskLabels": {
-        "within": "在承受範圍內",
-        "caution": "需留意",
-        "exceeds": "超出承受範圍"
+        "within": "在您填寫的範圍內",
+        "caution": "接近您填寫範圍的邊緣",
+        "exceeds": "高於您填寫的範圍"
       },
       "tiers": {
         "low": "低",
@@ -569,8 +569,8 @@
         "no_valued_holdings": "無可估值持倉，無法評估偏離度"
       },
       "objectiveTier": "歷史波動檔位：{tier}",
-      "aggressiveDirection": "進取方向 +{count} 檔",
-      "conservativeDirection": "保守方向 {count} 檔",
+      "aggressiveDirection": "持倉高於您填寫的偏好 {count} 檔",
+      "conservativeDirection": "持倉低於您填寫的偏好 {count} 檔",
       "match": "未見可證實的偏離",
       "conservative": "保守",
       "matchShort": "匹配",
@@ -585,7 +585,7 @@
       "reason": {
         "insufficient": "需要至少 {min} 個有效交易日，目前有 {count} 個。",
         "manualShare": "手動估值佔組合 {share}，超過 {limit} 上限。",
-        "noQuestionnaire": "尚未提交投資問卷。",
+        "noQuestionnaire": "尚未提交報告偏好。",
         "noValuedHoldings": "暫無可估值持倉。"
       },
       "insufficientSample": "樣本不足",
@@ -1200,7 +1200,7 @@
       "riskHeading": "風險畫像",
       "riskBody": "由真實行情與虛構持倉構成的範例。同一組合的歷史波動、相對 S&P 500 的 Beta，以及對照參考問卷的風險位置與偏離程度；參考問卷採用平衡型風險偏好與短期投資期限。",
       "riskCtaHeading": "走得長遠，需要平衡好機會與風險",
-      "riskCtaBody": "收益機會決定你能走多快，風險決定你能走多穩。兩者相輔相成，又互相制約，缺一不可。在這裡看清組合的波動有多大、和大盤有多同步、離自己設定的承受範圍有多遠。",
+      "riskCtaBody": "收益機會決定你能走多快，風險決定你能走多穩。兩者相輔相成，又互相制約，缺一不可。在這裡看清組合的波動有多大、和大盤有多同步、離自己填寫的範圍有多遠。",
       "portfolioHeading": "持倉概覽",
       "portfolioBody": "示例數字，不是你的持倉。同一份示例組合，按市場、資產類別和分組呈現。",
       "performanceHeading": "組合表現",
@@ -1373,7 +1373,7 @@
     },
     "privacy": {
       "title": "隱私政策",
-      "lastUpdated": "最後更新：2026-10-17",
+      "lastUpdated": "最後更新：2026-11-01",
       "intro": "我們重視您的隱私。本政策說明我們收集哪些資訊、為何收集，以及如何保護這些資訊。",
       "sections": [
         {
@@ -1386,7 +1386,7 @@
           "heading": "2. 我們收集的資訊",
           "body": [
             "帳戶資訊：您的電子郵件地址及由我們的身分驗證服務供應商處理的登入憑證。",
-            "持倉與投資資料：您上傳的持倉、經紀商/託管機構及數量，以及您提供的任何投資風格問卷回答。",
+            "持倉與投資資料：您上傳的持倉、經紀商/託管機構及數量，以及您提供的任何報告偏好問卷回答。",
             "使用資訊：安全營運本服務所需的基本工作階段與活動資料(例如登入時間戳記及閒置逾時強制登出紀錄)。",
             "付款與 credits 資訊：購買由 {merchantOfRecord} 作為記錄商戶處理。{merchantOfRecord} 依其自身隱私聲明收集您的付款及帳單資訊；我們會收到訂單編號、金額、幣別、國家及結帳所用電子郵件等交易紀錄，但絕不會取得您的完整卡號。我們亦會記錄您的 credits 餘額及每一筆 credits 的增加與使用。"
           ]
@@ -1416,7 +1416,7 @@
           "heading": "6. 資料保留",
           "body": [
             "只要您的帳戶處於活躍狀態，我們就會保留您的帳戶和持倉資料。部分營運紀錄(例如上傳工作中繼資料)會在較短的保留期後自動清除。您可以隨時申請刪除您的帳戶(見下文「您的權利」)。",
-            "刪除帳戶後，您的持倉、個人化投資設定、報告、API token、候補名單紀錄及其他個人資料將被清除。credits 與交易紀錄基於會計與稅務目的予以保留，並與您的電子郵件地址解除關聯，僅保留該電子郵件地址的單向指紋，用途僅限於防止重複發放註冊贈送的 credits。"
+            "刪除帳戶後，您的持倉、報告偏好、報告、API token、候補名單紀錄及其他個人資料將被清除。credits 與交易紀錄基於會計與稅務目的予以保留，並與您的電子郵件地址解除關聯，僅保留該電子郵件地址的單向指紋，用途僅限於防止重複發放註冊贈送的 credits。"
           ]
         },
         {
@@ -1429,7 +1429,7 @@
         {
           "heading": "8. 您的權利",
           "body": [
-            "您可以直接在本服務中檢視與更新您的持倉及個人資料。您可以在個人中心頁面自行刪除帳戶，也可以聯絡我們代為刪除；刪除將依「資料保留」一節所述，清除您的持倉、個人化投資設定及身分驗證帳戶。"
+            "您可以直接在本服務中檢視與更新您的持倉及個人資料。您可以在個人中心頁面自行刪除帳戶，也可以聯絡我們代為刪除；刪除將依「資料保留」一節所述，清除您的持倉、報告偏好及身分驗證帳戶。"
           ]
         },
         {
@@ -2037,7 +2037,7 @@
         "benchmarkCvar": "{benchmark} CVaR",
         "reference": "問卷參考線"
       },
-      "noQuestionnaire": "填妥投資問卷後即可顯示參考線。",
+      "noQuestionnaire": "填妥報告偏好後即可顯示參考線。",
       "questionnaireLink": "開啟問卷",
       "insufficient99": "99% 需要至少 500 筆每日報酬樣本；本次回放共有 {count} 筆。",
       "legend": {
@@ -2463,7 +2463,7 @@
         },
         "s10": {
           "heading": "問卷參考線",
-          "p1": "參考線取自組合概覽風險指標的「超出」年化波動率門檻：保守型、平衡型和積極型分別為 20%、30%、40%。投資期間較短或目標是保全資本時，門檻下移 5 個百分點，最低為 20%。計算假設平均值為零的正態分布，將波動率換算成單日和月度虧損。歷史 VaR 使用實際報酬分布，兩者的基礎不同。參考線只供比較，不作「範圍內」或「超出」的判斷；可接受的程度因人而異，也會隨時間變化。它在表格裡單列一列，在每日直方圖裡畫為點線，問卷未作答時不顯示。"
+          "p1": "參考線取自組合概覽風險指標的「高於您填寫的範圍」年化波動率門檻：保守型、平衡型和積極型分別為 20%、30%、40%。投資期間較短或目標是保全資本時，門檻下移 5 個百分點，最低為 20%。計算假設平均值為零的正態分布，將波動率換算成單日和月度虧損。歷史 VaR 使用實際報酬分布，兩者的基礎不同。參考線只供比較，不作「範圍內」或「超出」的判斷；可接受的程度因人而異，也會隨時間變化。它在表格裡單列一列，在每日直方圖裡畫為點線，問卷未作答時不顯示。"
         },
         "s11": {
           "heading": "為何不在同一資料上回測",

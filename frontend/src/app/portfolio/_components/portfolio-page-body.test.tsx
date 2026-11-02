@@ -142,13 +142,13 @@ describe("PortfolioPageBody", () => {
     expect(link).toHaveAttribute("href", "/holdings/edit");
   });
 
-  it("shows View performance, Edit holdings, and Investment style under the title", () => {
+  it("shows View performance, Edit holdings, and report preferences under the title", () => {
     renderBody(summary({}));
     const links = titleLinks();
     expect(links.map((link) => link.textContent)).toEqual([
       "View performance",
       "Edit holdings",
-      "Investment style",
+      catalogs.en.profile.holdingsNavInvestmentStyle,
     ]);
     expect(links[0]).toHaveAttribute("href", "/portfolio/performance");
     expect(links[1]).toHaveAttribute("href", "/holdings/edit");

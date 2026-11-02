@@ -44,7 +44,7 @@ _INVITATION_LETTER_COPY: dict[str, dict[str, str]] = {
     "en": {
         "subject": "Portfonia Invitation Letter",
         "paragraph1": "Welcome to Portfonia. You have been invited to join the platform. Please click the registration link below to create a new account with your email address.",
-        "paragraph2": "After creating your account, we encourage you to complete the personalized investment-style questionnaire and add your main holdings and the instruments you follow, so the platform can provide you with more relevant service. Your holdings are protected by HTTPS encryption in transit and AES-128 authenticated encryption at rest.",
+        "paragraph2": "After creating your account, we encourage you to set your report preferences and add your main holdings and the instruments you follow, so the platform can provide you with more relevant service. Your holdings are protected by HTTPS encryption in transit and AES-128 authenticated encryption at rest.",
         "paragraph3": "If you have any feedback or suggestions in your day-to-day use, please write to info@portfonia.com. We will respond promptly and handle it appropriately.",
         "paragraph4": "Thank you again for your time and trust!",
         "footer": "You received this email because you were invited to join Portfonia. If you do not wish to receive further invitation emails, you can unsubscribe: {unsubscribe_url}",
@@ -52,7 +52,7 @@ _INVITATION_LETTER_COPY: dict[str, dict[str, str]] = {
     "zh": {
         "subject": "Portfonia 邀请函",
         "paragraph1": "欢迎来到 Portfonia，您已被邀请加入本平台，请点击以下注册链接，用您的邮件地址注册新账户。",  # noqa: RUF001
-        "paragraph2": "创建账户后，我们鼓励您填写个性化投资风格问卷，以及您的主要持仓和关注的标的，以便平台更好地为您提供关联性更高的服务。您的持仓信息在传输全程经 HTTPS 加密，存储时经 AES-128 认证加密保护。",  # noqa: RUF001
+        "paragraph2": "创建账户后，我们鼓励您设置报告偏好，并添加您的主要持仓和关注的标的，以便平台更好地为您提供关联性更高的服务。您的持仓信息在传输全程经 HTTPS 加密，存储时经 AES-128 认证加密保护。",  # noqa: RUF001
         "paragraph3": "如果您在日常使用中有意见和建议，可以致信 info@portfonia.com。我们会在第一时间反馈并适当处理。",  # noqa: RUF001
         "paragraph4": "再次感谢您的时间和信任！",  # noqa: RUF001
         "footer": "您收到这封邮件，是因为您受邀加入 Portfonia。如不希望再收到邀请邮件，可以退订：{unsubscribe_url}",  # noqa: RUF001
@@ -60,7 +60,7 @@ _INVITATION_LETTER_COPY: dict[str, dict[str, str]] = {
     "zh-Hant": {
         "subject": "Portfonia 邀請函",
         "paragraph1": "歡迎來到 Portfonia，您已受邀加入本平台，請點擊以下註冊連結，用您的電子郵件地址註冊新帳號。",  # noqa: RUF001
-        "paragraph2": "建立帳號後，我們鼓勵您填寫個人化投資風格問卷，以及您的主要持倉和關注的標的，以便平台為您提供關聯性更高的服務。您的持倉資訊在傳輸全程經 HTTPS 加密，儲存時經 AES-128 認證加密保護。",  # noqa: RUF001
+        "paragraph2": "建立帳號後，我們鼓勵您設定報告偏好，並新增您的主要持倉和關注的標的，以便平台為您提供關聯性更高的服務。您的持倉資訊在傳輸全程經 HTTPS 加密，儲存時經 AES-128 認證加密保護。",  # noqa: RUF001
         "paragraph3": "如果您在日常使用中有意見和建議，可以來信 info@portfonia.com。我們會儘快回覆並妥善處理。",  # noqa: RUF001
         "paragraph4": "再次感謝您的時間和信任！",  # noqa: RUF001
         "footer": "您收到這封電子郵件，是因為您受邀加入 Portfonia。如不希望再收到邀請郵件，可以退訂：{unsubscribe_url}",  # noqa: RUF001

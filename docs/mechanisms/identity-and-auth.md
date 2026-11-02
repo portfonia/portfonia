@@ -740,6 +740,8 @@ is `EXISTS` on `user_investment_context`; `has_holdings` is `EXISTS` on
 
 ### Investment-style questionnaire — B6 (Ring 1-B design.md §8, issue #129 checkpoint B6)
 
+Users see it as "Report preferences" since #866.
+
 Closes the "stated preference" half of Concept §4.2's signal model — the
 "displayed preference" half (holdings-structure inference) already existed
 from stage A. B6 depends on B4 (`users.id` as the FK target) and B1 (the

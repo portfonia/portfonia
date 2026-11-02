@@ -177,7 +177,7 @@ describe("ProfilePageBody", () => {
   it("links the Holdings investment-style control to /questionnaire in default mode (no onboarding query)", () => {
     renderBody(BASE_ME);
 
-    expect(screen.getByRole("link", { name: /^investment style$/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: en.profile.holdingsNavInvestmentStyle })).toHaveAttribute(
       "href",
       "/questionnaire",
     );
@@ -209,7 +209,7 @@ describe("ProfilePageBody", () => {
       "href",
       "/holdings",
     );
-    expect(screen.getByRole("link", { name: /^investment style$/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: en.profile.holdingsNavInvestmentStyle })).toHaveAttribute(
       "href",
       "/questionnaire",
     );
@@ -247,7 +247,7 @@ describe("ProfilePageBody", () => {
   it("renders a gap card with a button per missing item, neither carrying ?onboarding=1 (issue #221 §2.6)", () => {
     renderBody({ ...BASE_ME, missing: ["questionnaire", "holdings"] });
 
-    const questionnaireLink = screen.getByRole("link", { name: /set your investment style/i });
+    const questionnaireLink = screen.getByRole("link", { name: en.profile.missingSetupQuestionnaire });
     expect(questionnaireLink).toHaveAttribute("href", "/questionnaire");
     const holdingsLink = screen.getByRole("link", { name: /add your holdings/i });
     expect(holdingsLink).toHaveAttribute("href", "/holdings");
@@ -257,7 +257,7 @@ describe("ProfilePageBody", () => {
     renderBody({ ...BASE_ME, has_questionnaire: true, missing: ["holdings"] });
 
     expect(
-      screen.queryByRole("link", { name: /set your investment style/i }),
+      screen.queryByRole("link", { name: en.profile.missingSetupQuestionnaire }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /add your holdings/i })).toBeInTheDocument();
   });
@@ -266,7 +266,7 @@ describe("ProfilePageBody", () => {
     renderBody({ ...BASE_ME, has_questionnaire: true, has_holdings: true, missing: [] });
 
     expect(
-      screen.queryByRole("link", { name: /set your investment style/i }),
+      screen.queryByRole("link", { name: en.profile.missingSetupQuestionnaire }),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /add your holdings/i })).not.toBeInTheDocument();
     // The rest of the page still renders — an empty `missing` doesn't hide
@@ -312,7 +312,7 @@ describe("Urgency + danger zone styling (issue #269 §2/§5)", () => {
   it("gives the gap card the urgent (pink) variant", () => {
     renderBody(BASE_ME);
 
-    const link = screen.getByRole("link", { name: /set your investment style/i });
+    const link = screen.getByRole("link", { name: en.profile.missingSetupQuestionnaire });
     expect(link.closest('[data-variant="urgent"]')).not.toBeNull();
   });
 

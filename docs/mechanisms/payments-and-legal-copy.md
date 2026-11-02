@@ -95,7 +95,7 @@ a cash-redeemable balance. Full rationale and sources: issue #574
   paid period with no return. Plan changes still return the unused part pro rata.**
 - Credits do not expire. After a purchase's 120-day refund window there is
   no other refund channel; the credits stay usable.
-- Account deletion removes holdings, investment-style settings, and other
+- Account deletion removes holdings, report preferences, and other
   personal data; credit and transaction records are kept, no longer linked
   to the email address. The copy says "removed", not "permanently
   removed".
@@ -364,7 +364,7 @@ Removed: old §4 "Regional Restriction" (U.S. tax residents).
    which becomes "You may request deletion of your account at any time (see
    "Your Rights" below)." (previously "full deletion of your account and
    associated data", which contradicted the retained credit records), plus: "When your
-   account is deleted, your holdings, investment-style settings, reports,
+   account is deleted, your holdings, report preferences, reports,
    and other personal data are removed. Credit and transaction records
    are kept, no longer linked to your email address, for accounting and
    tax purposes."
@@ -372,7 +372,7 @@ Removed: old §4 "Regional Restriction" (U.S. tax residents).
 8. **Your Rights** — "You can review and update your holdings and profile
    information directly in the Service. You can request deletion
    of your account by contacting us; deletion removes your holdings,
-   investment-style settings, and authentication account as described in
+   report preferences, and authentication account as described in
    Data Retention."
 9. **Cookies and Sessions** *(unchanged)*
 10. **Children's Privacy** *(unchanged)*

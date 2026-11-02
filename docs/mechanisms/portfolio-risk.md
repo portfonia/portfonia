@@ -19,6 +19,8 @@ The stored `user_investment_context` row, rather than frontend form defaults, es
 
 The thresholds are named constants in `backend/app/services/portfolio_risk.py`; there is no configuration or admin surface. The exact initial values and boundary examples are in issue #551 Design D3 and D7.
 
+Users see "Within your stated range", "Near the edge of your stated range" and "Above your stated range" for the unchanged Risk enums `within`, `caution`, `exceeds` (#866).
+
 ## UI and scope
 
 `risk-panel.tsx` fetches the endpoint for the Overview display currency and a page-local multi-selection of benchmarks (default S&P 500; empty allowed). During a refetch the selector is disabled and stale results are hidden. The five rounded, gapped Beta arcs cover −1..3 in equal 0.8-wide segments (green, violet, gold, orange, rose). An outer accent triangle marks clamped portfolio Beta; an inner grey triangle fixed at β=1 marks S&P 500. The centre shows the true two-decimal value or insufficient-sample state. Risk uses a three-segment green/gold/rose bar; Deviation uses a symmetric rose/gold/green/gold/rose bar. Both use a down-pointing triangle above the current segment and omit it when no result exists. The chart draws every available selected benchmark even when the portfolio is insufficient. Its legend and disclosure name every selected series; a single chart-level insufficient-sample message appears only when no series can be drawn.

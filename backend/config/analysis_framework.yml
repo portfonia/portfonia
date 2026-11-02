@@ -1,5 +1,5 @@
-# System default analysis framework — the product's own house analytical
-# stance (issue #128 Ring 1 stage B, checkpoint B1; decision point 10).
+# System default analysis framework — the product's own base framework for report writing
+# (issue #128 Ring 1 stage B, checkpoint B1; decision point 10).
 #
 # This is NOT a per-user preference (that is B6, a separate, much smaller
 # injection scoped to `locale`/`intel_focus` — see Ring 1-B design.md §8.5).
@@ -10,7 +10,7 @@
 #
 # `version` is written into `report_inputs.analysis_framework_version` on
 # every report — bump it whenever `text` changes by even one word, so two
-# reports written under different philosophy text are distinguishable after
+# reports written under different framework text are distinguishable after
 # the fact. `text` is injected verbatim between the compliance prefix and the
 # shared body rules (report_prompts._build_pass2_system) — English only,
 # this is the

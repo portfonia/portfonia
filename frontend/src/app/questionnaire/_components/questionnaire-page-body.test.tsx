@@ -10,6 +10,7 @@ vi.mock("next/navigation", () => ({ usePathname: () => window.location.pathname,
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 
 import { LocaleProvider } from "@/app/_components/locale-provider";
+import { catalogs } from "@/locales";
 import { QuestionnairePageBody } from "./questionnaire-page-body";
 
 function renderBody(mode?: "onboarding" | "edit") {
@@ -23,7 +24,7 @@ function renderBody(mode?: "onboarding" | "edit") {
 describe("QuestionnairePageBody", () => {
   it("defaults to the edit-mode heading/subtitle", () => {
     renderBody();
-    expect(screen.getByRole("heading", { name: "Investment style" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: catalogs.en.questionnaire.pageTitle })).toBeInTheDocument();
     expect(screen.getByText(/skip straight to Save/i)).toBeInTheDocument();
   });
 

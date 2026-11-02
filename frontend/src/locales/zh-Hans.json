@@ -19,7 +19,7 @@
     "profile": "个人中心",
     "portfolio": "持仓总览",
     "portfolioPerformance": "业绩表现",
-    "questionnaire": "投资风格",
+    "questionnaire": "报告偏好",
     "sessionExpired": "登录已超时。",
     "editHoldings": "编辑持仓",
     "reports": "报告中心",
@@ -240,7 +240,7 @@
     "changeHistoryLink": "变更记录"
   },
   "questionnaire": {
-    "pageTitle": "投资风格",
+    "pageTitle": "报告偏好",
     "pageSubtitle": "用于调整报告侧重的事实与角度。每个问题都预填了合理的默认值——不想更改可直接跳到保存，也可以随时回来重新作答。",
     "onboardingPageTitle": "让我们定制你的报告",
     "onboardingPageSubtitle": "预填的默认值与系统框架一致。保存即可使用默认值，或跳过并继续录入持仓。",
@@ -371,7 +371,7 @@
         "question": "报告应重点关注哪些方面？",
         "hint": "决定外部新闻中哪一类在报告里占更大篇幅。",
         "options": {
-          "MACRO": "宏观信号",
+          "MACRO": "宏观事件",
           "FUNDAMENTALS": "个股基本面",
           "GEOPOLITICS": "地缘政治动态",
           "BALANCED": "以上均衡覆盖"
@@ -388,7 +388,7 @@
   "profile": {
     "pageTitle": "个人中心",
     "missingSetupHeading": "完成账户设置",
-    "missingSetupQuestionnaire": "设置投资风格",
+    "missingSetupQuestionnaire": "设置报告偏好",
     "missingSetupHoldings": "录入持仓",
     "accountHeading": "账户",
     "accountEmailLabel": "邮箱",
@@ -424,7 +424,7 @@
     "holdingsNavOverview": "持仓总览",
     "holdingsNavPerformance": "业绩表现",
     "holdingsNavManagement": "持仓管理",
-    "holdingsNavInvestmentStyle": "投资风格",
+    "holdingsNavInvestmentStyle": "报告偏好",
     "reportManagementHeading": "报告管理",
     "reportScheduleHeading": "报告周期",
     "reportScheduleOptions": {
@@ -509,7 +509,7 @@
       "no_subscription": "当前没有可执行此操作的有效订阅。",
       "jade_managed": "您的润玉订阅在润玉平台管理。"
     },
-    "deleteAccountDisclosure": "你的持仓、个性化投资设定和报告将被清除。credits 与交易记录出于会计与税务目的予以保留，并与你的邮箱地址解除关联，仅保留该邮箱的单向指纹，用途仅限于防止重复发放注册赠送的 credits。",
+    "deleteAccountDisclosure": "你的持仓、报告偏好和报告将被清除。credits 与交易记录出于会计与税务目的予以保留，并与你的邮箱地址解除关联，仅保留该邮箱的单向指纹，用途仅限于防止重复发放注册赠送的 credits。",
     "deleteAccountSubscription": "当前订阅立即终止，本期未使用的部分不予返还。",
     "deleteAccountTokens": "你的全部 API token 将被吊销。",
     "deleteAccountGift": "你的 {gift_balance} 赠送 credits 也将一并清除。",
@@ -548,14 +548,14 @@
       "betaExplanation": "组合在观察期内相对 S&P 500 的历史敏感度，不预测未来结果。",
       "risk": "Risk",
       "riskSubtitle": "个性化风险观察",
-      "riskExplanation": "综合历史波动，以及问卷中的风险承受偏好、期限与目标。",
+      "riskExplanation": "综合历史波动，以及报告偏好中的风险偏好、期限与目标。",
       "deviation": "偏离度",
       "deviationSubtitle": "问卷偏好 ↔ 实际持仓",
       "deviationExplanation": "比较问卷中的风险偏好、风格与市场偏好，以及已估值持仓的资产和市场结构。",
       "riskLabels": {
-        "within": "在承受范围内",
-        "caution": "需留意",
-        "exceeds": "超出承受范围"
+        "within": "在您填写的范围内",
+        "caution": "接近您填写范围的边缘",
+        "exceeds": "高于您填写的范围"
       },
       "tiers": {
         "low": "低",
@@ -569,8 +569,8 @@
         "no_valued_holdings": "无可估值持仓，无法评估偏离度"
       },
       "objectiveTier": "历史波动档位：{tier}",
-      "aggressiveDirection": "进取方向 +{count} 档",
-      "conservativeDirection": "保守方向 {count} 档",
+      "aggressiveDirection": "持仓高于您填写的偏好 {count} 档",
+      "conservativeDirection": "持仓低于您填写的偏好 {count} 档",
       "match": "未见可证实的偏离",
       "conservative": "保守",
       "matchShort": "匹配",
@@ -585,7 +585,7 @@
       "reason": {
         "insufficient": "需要至少 {min} 个有效交易日，目前有 {count} 个。",
         "manualShare": "手动估值占组合 {share}，超过 {limit} 上限。",
-        "noQuestionnaire": "尚未提交投资问卷。",
+        "noQuestionnaire": "尚未提交报告偏好。",
         "noValuedHoldings": "暂无可估值持仓。"
       },
       "insufficientSample": "样本不足",
@@ -1200,7 +1200,7 @@
       "riskHeading": "风险画像",
       "riskBody": "真实行情与虚构持仓构成的示例。同一组合的历史波动、相对 S&P 500 的 Beta，以及对照参考问卷的风险位置与偏离度；参考问卷采用平衡型风险偏好与短期投资期限。",
       "riskCtaHeading": "走得长远，需要平衡好机会与风险",
-      "riskCtaBody": "收益机会决定你能走多快，风险决定你能走多稳。两者相辅相成，又互相制约，缺一不可。在这里看清组合的波动有多大、和大盘有多同步、离自己设定的承受范围有多远。",
+      "riskCtaBody": "收益机会决定你能走多快，风险决定你能走多稳。两者相辅相成，又互相制约，缺一不可。在这里看清组合的波动有多大、和大盘有多同步、离自己填写的范围有多远。",
       "portfolioHeading": "持仓概览",
       "portfolioBody": "示例数字，不是你的持仓。同一份示例组合，按市场、资产类别和分组呈现。",
       "performanceHeading": "组合表现",
@@ -1373,7 +1373,7 @@
     },
     "privacy": {
       "title": "隐私政策",
-      "lastUpdated": "最后更新：2026-10-17",
+      "lastUpdated": "最后更新：2026-11-01",
       "intro": "我们重视您的隐私。本政策说明我们收集哪些信息、为何收集，以及如何保护这些信息。",
       "sections": [
         {
@@ -1386,7 +1386,7 @@
           "heading": "2. 我们收集的信息",
           "body": [
             "账户信息：您的电子邮箱地址及由我们的身份验证服务提供商处理的登录凭证。",
-            "持仓与投资数据：您上传的持仓、经纪商/托管机构及数量，以及您提供的任何投资风格问卷回答。",
+            "持仓与投资数据：您上传的持仓、经纪商/托管机构及数量，以及您提供的任何报告偏好问卷回答。",
             "使用信息：安全运营本服务所需的基本会话与活动数据(例如登录时间戳及闲置超时强制登出记录)。",
             "付款与 credits 信息：购买由 {merchantOfRecord} 作为记录商户处理。{merchantOfRecord} 依其自身隐私声明收集您的付款及账单信息；我们会收到订单号、金额、币种、国家及结账所用邮箱等交易记录，但绝不会获得您的完整卡号。我们还会记录您的 credits 余额及每一笔 credits 的增加与使用。"
           ]
@@ -1416,7 +1416,7 @@
           "heading": "6. 数据保留",
           "body": [
             "只要您的账户处于活跃状态，我们就会保留您的账户和持仓数据。部分运营记录(例如上传任务元数据)会在较短的保留期后自动清除。您可以随时申请删除您的账户(见下文「您的权利」)。",
-            "删除账户后，您的持仓、个性化投资设定、报告、API token、候补名单记录及其他个人数据将被清除。credits 与交易记录出于会计与税务目的予以保留，并与您的邮箱地址解除关联，仅保留该邮箱的单向指纹，用途仅限于防止重复发放注册赠送的 credits。"
+            "删除账户后，您的持仓、报告偏好、报告、API token、候补名单记录及其他个人数据将被清除。credits 与交易记录出于会计与税务目的予以保留，并与您的邮箱地址解除关联，仅保留该邮箱的单向指纹，用途仅限于防止重复发放注册赠送的 credits。"
           ]
         },
         {
@@ -1429,7 +1429,7 @@
         {
           "heading": "8. 您的权利",
           "body": [
-            "您可以直接在本服务中查看和更新您的持仓与个人资料。您可以在个人中心页面自行删除账户，也可以联系我们代为删除；删除将按\"数据保留\"一节所述，清除您的持仓、个性化投资设定及身份验证账户。"
+            "您可以直接在本服务中查看和更新您的持仓与个人资料。您可以在个人中心页面自行删除账户，也可以联系我们代为删除；删除将按\"数据保留\"一节所述，清除您的持仓、报告偏好及身份验证账户。"
           ]
         },
         {
@@ -2037,7 +2037,7 @@
         "benchmarkCvar": "{benchmark} CVaR",
         "reference": "问卷参考线"
       },
-      "noQuestionnaire": "完成投资问卷后可显示参考线。",
+      "noQuestionnaire": "完成报告偏好后可显示参考线。",
       "questionnaireLink": "前往问卷",
       "insufficient99": "99% 至少需要 500 个日收益率样本；此次回放有 {count} 个。",
       "legend": {
@@ -2463,7 +2463,7 @@
         },
         "s10": {
           "heading": "问卷参考线",
-          "p1": "参考线取自组合概览风险指标的“超出”年化波动率阈值：保守型、平衡型和进取型分别为 20%、30%、40%。投资期限较短或目标是保全资本时，阈值下移 5 个百分点，最低为 20%。计算假设均值为零的正态分布，将波动率换算成单日和月度亏损。历史 VaR 使用实际收益分布，两者的基础不同。参考线只供比较，不作“范围内”或“超出”的判断；可接受的程度因人而异，也会随时间变化。它在表格里单列一行，在每日直方图里画为点线，问卷未作答时不显示。"
+          "p1": "参考线取自组合概览风险指标的“高于您填写的范围”年化波动率阈值：保守型、平衡型和进取型分别为 20%、30%、40%。投资期限较短或目标是保全资本时，阈值下移 5 个百分点，最低为 20%。计算假设均值为零的正态分布，将波动率换算成单日和月度亏损。历史 VaR 使用实际收益分布，两者的基础不同。参考线只供比较，不作“范围内”或“超出”的判断；可接受的程度因人而异，也会随时间变化。它在表格里单列一行，在每日直方图里画为点线，问卷未作答时不显示。"
         },
         "s11": {
           "heading": "为何不在同一数据上回测",
