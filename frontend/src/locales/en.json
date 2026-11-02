@@ -565,7 +565,7 @@
       "states": {
         "insufficient_sample": "Insufficient sample",
         "data_quality": "Insufficient data quality for personalized Risk",
-        "no_questionnaire": "No submitted questionnaire; personalized assessment unavailable",
+        "no_questionnaire": "No report preferences submitted; personalized assessment unavailable",
         "no_valued_holdings": "No valued holdings; deviation unavailable"
       },
       "objectiveTier": "Historical volatility tier: {tier}",
@@ -2463,7 +2463,7 @@
         },
         "s10": {
           "heading": "The questionnaire reference line",
-          "p1": "The reference starts with the Overview Risk ‘above your stated range’ annualized-volatility threshold: 20%, 30% or 40% for conservative, balanced or aggressive answers. A short horizon or capital-preservation objective shifts it down by 5 percentage points, floored at 20%. It converts that volatility to a daily and monthly loss under a zero-mean normal assumption. Historical VaR uses the actual distribution, so the bases differ. The line is a comparison only, with no ‘within’ or ‘beyond’ judgement; what is acceptable differs by person and over time. It appears as a table row and a dotted daily-histogram line, and is absent when the questionnaire is unanswered."
+          "p1": "The reference starts with the annualized-volatility threshold at which Overview Risk shows ‘above your stated range’: 20%, 30% or 40% for conservative, balanced or aggressive answers. A short horizon or capital-preservation objective shifts it down by 5 percentage points, floored at 20%. It converts that volatility to a daily and monthly loss under a zero-mean normal assumption. Historical VaR uses the actual distribution, so the bases differ. The line is a comparison only, with no ‘within’ or ‘beyond’ judgement; what is acceptable differs by person and over time. It appears as a table row and a dotted daily-histogram line, and is absent when the questionnaire is unanswered."
         },
         "s11": {
           "heading": "Why there is no same-data backtest",

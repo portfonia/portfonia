@@ -320,7 +320,7 @@ Canonical design: Obsidian `Hermes/Portfonia/Docs/Ring 1-Onboarding.md`.
   login lands on the requested page, defaulting to `/portfolio`. `/welcome`
   shows Portfolio and Choose a plan (#597) above, and a same-session revisit
   replaces to `/portfolio`. The Portfolio page title row adds Edit holdings
-  (`/holdings/edit`) and Investment style (`/questionnaire`, no query)
+  (`/holdings/edit`) and Report preferences (`/questionnaire`, no query)
   beside View performance, reusing the existing `menu` labels. Edit-mode
   questionnaire Save and Skip still return to `/profile`.
 - **Profile's gap card reads `GET /me`'s `missing` field** (`#220` shipped

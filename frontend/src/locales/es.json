@@ -509,7 +509,7 @@
       "no_subscription": "No hay suscripción activa para esta operación.",
       "jade_managed": "Su suscripción Jade se gestiona en la página Jade."
     },
-    "deleteAccountDisclosure": "Se borrarán sus posiciones, preferencias de informes e informes. Los registros de créditos y transacciones se conservan por motivos contables y fiscales, desvinculados de su correo salvo una huella irreversible usada solo para evitar conceder dos veces el crédito de registro.",
+    "deleteAccountDisclosure": "Se borrarán sus posiciones, preferencias de informes e informes generados. Los registros de créditos y transacciones se conservan por motivos contables y fiscales, desvinculados de su correo salvo una huella irreversible usada solo para evitar conceder dos veces el crédito de registro.",
     "deleteAccountSubscription": "Una suscripción activa termina inmediatamente; no se devuelve la parte no utilizada del período actual.",
     "deleteAccountTokens": "Se revocarán todos sus tokens de API.",
     "deleteAccountGift": "También se borrarán sus {gift_balance} créditos de regalo.",
@@ -548,7 +548,7 @@
       "betaExplanation": "Sensibilidad histórica de la cartera al S&P 500 en el período observado. No predice resultados futuros.",
       "risk": "Riesgo",
       "riskSubtitle": "Observación de riesgo personalizada",
-      "riskExplanation": "Combina volatilidad histórica con el apetito de riesgo, horizonte y objetivo de sus preferencias de informes.",
+      "riskExplanation": "Combina volatilidad histórica con la tolerancia al riesgo, horizonte y objetivo de sus preferencias de informes.",
       "deviation": "Desviación",
       "deviationSubtitle": "Preferencias del cuestionario ↔ posiciones",
       "deviationExplanation": "Compara preferencias de riesgo, estilo y mercados con la estructura de activos y mercados de las posiciones valoradas.",
@@ -565,7 +565,7 @@
       "states": {
         "insufficient_sample": "Muestra insuficiente",
         "data_quality": "Calidad de datos insuficiente para el riesgo personalizado",
-        "no_questionnaire": "Sin cuestionario enviado; evaluación personalizada no disponible",
+        "no_questionnaire": "Sin preferencias de informes enviadas; evaluación personalizada no disponible",
         "no_valued_holdings": "Sin posiciones valoradas; desviación no disponible"
       },
       "objectiveTier": "Nivel de volatilidad histórica: {tier}",
@@ -1416,7 +1416,7 @@
           "heading": "6. Conservación de datos",
           "body": [
             "Conservamos sus datos de cuenta y posiciones mientras su cuenta esté activa. Algunos registros operativos, como metadatos de carga, se eliminan automáticamente tras un breve período. Puede solicitar la eliminación de su cuenta en cualquier momento (consulte «Sus derechos»).",
-            "Al eliminar su cuenta se borran posiciones, preferencias de informes, informes, API tokens, inscripción en lista de espera y otros datos personales. Los registros de créditos y transacciones se conservan por motivos contables y fiscales, desvinculados de su correo salvo una huella irreversible usada solo para evitar conceder dos veces el crédito de registro."
+            "Al eliminar su cuenta se borran posiciones, preferencias de informes, informes generados, API tokens, inscripción en lista de espera y otros datos personales. Los registros de créditos y transacciones se conservan por motivos contables y fiscales, desvinculados de su correo salvo una huella irreversible usada solo para evitar conceder dos veces el crédito de registro."
           ]
         },
         {
@@ -2463,7 +2463,7 @@
         },
         "s10": {
           "heading": "La referencia del cuestionario",
-          "p1": "La referencia parte del umbral de volatilidad anualizada «por encima de su rango declarado» del Riesgo del Resumen: 20%, 30% o 40% para respuestas conservadoras, equilibradas o agresivas. Un horizonte corto o el objetivo de preservar capital lo desplaza 5 puntos porcentuales hacia abajo, con un mínimo de 20%. Convierte esa volatilidad en pérdida diaria y mensual suponiendo distribución normal de media cero. VaR histórico usa la distribución real, por lo que las bases difieren. Es solo una comparación, sin juicio de «dentro» o «fuera»; lo aceptable difiere entre personas y a lo largo del tiempo. Aparece como fila de la tabla y línea punteada del histograma diario; queda ausente si no hay respuestas al cuestionario."
+          "p1": "La referencia parte del umbral de volatilidad anualizada con el que el Riesgo del Resumen muestra «por encima de su rango declarado»: 20%, 30% o 40% para respuestas conservadoras, equilibradas o agresivas. Un horizonte corto o el objetivo de preservar capital lo desplaza 5 puntos porcentuales hacia abajo, con un mínimo de 20%. Convierte esa volatilidad en pérdida diaria y mensual suponiendo distribución normal de media cero. VaR histórico usa la distribución real, por lo que las bases difieren. Es solo una comparación, sin juicio de «dentro» o «fuera»; lo aceptable difiere entre personas y a lo largo del tiempo. Aparece como fila de la tabla y línea punteada del histograma diario; queda ausente si no hay respuestas al cuestionario."
         },
         "s11": {
           "heading": "Por qué no hay prueba retrospectiva con los mismos datos",

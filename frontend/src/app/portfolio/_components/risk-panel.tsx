@@ -124,7 +124,7 @@ export function ExplanationCell({
       onFocus={() => { if (!pointerClick.current) setOpen(true); }}
       onBlur={() => setOpen(false)}
       onClick={() => { pointerClick.current = false; setOpen((current) => !current); }}
-      className="relative h-64 min-w-0 rounded-xl border border-border bg-background/30 p-4 text-left transition-colors hover:border-primary/50 hover:bg-primary/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      className="relative min-h-64 min-w-0 rounded-xl border border-border bg-background/30 p-4 text-left transition-colors hover:border-primary/50 hover:bg-primary/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     >
       <div className="flex items-center justify-between text-sm font-semibold">
         <span>{name}</span><span aria-hidden="true" className="rounded-full border border-current px-1.5 text-xs">{t("infoSymbol")}</span>
