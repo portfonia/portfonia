@@ -529,6 +529,15 @@ describe("HomeSections product previews (issue #549)", () => {
     expect(container.querySelector('[data-testid="home-risk-preview"]')).toBe(risk);
   });
 
+  it("shows the year on every homepage risk preview X-axis tick", async () => {
+    render(<LocaleProvider routeLocale={null}><HomeSections /></LocaleProvider>);
+    const risk = screen.getByTestId("home-risk-preview");
+    await waitFor(() => expect(risk.querySelectorAll("path.recharts-line-curve")).toHaveLength(3));
+    const ticks = risk.querySelectorAll('.recharts-cartesian-axis-tick-value[orientation="bottom"]');
+    expect(ticks.length).toBeGreaterThan(0);
+    for (const tick of ticks) expect(tick).toHaveTextContent(/\d{4}/);
+  });
+
   it("keeps the sample literal coherent and ships the approved risk copy", () => {
     expect(HOME_RISK_SAMPLE.beta.value).toBe("1.28");
     expect(HOME_RISK_SAMPLE.risk.label).toBe("caution");

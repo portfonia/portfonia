@@ -40,6 +40,7 @@ The preview reuses the gauge, bar, cell, tooltip, colour, and formatting declara
 Keep this coupling in mind:
 - Renaming or changing the props of those exported components also affects the homepage.
 - A visual change to the live chart JSX in `RiskPanel` has to be mirrored in `home-risk-preview.tsx`.
+- The preview's X-axis uses `formatFullDate` because it is a fixed historical sample (#862), while the signed-in panel keeps `formatAxisDate` on user data. This difference is intended.
 
 The homepage copy is i18n-keyed under `home.productPreviews` (`riskHeading`, `riskBody`, `riskCtaHeading`, `riskCtaBody`).
 
