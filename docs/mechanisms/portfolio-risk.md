@@ -35,11 +35,12 @@ No migration, capture task, provider fetch, backfill, persisted selection, repor
 
 The logged-out homepage shows a static risk preview at the top of `#product-previews`, before the Portfolio overview preview. A risk-focused get-started block follows it. The preview is composed in `frontend/src/app/_components/home-risk-preview.tsx` from fixed sample data in `home-risk-sample.ts`. It makes no request to `GET /portfolio/risk` and shows no benchmark selector or account-specific disclosure lines.
 
-The preview reuses the gauge, bar, cell, tooltip, colour, and formatting declarations **exported** from `frontend/src/app/portfolio/_components/risk-panel.tsx`. `RiskPanel` itself was deliberately left unrefactored: the product owner withdrew an earlier plan to extract a shared view. The homepage re-declares only the volatility chart's Recharts JSX, using the same axis, line, and tooltip settings.
+The preview reuses the gauge, bar, cell, tooltip, colour, and formatting declarations **exported** from `frontend/src/app/portfolio/_components/risk-panel.tsx`. `RiskPanel` itself was deliberately left unrefactored: the product owner withdrew an earlier plan to extract a shared view. The homepage re-declares only the volatility chart's Recharts JSX, using the same axis layout, line, and tooltip settings; the X-axis tick format is the one intended difference, noted below.
 
 Keep this coupling in mind:
 - Renaming or changing the props of those exported components also affects the homepage.
 - A visual change to the live chart JSX in `RiskPanel` has to be mirrored in `home-risk-preview.tsx`.
+- The preview's X-axis uses `formatFullDate` because it is a fixed historical sample (#862), while the signed-in panel keeps `formatAxisDate` on user data. This difference is intended.
 
 The homepage copy is i18n-keyed under `home.productPreviews` (`riskHeading`, `riskBody`, `riskCtaHeading`, `riskCtaBody`).
 
