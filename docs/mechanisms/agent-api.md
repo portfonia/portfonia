@@ -447,8 +447,10 @@ English/Simplified/Traditional; Spanish UI receives the English fallback.
 ### Remaining batch and backlog
 
 #755 publishes the public Agent-only OpenAPI schema at
-[https://api.portfonia.com/agent/openapi.json](https://api.portfonia.com/agent/openapi.json). E reorder
-remains backlog; #769 implements token capability lookup. No broker downloads/logins, source
+[https://api.portfonia.com/agent/openapi.json](https://api.portfonia.com/agent/openapi.json). There is no
+separate reorder endpoint and none is planned (owner, 2026-11-01, #864): an agent
+reads the book, orders it itself and writes it back with complete PUT, and the
+server keeps the authoritative order. #769 implements token capability lookup. No broker downloads/logins, source
 reference/date persistence, server pipeline scheduling or trade execution is
 implemented. The earlier docs-only creation-only retry proposal is superseded
 by the 24-hour POST creation retry contract; whole PUT has no idempotency replay.
