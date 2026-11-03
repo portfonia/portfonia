@@ -397,6 +397,18 @@ legitimate local state is `.env` (uploaded via `scp`).
   root) and invoke the main checkout's venv by absolute path (e.g.
   `/Users/garyj/Portfonia/backend/venv/bin/python -m pytest`) rather than
   assuming an activated venv or a project-local one exists.
+- **Local Python (migrated 2026-11-03):** the shared venv path remains
+  `/Users/garyj/Portfonia/backend/venv`; its base interpreter is uv-managed
+  CPython 3.12.7 at
+  `/Users/garyj/.local/share/uv/python/cpython-3.12.7-macos-aarch64-none`.
+  `.python-version` remains `3.12.7`. Homebrew pyenv and its shell
+  initialization have been removed. Do not use
+  `~/.pyenv/versions/3.12.7`; the retained old venv and pyenv directories
+  are backups only. From the current checkout's `backend/` directory
+  (main or an isolated worktree), explicitly use
+  `/Users/garyj/Portfonia/backend/venv/bin/python -m` with `pytest -q`,
+  `mypy .`, `ruff check .`, or `ruff format --check .` for backend checks.
+  This migration affects local tooling only, not production containers.
 - For test code: never read or write the developer's real `~/.config/...`
   directories. Honor a project-scoped env var (e.g. `PORTFONIA_HOME`) and
   default tests to a temp dir. Direct use of `os.path.expanduser("~")` in
