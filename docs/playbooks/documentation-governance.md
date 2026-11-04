@@ -47,8 +47,8 @@ Write for an implementing agent that has not seen the conversation:
 | Requirements | Observable behavior, affected users, scope, and exclusions. |
 | Reasons | The concrete problem and the value of the requested change. |
 | Exploration | Verified evidence, source/revision, alternatives, owner decisions, and unresolved questions. |
-| Design | Module boundaries and caller/writer/reader flow; schema and API names, types and nullability; algorithms, units, normalization and date semantics; operation order; errors and unavailable data; UI states; compatibility and rollout; worked input/output examples; the "Public surfaces affected:" line. |
-| Contract constraints | Invariants, dependencies, non-goals, concrete acceptance inputs and expected results, required validation and review, and separate deployment/data-operation authorization. |
+| Design | Strictly within the stated requirements: no added requirements, no unnecessary mechanisms, no handling for exceptions that do not exist; open points go to the owner, not filled in by the author (owner, 2026-11-03). Only those of the following the requirement involves: module boundaries and caller/writer/reader flow; schema and API names, types and nullability; algorithms, units, normalization and date semantics; operation order; errors and unavailable data that can occur; UI states; compatibility and rollout; worked input/output examples. Every Design still ends with the "Public surfaces affected:" line. |
+| Contract constraints | Invariants, dependencies, non-goals, concrete acceptance inputs and expected results, required validation and review, and separate deployment/data-operation authorization; binds the implementer to the same limits: what the Design does not state is not built, and an unstated item found to be needed is reported, not decided. |
 
 Do not replace a design with desired outcomes or leave substantive product
 or financial choices to the implementer. Resolve such ambiguity in the
