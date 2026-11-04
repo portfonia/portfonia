@@ -614,23 +614,22 @@ auth declaration, and audit logging: Obsidian `Hermes/Portfonia/Docs/Ring 1-B de
 ## Issue Tracking (MANDATORY)
 
 **Project-wide issue documentation contract (2026-09-08):** Follow
-`AGENTS.md` for issue structure and implementation-ready design
-requirements. Keep the body concise; publish Requirements, Reasons,
-Exploration, Design, and Contract constraints as five separate comments.
-Design stays strictly within the stated requirements (owner, 2026-11-03): no
-added requirements, no unnecessary mechanisms, no handling for exceptions
-that do not exist; it covers only the `AGENTS.md` dimensions the requirement
-involves, and the author takes open points to the owner instead of filling
-them in. Contract constraints must specify invariants, dependencies,
-exclusions, concrete acceptance tests, validation, and release/authorization
-gates, and bind the implementer to the same limits: what the Design does not
-state is not built; an unstated item found to be needed is reported, not
-decided. Desired outcomes alone are insufficient. Separate confirmed
-decisions from authored designs and unresolved questions; never invent
-approval. Keep design and validation proportional to the authorized problem;
-do not turn this template into extra tooling, cleanup or operational
-requirements. The owner decides whether adjacent work belongs in scope.
-Apply this to all Portfonia issues, not just #377.
+`AGENTS.md` for issue structure and implementation-ready design requirements.
+Keep the body concise; publish Requirements, Reasons, Exploration, Design,
+and Contract constraints as five separate comments. Design stays strictly
+within the stated requirements (owner, 2026-11-03): no added requirements, no
+unnecessary mechanisms, no handling for exceptions that do not exist; it covers
+only the `AGENTS.md` dimensions the requirement involves, and the author takes
+open points to the owner instead of filling them in. Contract constraints must specify
+invariants, dependencies, exclusions, concrete acceptance tests, validation,
+and release/authorization gates, and bind the implementer to the same limits:
+what the Design does not state is not built; an unstated item found to be
+needed is reported, not decided. Desired outcomes alone are insufficient.
+Separate confirmed decisions from authored designs and unresolved questions;
+never invent approval. Keep design and validation proportional to the authorized
+problem; do not turn this template into extra tooling, cleanup or operational
+requirements. The owner decides whether adjacent work belongs in scope. Apply
+this to all Portfonia issues, not just #377.
 
 Every new feature/improvement request and every bug — regardless of whether
 it's fixed immediately — gets a GitHub issue first, before the fix/feature
