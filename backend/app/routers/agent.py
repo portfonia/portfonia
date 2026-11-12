@@ -214,7 +214,7 @@ def calendar(
     }
     entries = load_leverage_entries(session)
     tickers |= {
-        entry.underlying_ticker
+        entry.underlying_ticker.upper()
         for ticker, entry in entries.items()
         if ticker in tickers and entry.underlying_ticker
     }
@@ -223,7 +223,7 @@ def calendar(
             "SELECT event_type AS type, name, CASE WHEN event_type='macro' THEN NULL ELSE ticker END AS ticker, "
             "scheduled_date AS date, source FROM forward_events "
             "WHERE scheduled_date BETWEEN :start AND :end "
-            "AND (event_type='macro' OR (event_type='earnings' AND ticker IN :tickers)) "
+            "AND (event_type='macro' OR (event_type='earnings' AND upper(ticker) IN :tickers)) "
             "ORDER BY scheduled_date, event_type, name"
         ).bindparams(bindparam("tickers", expanding=True)),
         {"start": start, "end": end, "tickers": sorted(tickers)},

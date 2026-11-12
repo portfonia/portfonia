@@ -163,3 +163,32 @@ def test_877_api_root(app_client: TestClient) -> None:
         "agent_docs": "https://portfonia.com/llms.txt",
         "agent_openapi": "https://api.portfonia.com/agent/openapi.json",
     }
+
+
+def test_877_calendar_matches_lowercase_earnings(
+    app_client: TestClient, db_session: Session, account_token: dict[str, str]
+) -> None:
+    db_session.add(
+        Holding(
+            user_id=TEST_USER_ID,
+            ticker="nvda",
+            name="NVIDIA",
+            currency="USD",
+            pricing_mode="auto",
+            asset_type="stock",
+            asset_class="STOCK",
+            market="US",
+            capture_supported=True,
+        )
+    )
+    db_session.execute(
+        text(
+            "INSERT INTO forward_events (event_type,name,ticker,scheduled_date,source) "
+            "VALUES ('earnings','NVIDIA','nvda',:day,'yfinance')"
+        ),
+        {"day": today_et()},
+    )
+    db_session.commit()
+    response = app_client.get("/agent/v1/calendar", headers=account_token)
+    assert response.status_code == 200, response.text
+    assert [event["ticker"] for event in response.json()["events"]] == ["nvda"]
