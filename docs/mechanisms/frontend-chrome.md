@@ -197,9 +197,10 @@ Below `sm`, the shared `SiteHeader` bar uses tighter padding and gaps and a narr
 
 Profile reads `GET /me.subscription` and the two verification timestamps.
 Report management offers Weekly, Mon/Wed/Fri and, only for an active plan
-without pending cancellation, Cancel subscription. Without a verified address
-it disables the selector but keeps the current type for an active subscription;
-other states show a disabled No subscription placeholder. Selections never
+without pending cancellation, Cancel subscription. An account without a verified
+address can select a plan and cancel like any other account and sees the
+verification hint below the selector; states without an active plan show a
+disabled No subscription placeholder. Selections never
 optimistically change the displayed server state.
 
 `use-subscription.ts` checks `next_adjustment_at` before any action and shows
@@ -611,8 +612,9 @@ notice; Jade subscribers see the risk tool cards instead.
 Issue #806 adds `formatAxisDate` for year-bearing ticks on axes spanning more than 365 days, full dates in Jade chart tooltips, and 64px percentage Y axes on Jade cards and shared guide charts.
 
 The Jade client reuses Profile's `useSubscription` and `SubscriptionDialog`.
-Inactive/cancelled/Expired or briefing-plan users see Subscribe to Jade; no
-verified recipient disables it. Active Jade shows its paid period and Cancel,
+Inactive/cancelled/Expired or briefing-plan users see Subscribe to Jade; an
+account without a verified recipient can still subscribe and sees the
+verification hint. Active Jade shows its paid period and Cancel,
 or Ends and Resume when cancellation is pending. A Jade subscribe/change quote
 also states its resulting translated cadence. Successful subscription actions
 refresh the server page and re-probe session flags through the shared hook.

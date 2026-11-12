@@ -93,6 +93,8 @@ cancellation. This system action ignores and does not consume the daily
 adjustment lock. Another verified address prevents cancellation. Re-verifying
 an email does not automatically resume a cancelled subscription. The scheduled check transitions to cancelled after expiry.
 
+Issue #876: subscribing, resuming, quotes and scheduled renewal/recovery no longer require a verified email; scheduled report delivery still does.
+
 ## API and integrations
 
 All subscription endpoints use `current_principal`:
@@ -404,5 +406,3 @@ are not repriced.
 - Out of scope: ending the campaign (a separate owner-requested PR), other plans,
   credit packs, and `scripts/activate_existing_subscriptions.py`, which still
   reports regular fees for its one-off launch run.
-
-Issue #876: subscribing, resuming, quotes and scheduled renewal/recovery no longer require a verified email; scheduled report delivery still does.
