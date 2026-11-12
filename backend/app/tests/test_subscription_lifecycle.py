@@ -160,15 +160,16 @@ def test_example_6_and_dispatch_gate(db_session: Session) -> None:
     assert active_users(db_session, "weekly") == []
 
 
-@pytest.mark.parametrize("state,expected", [("active", "cancelled"), ("expired", "expired")])
+@pytest.mark.parametrize("state,expected", [("active", "active"), ("expired", "active")])
 def test_unverified_rules_3_5(db_session: Session, state: str, expected: str) -> None:
     u = subscriber(db_session, "5.00", state, verified=False)
     with patch.object(s, "send_subscription_notice") as notice:
         s.run_cadence_checks(db_session, "weekly", TODAY)
         assert u.subscription_status == expected
-        assert u.credit_gift_balance == Decimal("5.00")
-        assert not charges(db_session, u)
+        assert u.credit_gift_balance == Decimal("4.01")
+        assert len(charges(db_session, u)) == 1
         notice.assert_not_called()
+    assert active_users(db_session, "weekly") == []
 
 
 def test_population_without_holdings_and_disabled_account(db_session: Session) -> None:
@@ -725,7 +726,7 @@ def test_task_expired_resume_receives_same_batch(
             notice.assert_not_called()
 
 
-@pytest.mark.parametrize("balance,verified", [("0.40", True), ("5.40", False)])
+@pytest.mark.parametrize("balance,verified", [("0.40", True)])
 def test_task_expired_not_resumed_is_not_dispatched(
     db_session: Session, monkeypatch: pytest.MonkeyPatch, balance: str, verified: bool
 ) -> None:

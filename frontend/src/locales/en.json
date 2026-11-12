@@ -457,7 +457,7 @@
     "emailVerificationSendFailed": "Could not send the verification email. Please try again.",
     "subscriptionLabel": "Subscription",
     "subscriptionNoneOption": "No subscription",
-    "subscriptionVerifyEmail": "Verify your email to subscribe.",
+    "subscriptionVerifyEmail": "Scheduled briefings are sent only after you verify your email.",
     "subscriptionCancel": "Cancel subscription",
     "subscriptionResume": "Resume subscription",
     "subscriptionRenews": "{plan} - renews after {expires_on}",
@@ -498,7 +498,6 @@
     "subscriptionError": "Could not update your subscription. Try again.",
     "subscriptionErrors": {
       "daily_limit": "You already adjusted your subscription today. You can adjust again after midnight Eastern Time.",
-      "email_unverified": "Verify your email to subscribe.",
       "insufficient_credits": "Your balance is not enough. Top up credits in the Account section first.",
       "no_change": "Your subscription already has this setting.",
       "no_subscription": "There is no active subscription for this operation.",
@@ -1236,7 +1235,7 @@
     "deliveryUnverified": "Reports will not be sent until {deliveryEmail} is verified.",
     "errorLoadFailed": "Could not load your account.",
     "subscriptionPlans": "Portfonia sends scheduled briefings to subscribers. There are four plans: Weekly (0.99 credits per month), Mon/Wed/Fri (1.99 credits per month), the Advanced Daily plan (2.49 credits per month, weekdays, with AI Agent data access), and Jade (9.99 credits per month, portfolio risk tools, everything in Advanced, and a briefing schedule you choose). Saved holding rows, including cash and watched rows, are limited to 30, 50 while Advanced is active, and 100 while Jade is active. Subscribe to Jade on the Jade page. Active Jade also supports reading and managing current holdings through your own agent; changes require a holdings-write token.",
-    "subscriptionRequirements": "Until you subscribe, scheduled briefings are not sent and some features may be unavailable. You need a verified email address before you can subscribe.",
+    "subscriptionRequirements": "Until you subscribe, scheduled briefings are not sent and some features may be unavailable. Scheduled briefings also require a verified email address.",
     "choosePlan": "Choose a plan"
   },
   "emailVerification": {

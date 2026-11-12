@@ -99,7 +99,7 @@ def test_quote_matches_change_and_writes_nothing(
     account.email_verified_at = None
     db_session.flush()
     blocked = app_client.get("/me/subscription/quote", params={"type": "weekly"}).json()
-    assert blocked["blocked"] == "email_unverified"
+    assert blocked["blocked"] is None
     assert blocked["balance"] == "2.52" and blocked["returned"] == "1.93"
 
 
@@ -156,11 +156,12 @@ def test_api_email_same_plan_cancel_resume_and_midnight(
 ) -> None:
     account.email_verified_at = None
     db_session.commit()
+    monkeypatch.setattr("app.routers.me.today_et", lambda: date(2026, 10, 15))
     response = app_client.post("/me/subscription", json={"type": "weekly"})
-    assert response.status_code == 409 and response.json()["detail"] == "email_unverified"
-    account.delivery_email_verified_at = datetime(2026, 10, 15, tzinfo=ET)
-    db_session.flush()
-    subscription.set_plan(db_session, account.id, date(2026, 10, 15), "weekly")
+    assert response.status_code == 200 and response.json()["status"] == "active"
+    db_session.refresh(account)
+    assert account.credit_gift_balance == Decimal("4.01")
+    monkeypatch.setattr("app.routers.me.today_et", lambda: date(2026, 10, 31))
     db_session.commit()
     response = app_client.post("/me/subscription", json={"type": "weekly"})
     assert response.status_code == 409 and response.json()["detail"] == "no_change"
@@ -172,10 +173,6 @@ def test_api_email_same_plan_cancel_resume_and_midnight(
     assert response.status_code == 409 and response.json()["detail"] == "daily_limit"
     monkeypatch.setattr("app.routers.me.today_et", lambda: date(2026, 10, 21))
     account.delivery_email_verified_at = None
-    db_session.commit()
-    response = app_client.post("/me/subscription/resume")
-    assert response.status_code == 409 and response.json()["detail"] == "email_unverified"
-    account.email_verified_at = datetime(2026, 10, 15, tzinfo=ET)
     db_session.commit()
     response = app_client.post("/me/subscription/resume")
     assert response.status_code == 200 and not response.json()["cancel_pending"]

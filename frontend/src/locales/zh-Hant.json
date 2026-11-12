@@ -457,7 +457,7 @@
     "emailVerificationSendFailed": "驗證郵件發送失敗，請重試。",
     "subscriptionLabel": "訂閱",
     "subscriptionNoneOption": "未訂閱",
-    "subscriptionVerifyEmail": "請先驗證信箱，再訂閱。",
+    "subscriptionVerifyEmail": "驗證信箱後才會寄送定期簡報。",
     "subscriptionCancel": "取消訂閱",
     "subscriptionResume": "恢復訂閱",
     "subscriptionRenews": "{plan} - 將於 {expires_on} 之後續訂",
@@ -498,7 +498,6 @@
     "subscriptionError": "無法更新訂閱，請重試。",
     "subscriptionErrors": {
       "daily_limit": "您今天已調整過訂閱。美國東部時間午夜後可再次調整。",
-      "email_unverified": "請先驗證信箱，再訂閱。",
       "insufficient_credits": "您的餘額不足。請先在帳戶區域儲值 credits。",
       "no_change": "您的訂閱已採用此設定。",
       "no_subscription": "目前沒有可執行此操作的有效訂閱。",
@@ -1236,7 +1235,7 @@
     "deliveryUnverified": "在 {deliveryEmail} 完成驗證之前，報告不會發送。",
     "errorLoadFailed": "無法載入你的帳戶資訊。",
     "subscriptionPlans": "Portfonia 向訂閱使用者寄送定期簡報。有四種方案：每週簡報（每月 0.99 credits）、隔日簡報（每月 1.99 credits，週一、週三、週五寄送）、進階每日簡報（每月 2.49 credits，工作日寄送，含 AI 智能體資料介面）和潤玉（每月 9.99 credits，投資組合風險工具、進階所有功能與自選簡報排程）。已儲存的持倉（含現金與觀察中的持倉）上限為 30 筆、進階有效期間 50 筆、潤玉有效期間 100 筆。請至潤玉頁面訂閱潤玉。潤玉有效期間，您的智能體也可讀取和管理目前持倉；修改須使用持倉寫入 token。",
-    "subscriptionRequirements": "訂閱前不會寄送定期簡報，部分功能也可能無法使用。您需要先驗證信箱，才能訂閱。",
+    "subscriptionRequirements": "訂閱前不會寄送定期簡報，部分功能也可能無法使用。定期簡報也需要已驗證的電子郵件地址。",
     "choosePlan": "選擇方案"
   },
   "emailVerification": {

@@ -64,7 +64,7 @@ describe("WelcomeBody", () => {
       screen.getByText("Holdings-related sections stay empty until you save holdings."),
     ).toBeInTheDocument();
     expect(screen.getByText("Portfonia sends scheduled briefings to subscribers. There are four plans: Weekly (0.99 credits per month), Mon/Wed/Fri (1.99 credits per month), the Advanced Daily plan (2.49 credits per month, weekdays, with AI Agent data access), and Jade (9.99 credits per month, portfolio risk tools, everything in Advanced, and a briefing schedule you choose). Saved holding rows, including cash and watched rows, are limited to 30, 50 while Advanced is active, and 100 while Jade is active. Subscribe to Jade on the Jade page. Active Jade also supports reading and managing current holdings through your own agent; changes require a holdings-write token.")).toBeInTheDocument();
-    expect(screen.getByText("Until you subscribe, scheduled briefings are not sent and some features may be unavailable. You need a verified email address before you can subscribe.")).toBeInTheDocument();
+    expect(screen.getByText(catalogs.en.welcome.subscriptionRequirements)).toBeInTheDocument();
     expect(screen.queryByText(/Your cadence is weekly/)).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     // Must never claim a holdings-confirmation email was sent (Ring

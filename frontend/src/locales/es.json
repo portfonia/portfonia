@@ -457,7 +457,7 @@
     "emailVerificationSendFailed": "No se pudo enviar el correo de verificación. Inténtelo de nuevo.",
     "subscriptionLabel": "Suscripción",
     "subscriptionNoneOption": "Sin suscripción",
-    "subscriptionVerifyEmail": "Verifique su correo para suscribirse.",
+    "subscriptionVerifyEmail": "Los resúmenes programados se envían solo después de verificar su correo.",
     "subscriptionCancel": "Cancelar suscripción",
     "subscriptionResume": "Reanudar suscripción",
     "subscriptionRenews": "{plan} - se renueva después de {expires_on}",
@@ -498,7 +498,6 @@
     "subscriptionError": "No se pudo actualizar su suscripción. Inténtelo de nuevo.",
     "subscriptionErrors": {
       "daily_limit": "Ya ajustó su suscripción hoy. Podrá ajustarla de nuevo después de medianoche, hora del Este.",
-      "email_unverified": "Verifique su correo para suscribirse.",
       "insufficient_credits": "Su saldo no es suficiente. Recargue créditos primero en la sección Cuenta.",
       "no_change": "Su suscripción ya tiene esta configuración.",
       "no_subscription": "No hay suscripción activa para esta operación.",
@@ -1236,7 +1235,7 @@
     "deliveryUnverified": "Los informes no se enviarán hasta verificar {deliveryEmail}.",
     "errorLoadFailed": "No se pudo cargar su cuenta.",
     "subscriptionPlans": "Portfonia envía resúmenes programados a suscriptores. Hay cuatro planes: semanal (0.99 créditos al mes), Lun/Mié/Vie (1.99), diario Advanced (2.49, días laborables y acceso a datos para agentes de IA) y Jade (9.99, herramientas de riesgo de cartera, todo lo incluido en Advanced y un calendario de resúmenes que usted elige). Las posiciones guardadas, incluido el efectivo y las posiciones en observación, se limitan a 30, 50 mientras Advanced está activo y 100 mientras Jade está activo. Suscríbase a Jade en la página Jade. Jade activo también permite leer y gestionar posiciones actuales mediante su propio agente; los cambios requieren un token de escritura.",
-    "subscriptionRequirements": "Hasta suscribirse, no se envían resúmenes programados y algunas funciones pueden no estar disponibles. Necesita un correo verificado para suscribirse.",
+    "subscriptionRequirements": "Hasta suscribirse, no se envían resúmenes programados y algunas funciones pueden no estar disponibles. Los resúmenes programados también requieren una dirección de correo verificada.",
     "choosePlan": "Elegir un plan"
   },
   "emailVerification": {

@@ -23,9 +23,9 @@ it("A9 inactive offers subscription without schedule", () => {
   expect(screen.getByRole("button", { name: "subscribe" })).toHaveClass("h-8");
   expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
 });
-it("A9 unverified disables subscription and shows verification note", () => {
+it("A9 unverified allows subscription and shows verification note", () => {
   render(<JadePageBody guest={false} demo={null} me={{ ...me, email_verified_at: null }} hadLoadError={false} />);
-  expect(screen.getByRole("button", { name: "subscribe" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "subscribe" })).toBeEnabled();
   expect(screen.getByText("subscriptionVerifyEmail")).toBeInTheDocument();
 });
 it("A9 active shows cancel and current schedule; cadence writes bypass dialog and daily lock", async () => {
