@@ -137,7 +137,7 @@ def test_11_capability(app_client: TestClient, db_session: Session, reader: dict
             "reports": True,
             "snapshots": True,
             "intel": True,
-            "holdings_read": jade,
+            "holdings_read": True,
             "holdings_write": False,
             "jade": jade,
         }

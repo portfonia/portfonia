@@ -1,8 +1,8 @@
 # Personal agent API access (#651, #652)
 
-A user's own agent can read reports on every plan and complete daily holding
-snapshots, technical position and intelligence on an active Advanced plan (Daily or Jade). Current holdings,
-validation, writes and Agent change-history reads require active Jade (#775).
+A user's own agent can read reports without a subscription and complete daily holding
+snapshots, macro headlines and current holdings on every active plan (#877). Advanced adds holding-related headlines and technical position; Jade adds full intelligence and the five risk tools. Current holdings,
+validation, writes and Agent change-history reads require an active subscription; writes also require holdings-write permission.
 Issue #754 adds holdings management with a holdings-write token and read-only
 validation. See the current-holdings contract below.
 The public `/agent` page explains the implemented endpoints and provides token
@@ -11,6 +11,53 @@ signed-in users. `/llms.txt` points to the English `/agent.md` API reference
 and the human guide; both static files are public without a session. The
 API base URL is `https://api.portfonia.com`; authentication is
 `Authorization: Bearer pfa_...`.
+
+## All-plan access, account, subscription and calendar (#877)
+
+| Capability | No subscription | Basic (Weekly / Mon-Wed-Fri) | Advanced (Daily) | Jade |
+| --- | --- | --- | --- | --- |
+| Token metadata, available reports, account, calendar | Yes | Yes | Yes | Yes |
+| Subscribe or change plan from credits | Holdings-write token | Holdings-write token | Holdings-write token | Holdings-write token |
+| Daily snapshots | No | Yes | Yes | Yes |
+| Intelligence | No | Macro headlines | Holding and macro headlines | Full detail |
+| Current holdings, validation and change history | No | Yes | Yes | Yes |
+| Current-holdings writes | No | Holdings-write token | Holdings-write token | Holdings-write token |
+| Technical position and series | No | No | Yes | Yes |
+| Five Jade risk tools | No | No | No | Yes |
+
+An active subscription has `subscription_status == "active"` and a recognized
+plan type. Row caps remain Basic 30, Advanced 50 and Jade 100, including cash
+and watched rows. All existing rate limits and quiet windows apply.
+
+`GET /agent/v1/account` accepts either token permission with no subscription
+requirement. It returns the unchanged `subscription.summary(user, today_et())`,
+two-place cash/gift/total balances, four plans from the ordered module constant
+with `plan_fee(user, type)` and briefing/feature codes, and
+`top_up_url: "https://portfonia.com/profile"`. The full code list is in `agent.md`.
+
+`POST /agent/v1/subscription` accepts `SubscriptionBody` and requires only
+holdings-write permission (structured 403 `holdings_write_required` otherwise).
+It calls `set_plan` with today's ET date, rolls back `SubscriptionError` into
+409 `detail=<code>`, commits, and calls `maybe_send_low_balance_reminder`, exactly
+as Profile does. It returns the updated account. No cancel, resume or top-up
+route is added.
+
+`GET /agent/v1/calendar` accepts either token permission without a subscription.
+Optional ET dates default to today and start + 14 days; reversed ranges or more
+than 31 inclusive days return 422. Stored `forward_events` are ordered by date,
+type and name. All macro rows are included; earnings must match the caller's
+normalized holding tickers or their mapped leveraged-product underlyings.
+The response has `start`, `end`, `events` (`type`, `name`, nullable `ticker`,
+`date`, `source`) and `coverage: "us"`. Macro tickers are null. Coverage is US
+releases and US-listed earnings; dates are scheduled dates, not forecasts.
+These three routes inherit the router's limits and audit and send no data or
+modification notice.
+
+The Agent OpenAPI allowlist includes all three routes. Plain `GET /` returns
+service name, `agent_docs` and `agent_openapi` URLs; like `/health`, it uses the
+ordinary route declaration. The homepage footer links to `/llms.txt`, whose
+onboarding flow covers token creation, account discovery, owner-instructed
+subscription, optional questionnaire and entering an empty holdings book.
 
 ## Tokens and authentication
 
@@ -46,7 +93,7 @@ or `holdings_write`, default and backfill `read_only` (migration
 `read_only`. List and create responses include `permission`. There is no
 route that changes it. Existing rows stay read-only. Any signed-in user may
 create either mode. `AgentPrincipal` carries the stored permission. Unknown
-values return 422. Holdings calls require an active Jade subscription (#754);
+values return 422. Holdings calls require an active subscription (#877);
 mutations additionally require holdings_write permission.
 
 ## Request limits and scheduled quiet windows
@@ -65,8 +112,8 @@ query validation or endpoint entitlement:
 4. Otherwise, `agent:burst:{user_id}`: fixed 60-second window from its first
    increment; the eleventh request sets a 900-second lock and returns 429.
 5. Otherwise, `agent:hour:{endpoint}:{user_id}`: 20 per 3600-second fixed window.
-6. Endpoint entitlement, via `is_advanced(user)` for snapshots, technical position and intelligence, and
-   `is_jade(user)` for holdings, validation, writes and change history (403
+6. Endpoint entitlement, via `is_subscribed(user)` for snapshots, intelligence, holdings, validation, writes and change history,
+   `is_advanced(user)` for technical position, and `is_jade(user)` for the five risk tools (403
    `subscription_required`).
 
 Limits combine all tokens belonging to the same user. Every 429 has a
@@ -152,13 +199,13 @@ Audit `item_count` is the returned report count. Twelve available reports
 produce five items, `total_in_range: 12`, `truncated: true`. Request older
 reports by setting `end` before the oldest returned report date.
 
-### Intelligence: Advanced headlines and Jade full detail (#781)
+### Intelligence: Basic macro headlines, Advanced holding and macro headlines, Jade full detail (#781, #877)
 
-`GET /agent/v1/intel` keeps `is_advanced` entitlement (403
+`GET /agent/v1/intel` uses `is_subscribed` entitlement (403
 `subscription_required`). The route passes `is_jade(principal.user)` to
 `pull_intel`; non-Jade gets `detail: "headlines"`, null summaries and empty
 article arrays, without executing article queries. Jade gets `detail: "full"`
-and retains the existing headline/summary and article projection.
+and retains the existing headline/summary and article projection. Basic clears `holdings` before the audit item count and response; Advanced retains holding headlines.
 
 Issue #812 adds `other: list[AgentArticleOut]` (default empty). Jade receives
 accepted Exa articles linked to `theme="other"`, after holdings and macro
@@ -194,13 +241,13 @@ Macro source selection remains the latest caller-owned success/skipped
 report on or before `date`, or the window end's ET date, with creation time
 breaking ties. Its unique themes retain stored order; no report returns
 `macro: null`, and a latest report without themes returns `themes: []`.
-Both tiers gain free pool headlines: select `News.origin == "pool"` by
+All active plans receive free pool headlines: select `News.origin == "pool"` by
 publication date or, in since mode, `News.created_at`. Pool promotion in
 `store_headline` updates both `origin` and `created_at = now()` so newly
 promoted rows are included. Pass rows through `headline_from_row`,
 `macro_news_items` (exclude commentary/off_topic), then `detect_macro_signals`
 with `max_articles_per_theme=max(len(items), 1)`. Retain only source-report
-themes, with newest-first headlines; strip URLs and suppress Advanced
+themes, with newest-first headlines; strip URLs and suppress non-Jade
 summaries. Headlines can belong to multiple themes and are not de-duplicated
 against holding headlines. Jade macro articles keep whole-response
 de-duplication; empty themes retain both empty arrays.
@@ -293,7 +340,7 @@ authorization. This PR implements #754; no production operation is implied.
 These routes manage the caller's current holdings records. They do not access
 broker accounts or execute trades. GET and validation accept either token
 permission; every mutation requires `holdings_write`. All holdings calls require
-an active Jade subscription. Report/snapshot/intelligence routes
+an active subscription. Report/snapshot/intelligence routes
 remain read-only. The Agent-only OpenAPI schema is available at
 [https://api.portfonia.com/agent/openapi.json](https://api.portfonia.com/agent/openapi.json).
 
@@ -406,7 +453,7 @@ replay payloads. Successful replay bodies are stored separately with encryption
 at rest; POST retries within 24 hours return the original result.
 
 Successful reads of current holdings, holding change history and snapshots
-share at most one access email per ET day. Every successful Agent write request,
+share at most one access email per ET day. Every successful Agent holdings write request,
 including unchanged writes, may trigger a separate daily modification email.
 Validation and idempotent replay send no data notice. A notification failure
 after commit preserves the success and replay result. Notice links revoke every
@@ -461,15 +508,15 @@ by the 24-hour POST creation retry contract; whole PUT has no idempotency replay
 requirement or data notice. It uses normal read limits, quiet windows and request
 audit. Returns `name`, the stored 12-character `prefix`, `permission`, ET ISO 8601
 `created_at`, nullable ET `expires_at`, and `capabilities` booleans. `reports` is
-always true; `snapshots` and `intel` require active Advanced (Daily or Jade).
-`holdings_read` requires active Jade; `holdings_write` requires active Jade
+always true; `snapshots`, `intel` and `holdings_read` require an active subscription.
+`holdings_write` requires an active subscription
 and the token's `holdings_write` permission.
 Change history follows `holdings_read`. No quota or plaintext token is returned.
 
 ## Holding change history
 
-`GET /agent/v1/holdings/changes?start=YYYY-MM-DD&end=YYYY-MM-DD` requires active
-Jade and accepts either token permission. Both inclusive ET dates
+`GET /agent/v1/holdings/changes?start=YYYY-MM-DD&end=YYYY-MM-DD` requires an active
+subscription and accepts either token permission. Both inclusive ET dates
 are required: `today ET - 29 days <= start <= end <= today ET`; invalid ranges
 return 422. Reads use normal read limits and share the daily access notice with
 current holdings, snapshots and Jade risk results. Audit item count is the returned group count.
@@ -539,9 +586,9 @@ Both data-notice copies put the revoke-all URL on its own line with one blank
 line before and after; the read copy also names Jade risk results. No migration,
 new notice marker, provider call or result cache is introduced.
 
-Issue #775 makes programmatic current-holdings reads, validation, writes and change
-history Jade-only, updates token capabilities, and renames the public token card
-"Verify token permissions". Snapshot and intelligence access remains Advanced.
+Issue #775 originally made programmatic current-holdings reads, validation, writes and change
+history Jade-only, updated token capabilities, and renamed the public token card
+"Verify token permissions". Its Jade/Advanced entitlement restrictions are superseded by #877.
 The four-locale public Agent guide now explains the complete agent-driven holdings
 pipeline; #774 completes the shared-access-notice lists on the Agent page.
 
@@ -614,3 +661,5 @@ from start minus 420 days through end, then selects each point's own inclusive
 420-day lookback. This preserves equality with the table on the same date,
 including sparse histories. The web equivalents require current_principal,
 without a subscription check. Report section 4.4 links to the web page.
+
+- #877 (2026-11-12): Open snapshots, macro headlines and holdings to every active plan; add account, subscription, calendar and Agent discovery; synchronize four-locale entitlements.

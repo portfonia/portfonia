@@ -167,3 +167,12 @@ async def _hide_secrets_in_422(_request: Request, exc: RequestValidationError) -
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "env": settings.APP_ENV}
+
+
+@app.get("/")
+def root() -> dict[str, str]:
+    return {
+        "service": "Portfonia API",
+        "agent_docs": "https://portfonia.com/llms.txt",
+        "agent_openapi": "https://api.portfonia.com/agent/openapi.json",
+    }

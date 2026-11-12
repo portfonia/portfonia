@@ -717,3 +717,5 @@ All Recharts charts follow this convention (existing charts brought into line by
 - Daily date axes on user data: `formatAxisDate` (reference: `jade/_components/replay-section.tsx`). Fixed historical sample charts (guide pages, homepage replay preview) must show the year in every tick label: a full date, or `formatAxisDate`'s month and year on spans over 365 days. A sample spanning under 365 days must not use `formatAxisDate`, because it drops the year.
 
 Origin: #831's technical chart shipped with Recharts defaults because this convention was not written down. Reviews check new or changed charts against this section.
+
+- #877 (2026-11-12): The homepage footer adds the localized "For AI agents" link to `/llms.txt`. The public Agent guide describes holdings management on every active plan and Basic/Advanced/Jade caps of 30/50/100; Agent copy describes all-plan subscription and holdings management.

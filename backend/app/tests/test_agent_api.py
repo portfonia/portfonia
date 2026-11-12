@@ -179,8 +179,8 @@ def test_acceptance_05_snapshot_equivalence_and_entitlement(
     user.subscription_type = "weekly"
     db_session.commit()
     response = app_client.get(AGENT, params=params(), headers=bearer(body))
-    assert response.status_code == 403
-    assert response.json() == {"detail": "subscription_required"}
+    assert response.status_code == 200
+    assert response.json() == web.json()
 
 
 @pytest.fixture
@@ -337,7 +337,8 @@ def test_acceptance_11_audit_all_statuses(
     headers = {**bearer(advanced), "X-Forwarded-For": "203.0.113.7", "User-Agent": "test-agent"}
     assert app_client.get(AGENT, params=params(), headers=headers).status_code == 200
     db_session.execute(
-        text("UPDATE users SET subscription_type = 'weekly' WHERE id = :id"), {"id": TEST_USER_ID}
+        text("UPDATE users SET subscription_status = 'inactive' WHERE id = :id"),
+        {"id": TEST_USER_ID},
     )
     db_session.commit()
     assert app_client.get(AGENT, params=params(), headers=headers).status_code == 403

@@ -9,6 +9,9 @@ from fastapi import APIRouter, Request
 router = APIRouter()
 
 OPERATIONS = {
+    "/agent/v1/account": {"get"},
+    "/agent/v1/subscription": {"post"},
+    "/agent/v1/calendar": {"get"},
     "/agent/v1/technical": {"get"},
     "/agent/v1/technical/series": {"get"},
     "/agent/v1/jade/replay": {"get"},

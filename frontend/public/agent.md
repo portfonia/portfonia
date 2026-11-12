@@ -14,6 +14,100 @@ not authenticate these endpoints. All endpoints share the authentication,
 limits and request audit described below. No request generates a report,
 collects intelligence or calls an LLM.
 
+## Access by plan
+
+| Capability | No subscription | Basic (Weekly / Mon-Wed-Fri) | Advanced (Daily) | Jade |
+| --- | --- | --- | --- | --- |
+| Token metadata, available reports, account, calendar | Yes | Yes | Yes | Yes |
+| Subscribe or change plan from credits | Holdings-write token | Holdings-write token | Holdings-write token | Holdings-write token |
+| Daily snapshots | No | Yes | Yes | Yes |
+| Intelligence | No | Macro headlines | Holding and macro headlines | Full detail |
+| Current holdings, validation and change history | No | Yes | Yes | Yes |
+| Current-holdings writes | No | Holdings-write token | Holdings-write token | Holdings-write token |
+| Technical position and series | No | No | Yes | Yes |
+| Five Jade risk tools | No | No | No | Yes |
+
+An active subscription has `subscription_status == "active"` and a recognized
+plan type. Row caps remain Basic 30, Advanced 50 and Jade 100, including cash
+and watched rows. All existing rate limits and quiet windows apply.
+
+## Account (any token)
+
+Request: `GET /agent/v1/account`, with no body and no subscription requirement.
+Returns `subscription` unchanged from Profile, including `next_adjustment_at`,
+`balance` with cash, gift and total as two-place decimal strings, `plans` in
+Weekly, Mon/Wed/Fri, Daily, Jade order, and `top_up_url`.
+
+```json
+{
+  "subscription": {"status":"inactive","type":null,"cadence":"none","expires_on":null,"cancel_pending":false,"next_adjustment_at":null},
+  "balance": {"cash":"0.00","gift":"60.00","total":"60.00"},
+  "plans": [
+    {"type":"weekly","fee":"0.99","briefings":"weekly","agent":["reports","calendar","snapshots","intel_macro_headlines","holdings"]},
+    {"type":"mwf","fee":"1.99","briefings":"mon_wed_fri","agent":["reports","calendar","snapshots","intel_macro_headlines","holdings"]},
+    {"type":"daily","fee":"2.49","briefings":"weekdays","agent":["reports","calendar","snapshots","intel_macro_headlines","holdings","intel_holding_headlines","technical"]},
+    {"type":"jade","fee":"6.99","briefings":"chosen","agent":["reports","calendar","snapshots","intel_macro_headlines","holdings","intel_holding_headlines","technical","intel_full","jade_tools"]}
+  ],
+  "top_up_url":"https://portfonia.com/profile"
+}
+```
+
+This example assumes eligibility for a discounted Jade period. Fees are credits
+per month and use the user's next-period price; Jade is normally 9.99 credits.
+`briefings` codes mean weekly, Monday/Wednesday/Friday, weekdays, or the user's
+chosen Jade schedule. `agent` codes describe plan access:
+
+| Code | Meaning |
+| --- | --- |
+| `reports` | Read available reports. |
+| `calendar` | Read scheduled US macro releases and owned-holdings earnings. |
+| `snapshots` | Read daily holding snapshots. |
+| `intel_macro_headlines` | Read macro headline titles and publication times. |
+| `holdings` | Read, validate and manage current holdings, and read change history; mutations require holdings-write permission. |
+| `intel_holding_headlines` | Read holding-related headline titles and publication times. |
+| `technical` | Read technical position and series. |
+| `intel_full` | Read headline summaries and included article text. |
+| `jade_tools` | Read the five Jade risk tools. |
+
+No data notice is sent. Authentication and protection errors are 401, 429 with
+`Retry-After`, and 503 as described below.
+
+## Subscription (holdings-write token)
+
+Request: `POST /agent/v1/subscription` with JSON
+`{"type":"weekly"}`, `{"type":"mwf"}`, `{"type":"daily"}` or `{"type":"jade"}`.
+No existing subscription is needed. The API uses today's ET date and exactly
+the same subscription service, charges, credit returns and daily adjustment
+lock as web Profile. Success is 200 with the complete updated account response
+above, including the new subscription and remaining balance. Top-up is on
+`top_up_url`, not an Agent endpoint. Subscribe only on the user's instruction.
+
+A read-only token returns 403
+`{"detail":{"code":"holdings_write_required","message":"Use a token with holdings_write permission."}}`.
+Subscription errors return 409 `{"detail":"<code>"}`: `jade_managed`,
+`daily_limit`, `insufficient_credits` or `no_change`. An invalid plan or body
+returns 422. Normal 401/429/503 responses still apply. No data or modification
+notice is sent; the existing low-balance subscription reminder still applies.
+
+## Calendar (any token)
+
+Request: `GET /agent/v1/calendar?start=2026-11-12&end=2026-11-26`.
+No subscription is required. Optional dates use ET; `start` defaults to today
+and `end` to `start + 14 days`. Dates are inclusive. Malformed dates, `end < start`
+or more than 31 inclusive days return 422. Normal 401/429/503 responses apply.
+
+```json
+{"start":"2026-11-12","end":"2026-11-26","events":[{"type":"macro","name":"FOMC","ticker":null,"date":"2026-11-12","source":"fomc"}],"coverage":"us"}
+```
+
+The row above illustrates the shape, not an actual release date. Events are
+ordered by date, then type, then name. `type` is `macro` or `earnings`; `source`
+is `fred`, `fomc` or `yfinance`. Macro tickers are null. All scheduled macro rows
+in the range are included. Earnings are limited to the caller's normalized
+holding tickers plus mapped leveraged-product underlyings; another user's
+holdings do not confer access. Coverage is US releases and US-listed earnings
+only. Dates are scheduled dates, not forecasts. No data notice is sent.
+
 ## Reports (all plans)
 
 `GET /agent/v1/reports?start=YYYY-MM-DD&end=YYYY-MM-DD`
@@ -64,11 +158,11 @@ Example: `GET /agent/v1/reports?start=2026-09-01&end=2026-10-04`:
 The example abbreviates the five returned items to one. To request older
 reports, set `end` before the oldest returned `report_date`.
 
-## Holding snapshots (Advanced)
+## Holding snapshots (all active plans)
 
 `GET /agent/v1/snapshots?start=YYYY-MM-DD&end=YYYY-MM-DD`
 
-An active Advanced subscription is required (Daily or Jade). Both dates
+An active Basic, Advanced or Jade subscription is required. Both dates
 are required and inclusive, `start <= end`, `end <= today ET`, and the range
 must cover at most 30 calendar days. Invalid parameters return 422;
 insufficient entitlement returns 403 `subscription_required`.
@@ -106,13 +200,13 @@ The notice includes a link that immediately revokes all the user's tokens,
 without sign-in or confirmation. Reports and intelligence do not trigger
 this notice.
 
-## Intelligence (Advanced headlines; Jade full detail)
+## Intelligence (Basic macro headlines; Advanced holding and macro headlines; Jade full detail)
 
 `GET /agent/v1/intel?date=YYYY-MM-DD` or
 `GET /agent/v1/intel?since=2026-10-15T09:00:00%2D04:00`
 
-An active Advanced (Daily or Jade) subscription is required; otherwise the
-endpoint returns 403 `subscription_required`. Advanced receives
+An active Basic, Advanced or Jade subscription is required; otherwise the
+endpoint returns 403 `subscription_required`. Basic receives only macro headlines with `holdings: []`; Advanced receives holding and macro headlines in
 `detail: "headlines"`: headline titles and publication times, all summaries
 `null`, and all article arrays empty. Jade receives `detail: "full"`, including
 headline summaries and included article text for holdings and macro themes.
@@ -150,7 +244,7 @@ order. Holdings with neither headlines nor articles are omitted.
 Macro themes come from the caller's latest `success` or `skipped` report on
 or before the requested date (or the window end's ET date in since mode),
 with latest creation time breaking ties. Themes keep their stored order.
-Both tiers receive stored pool headlines matched by the report macro
+All active plans receive stored pool headlines matched by the report macro
 detector, using title and provider snippet keywords. Rows labeled `commentary`
 or `off_topic` are excluded; `development` and unlabeled rows are eligible.
 Date mode uses publication date; since mode uses pool ingestion time,
@@ -236,12 +330,12 @@ date, 422 `invalid_range` for reversed dates or a future end, 422 `range_too_lon
 for more than 92 inclusive days, and 404 `ticker_not_held` for an unheld ticker.
 Malformed date parameters return the normal 422 validation response.
 
-## Current holdings (Jade)
+## Current holdings (all active plans)
 
 These routes manage the caller's current holdings records. They do not access
 broker accounts or execute trades. GET and validation accept either token
 permission; every mutation requires `holdings_write`. All holdings calls require
-an active Jade subscription. Report/snapshot/intelligence routes
+an active subscription. Report/snapshot/intelligence routes
 remain read-only. The Agent-only OpenAPI schema is available at
 [https://api.portfonia.com/agent/openapi.json](https://api.portfonia.com/agent/openapi.json).
 
@@ -354,7 +448,7 @@ replay payloads. Successful replay bodies are stored separately with encryption
 at rest; POST retries within 24 hours return the original result.
 
 Successful reads of current holdings, holding change history, snapshots and Jade risk results
-share at most one access email per ET day. Every successful Agent write request,
+share at most one access email per ET day. Every successful Agent holdings write request,
 including unchanged writes, may trigger a separate daily modification email.
 An Agent write or file upload that sharply reduces holdings rows or changes total value may trigger a separate alert email, at most one per Eastern Time date of the write.
 Validation and idempotent replay send no data notice. A notification failure
@@ -607,8 +701,8 @@ not a user's results. Consult each guide for the method and limitations.
 requirement or data notice. It uses normal read limits, quiet windows and request
 audit. Returns `name`, the stored 12-character `prefix`, `permission`, ET ISO 8601
 `created_at`, nullable ET `expires_at`, and `capabilities` booleans. `reports` is
-always true; `snapshots` and `intel` require active Advanced (Daily or Jade).
-`holdings_read` requires active Jade; `holdings_write` requires active Jade
+always true; `snapshots`, `intel` and `holdings_read` require an active subscription.
+`holdings_write` requires an active subscription
 and the token's `holdings_write` permission.
 `jade` requires active Jade, regardless of token permission, and indicates
 full intelligence detail; `intel` alone indicates headline access.
@@ -616,8 +710,8 @@ Change history follows `holdings_read`. No quota or plaintext token is returned.
 
 ## Holding change history
 
-`GET /agent/v1/holdings/changes?start=YYYY-MM-DD&end=YYYY-MM-DD` requires active
-Jade and accepts either token permission. Both inclusive ET dates
+`GET /agent/v1/holdings/changes?start=YYYY-MM-DD&end=YYYY-MM-DD` requires an active
+subscription and accepts either token permission. Both inclusive ET dates
 are required: `today ET - 29 days <= start <= end <= today ET`; invalid ranges
 return 422. Reads use normal read limits and share the daily access notice with
 current holdings, snapshots and Jade risk results. Audit item count is the returned group count.
@@ -660,7 +754,7 @@ attempt to bypass account limits by switching tokens.
 | HTTP status | Meaning |
 | --- | --- |
 | 401 | Missing, unknown, expired or revoked token; inactive user; or session JWT used instead of an API token (`unauthorized`). |
-| 403 | Required subscription missing (`subscription_required`): Advanced for snapshots, intelligence and technical position, Jade for current holdings, change history and Jade results. |
+| 403 | Required subscription missing (`subscription_required`): any active plan for snapshots, intelligence, current holdings and change history; Advanced or Jade for technical position; Jade for Jade results. A subscription write with a read-only token returns structured `holdings_write_required`. |
 | 422 | Missing or invalid parameters, including dates, ranges or Jade scenario. |
 | 429 | Request limit, burst lock or scheduled quiet window (`too many attempts, try again later`); includes positive `Retry-After` seconds. |
 | 503 | Rate-limit protection is unavailable; access fails closed (`temporarily unavailable`). |

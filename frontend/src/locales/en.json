@@ -473,7 +473,7 @@
     "subscriptionDescription": {
       "weekly": "A briefing on your portfolio every Saturday.",
       "mwf": "A briefing on your portfolio every Monday, Wednesday and Friday.",
-      "daily": "A briefing on your portfolio every weekday, Monday to Friday. Advanced plan: includes AI Agent data access.",
+      "daily": "A briefing on your portfolio every weekday, Monday to Friday. Advanced plan: adds holding-related headlines and technical position for your AI agent.",
       "jade": "Portfolio risk tools, everything in the Advanced plan, a briefing schedule you choose, and current-holdings reading and management through your own agent; changes require a holdings-write token."
     },
     "subscriptionFee": "Fee: {fee} credits per month.",
@@ -1175,13 +1175,14 @@
         },
         {
           "q": "What does it cost?",
-          "a": "Plans start at 0.99 credits per month for a weekly briefing, 1.99 for Monday / Wednesday / Friday briefings, and 2.49 for the Advanced Daily plan with AI Agent data access, and 9.99 for Jade, which adds portfolio risk tools to everything in the Advanced plan. Credits are sold in US$10 and US$20 packs — see Pricing. Active Jade also supports reading and managing current holdings through your own agent; changes require a holdings-write token."
+          "a": "Plans start at 0.99 credits per month for a weekly briefing, 1.99 for Monday / Wednesday / Friday briefings, and 2.49 for the Advanced Daily plan with Agent holding-related headlines and technical position, and 9.99 for Jade, which adds portfolio risk tools to everything in the Advanced plan. Credits are sold in US$10 and US$20 packs — see Pricing. Every active plan supports Agent daily snapshots, macro headlines and current-holdings management; changes require a holdings-write token."
         }
       ]
     },
     "status": "Limited public service. Portfonia maps public market information onto the holdings you enter. AI-generated content, for information only — not investment advice.",
     "footer": {
       "stack1": "Next.js · FastAPI · Celery · PostgreSQL",
+      "forAgents": "For AI agents",
       "stack2": "Pluggable LLM providers via OpenRouter"
     },
     "jadeTools": {
@@ -1234,7 +1235,7 @@
     "deliveryVerified": "Reports will be sent to {deliveryEmail}.",
     "deliveryUnverified": "Reports will not be sent until {deliveryEmail} is verified.",
     "errorLoadFailed": "Could not load your account.",
-    "subscriptionPlans": "Portfonia sends scheduled briefings to subscribers. There are four plans: Weekly (0.99 credits per month), Mon/Wed/Fri (1.99 credits per month), the Advanced Daily plan (2.49 credits per month, weekdays, with AI Agent data access), and Jade (9.99 credits per month, portfolio risk tools, everything in Advanced, and a briefing schedule you choose). Saved holding rows, including cash and watched rows, are limited to 30, 50 while Advanced is active, and 100 while Jade is active. Subscribe to Jade on the Jade page. Active Jade also supports reading and managing current holdings through your own agent; changes require a holdings-write token.",
+    "subscriptionPlans": "Portfonia sends scheduled briefings to subscribers. There are four plans: Weekly (0.99 credits per month), Mon/Wed/Fri (1.99 credits per month), the Advanced Daily plan (2.49 credits per month, weekdays, with Agent holding-related headlines and technical position), and Jade (9.99 credits per month, portfolio risk tools, everything in Advanced, and a briefing schedule you choose). Saved holding rows, including cash and watched rows, are limited to 30, 50 while Advanced is active, and 100 while Jade is active. Subscribe to Jade on the Jade page. Every active plan supports Agent daily snapshots, macro headlines and current-holdings management; changes require a holdings-write token.",
     "subscriptionRequirements": "Until you subscribe, scheduled briefings are not sent and some features may be unavailable. Scheduled briefings also require a verified email address.",
     "choosePlan": "Choose a plan"
   },
@@ -1317,7 +1318,7 @@
           "heading": "6. Acceptable Use",
           "body": [
             "You agree not to misuse the Service — including attempting to access another user's data, interfering with the Service's operation, or using the Service to build a competing product from its outputs.",
-            "API tokens let software you choose read your data. New tokens are read-only unless you choose holdings write. Active Jade supports current-holdings management; changes require holdings-write permission. Revoking tokens stops future access and does not undo saved changes. Keep tokens secret; you are responsible for any agent you give a token to. Portfonia applies the rate limits described on the AI Agent page and may revoke tokens to protect your account or the service."
+            "API tokens let software you choose read your data. New tokens are read-only unless you choose holdings write. Every active subscription supports current-holdings management; changes require holdings-write permission. Revoking tokens stops future access and does not undo saved changes. Keep tokens secret; you are responsible for any agent you give a token to. Portfonia applies the rate limits described on the AI Agent page and may revoke tokens to protect your account or the service."
           ]
         },
         {
@@ -1416,8 +1417,8 @@
         {
           "heading": "7. AI Agent access",
           "body": [
-            "If you create an API token, we store a one-way hash of it together with its name, its permission (read-only or holdings-write), and its creation, expiry and last-use times. Each request made with a token is logged with the time, the token used, the endpoint and dates requested, the result, and the IP address and User-Agent of the caller. We keep these logs for 90 days to protect your account and to detect misuse. Every successful Agent write request, including unchanged writes, may trigger a separate daily modification notice. Only POST creation uses an idempotency key, and a retry within 24 hours returns the original result; these results are encrypted, and request bodies and idempotency keys are not stored in the request audit. Data returned through the API is delivered to the agent you chose; how that agent stores or uses it is under your control. An Agent write or file upload that sharply reduces holdings rows or changes total value may trigger a separate alert email, at most one per Eastern Time date of the write.",
-            "Holding change history from web, file upload, Agent writes and rollbacks is stored encrypted for 30 days. You can view it on the web; your Agent can read it while Jade is active. Successful reads of current holdings, holding change history, snapshots and Jade risk results share at most one access notice per Eastern Time day."
+            "If you create an API token, we store a one-way hash of it together with its name, its permission (read-only or holdings-write), and its creation, expiry and last-use times. Each request made with a token is logged with the time, the token used, the endpoint and dates requested, the result, and the IP address and User-Agent of the caller. We keep these logs for 90 days to protect your account and to detect misuse. Every successful Agent holdings write request, including unchanged writes, may trigger a separate daily modification notice. Only POST creation uses an idempotency key, and a retry within 24 hours returns the original result; these results are encrypted, and request bodies and idempotency keys are not stored in the request audit. Data returned through the API is delivered to the agent you chose; how that agent stores or uses it is under your control. An Agent write or file upload that sharply reduces holdings rows or changes total value may trigger a separate alert email, at most one per Eastern Time date of the write.",
+            "Holding change history from web, file upload, Agent writes and rollbacks is stored encrypted for 30 days. You can view it on the web; your Agent can read it with any active subscription. Successful reads of current holdings, holding change history, snapshots and Jade risk results share at most one access notice per Eastern Time day."
           ]
         },
         {
@@ -1471,7 +1472,7 @@
             "Daily briefing (Advanced) — 2.49 credits per month. One personalized briefing email every weekday (Monday to Friday), including market holidays.",
             "Jade — 9.99 credits per month. Includes everything in the Advanced plan. You choose the Weekly, Mon / Wed / Fri, or Daily briefing schedule and can change it at any time on the Jade page. Jade includes five portfolio risk tools: holdings replay, tail risk (VaR / CVaR), historical stress scenarios, style exposure, and tracking against your reference. It also includes holdings rebalancing what-if: compare holdings with up to two edited versions and rebalancing rules over past prices.",
             "Jade offers. Free upgrade period: if you change from another plan that is still within its paid period to Jade and have never subscribed to Jade, your first Jade period is free and the unused part of the previous plan's fee is not returned. Each user can receive this free period once; cancelling, letting a plan expire or subscribing again does not restore it, and users who have already subscribed to Jade are not eligible. Discounted periods: every user, including current Jade subscribers, receives three Jade billing periods at 6.99 credits each instead of 9.99, available until we end the offer. The three periods are counted one by one, not as three consecutive months, so cancelling or changing plans keeps any you have not used. A free upgrade period does not use up a discounted period: your next three charged Jade periods are the discounted ones. After that, Jade is 9.99 credits per period. Current Jade subscribers receive the discount from their next renewal.",
-            "Weekly and Mon / Wed / Fri differ only in how often briefings are sent. Daily is the Advanced plan. Advanced and Jade subscriptions both let your AI agent read your daily holding snapshots and intelligence headlines related to your holdings and macro themes; Jade additionally provides headline summaries and included article text for holdings and macro themes. Report history is available to AI agents on every plan. Saved holding rows, including cash and watched rows, are limited to 30 on Weekly and Mon / Wed / Fri, 50 while Advanced is active, and 100 while Jade is active. Active Jade also supports reading and managing current holdings through your own agent; changes require a holdings-write token. Advanced and Jade agents can also read technical position."
+            "Weekly and Mon / Wed / Fri differ only in how often briefings are sent. Daily is the Advanced plan. Every active subscription lets your AI agent read daily holding snapshots and macro headlines; Advanced adds holding-related headlines, and Jade additionally provides headline summaries and included article text for holdings and macro themes. Report history is available to AI agents on every plan. Saved holding rows, including cash and watched rows, are limited to 30 on Weekly and Mon / Wed / Fri, 50 while Advanced is active, and 100 while Jade is active. Every active plan also supports reading and managing current holdings through your own agent; changes require a holdings-write token. Advanced and Jade agents can also read technical position."
           ]
         },
         {
@@ -1594,17 +1595,17 @@
   },
   "agent": {
     "title": "AI Agent",
-    "intro": "Your own AI agent can read reports, snapshots and intelligence through a personal API token. Active Jade users can also let it read current holdings and manage them with a holdings-write token. New tokens default to read-only. Advanced and Jade agents can also read technical position.",
+    "intro": "Your own AI agent can read reports through a personal API token. Every active plan includes daily snapshots, macro headlines and current-holdings management; Advanced adds holding-related headlines and technical position, and Jade adds full intelligence and five risk tools. With a holdings-write token, your agent can subscribe or change plan from your credit balance and manage holdings on every active plan. New tokens default to read-only.",
     "limitsTitle": "Access limits and notices",
     "limits": "Limits combine all your tokens. Single-row holdings POST/PUT/PATCH/DELETE share 30 requests per minute and 100 per hour; request 31 in one minute locks all Agent access for 15 minutes. Other calls, including GET, whole PUT and validate, allow 20 per endpoint per hour and 10 across endpoints per minute; request 11 locks access for 15 minutes. A refusal returns Retry-After.",
     "quiet": "Requests pause from five minutes before a heavy scheduled job’s scheduled time until five minutes after it finishes, including intelligence collection and scheduled briefings.",
-    "notice": "Successful reads of current holdings, holding change history, snapshots and Jade risk results share one access notice per Eastern Time day. Every successful Agent write request, including unchanged writes, may trigger a separate daily modification notice. Validation and idempotent replay send no data notice. The link revokes every API token on the account at once, including tokens used by other agents. Create new tokens afterwards for agents you still want to run. Revocation does not undo saved changes. An Agent write or file upload that sharply reduces holdings rows or changes total value may trigger a separate alert email, at most one per Eastern Time date of the write.",
+    "notice": "Successful reads of current holdings, holding change history, snapshots and Jade risk results share one access notice per Eastern Time day. Every successful Agent holdings write request, including unchanged writes, may trigger a separate daily modification notice. Validation and idempotent replay send no data notice. The link revokes every API token on the account at once, including tokens used by other agents. Create new tokens afterwards for agents you still want to run. Revocation does not undo saved changes. An Agent write or file upload that sharply reduces holdings rows or changes total value may trigger a separate alert email, at most one per Eastern Time date of the write.",
     "signIn": "Sign in",
     "signInNote": "to manage your API tokens.",
     "settingsTitle": "Token settings",
     "tokenRule": "You can have up to 5 active tokens. Tokens unused for 60 days expire automatically.",
     "permissionLabel": "Permission",
-    "permissionNote": "Permission is fixed at creation. To change it, create a new token and revoke the old one. Current-holdings reads, validation and change history require active Jade; changes also require holdings write.",
+    "permissionNote": "Permission is fixed at creation. To change it, create a new token and revoke the old one. Current-holdings reads, validation and change history require an active subscription; changes also require holdings write.",
     "permissions": {
       "read_only": "Read-only",
       "holdings_write": "Holdings write"
@@ -1649,52 +1650,52 @@
       "endpointsLead": "Detailed fields and calling conventions for each endpoint are in llms.txt and agent.md. The following is a summary of each endpoint.",
       "reportsHeading": "Read briefings",
       "reportsPath": "GET /agent/v1/reports",
-      "reportsAccess": "Applies to any active plan. Read-only tokens and holdings-write tokens are both accepted.",
+      "reportsAccess": "Available with or without an active subscription. Read-only tokens and holdings-write tokens are both accepted.",
       "reportsAction": "Read the body of briefings that have already been generated.",
       "reportsNote": "Give a start date and an end date, including both days, in Eastern Time. At most the five newest briefings in that range are returned. To read older briefings, move the end date earlier.",
       "snapshotsHeading": "Read daily snapshots",
       "snapshotsPath": "GET /agent/v1/snapshots",
-      "snapshotsAccess": "Applies during an active Advanced or Jade period. Read-only tokens and holdings-write tokens are both accepted.",
+      "snapshotsAccess": "Applies during any active subscription. Read-only tokens and holdings-write tokens are both accepted.",
       "snapshotsAction": "Read daily holdings snapshots.",
       "snapshotsNote": "Give a start date and an end date, including both days, in Eastern Time. One request covers at most 30 days. After a successful read, at most one access notice is sent that day.",
       "intelHeading": "Read intelligence",
       "intelPath": "GET /agent/v1/intel",
-      "intelAccess": "Available with active Advanced or Jade, using either token permission. Advanced receives headlines only; Jade also receives headline summaries and included article text for holdings and macro themes.",
-      "intelAction": "Read intelligence related to your holdings.",
-      "intelNote": "Choose an Eastern Time date within the last 7 days, including today, or an offset timestamp in since mode within the same range. Since mode returns at most 24 hours of newly ingested material, ending 5 minutes before now; store next_since and repeat while has_more. Both tiers include macro headlines for the latest briefing’s themes. Source links are not included.",
+      "intelAccess": "Available with any active subscription, using either token permission. Basic receives macro headlines only; Advanced receives holding and macro headlines; Jade also receives headline summaries and included article text for holdings and macro themes.",
+      "intelAction": "Read macro intelligence and, on Advanced or Jade, intelligence related to your holdings.",
+      "intelNote": "Choose an Eastern Time date within the last 7 days, including today, or an offset timestamp in since mode within the same range. Since mode returns at most 24 hours of newly ingested material, ending 5 minutes before now; store next_since and repeat while has_more. All active plans include macro headlines for the latest briefing’s themes. Source links are not included.",
       "holdingsReadHeading": "Read current holdings",
       "holdingsReadPath": "GET /agent/v1/holdings",
-      "holdingsReadAccess": "Applies during an active Jade period. Read-only tokens and holdings-write tokens are both accepted.",
+      "holdingsReadAccess": "Applies during any active subscription. Read-only tokens and holdings-write tokens are both accepted.",
       "holdingsReadAction": "Read the current holdings book as saved.",
       "holdingsReadNote": "Cash and watched holdings are included. The same instrument kept in different accounts is stored separately. Successful reads of current holdings, holding change history, snapshots and Jade risk results share at most one access notice per Eastern Time day.",
       "holdingsReplaceAllHeading": "Update the whole holdings book",
       "holdingsReplaceAllPath": "PUT /agent/v1/holdings",
-      "holdingsReplaceAllAccess": "Applies during an active Jade period. Only a holdings-write token is accepted.",
+      "holdingsReplaceAllAccess": "Applies during any active subscription. Only a holdings-write token is accepted.",
       "holdingsReplaceAllAction": "Submit the whole current holdings book.",
-      "holdingsReplaceAllNote": "Every existing holding must be listed, kept or explicitly deleted. An omitted row is not deleted, and that submission is rejected. At least one holding must remain. A new holding carries no existing id. Submission order is the saved order. Jade allows at most 100 rows, and cash and watched holdings count. After success the version increases by one, and one modification notice may be sent that day.",
+      "holdingsReplaceAllNote": "Every existing holding must be listed, kept or explicitly deleted. An omitted row is not deleted, and that submission is rejected. At least one holding must remain. A new holding carries no existing id. Submission order is the saved order. Basic allows 30 stored holding rows, active Advanced 50 and active Jade 100, counting cash and watched rows. After success the version increases by one, and one modification notice may be sent that day.",
       "holdingsAddHeading": "Add one holding",
       "holdingsAddPath": "POST /agent/v1/holdings",
-      "holdingsAddAccess": "Applies during an active Jade period. Only a holdings-write token is accepted.",
+      "holdingsAddAccess": "Applies during any active subscription. Only a holdings-write token is accepted.",
       "holdingsAddAction": "Add one holding at the end of the current book.",
       "holdingsAddNote": "A request key is required. Within 24 hours, the same key and the same content return the first result and do not add another row. The same key with different content is rejected. The row caps are the same as for the whole-book update. After success the version increases by one, and one modification notice may be sent that day.",
       "holdingsReplaceHeading": "Replace one holding",
       "holdingsReplacePath": "PUT /agent/v1/holdings/{holding_id}",
-      "holdingsReplaceAccess": "Applies during an active Jade period. Only a holdings-write token is accepted.",
+      "holdingsReplaceAccess": "Applies during any active subscription. Only a holdings-write token is accepted.",
       "holdingsReplaceAction": "Replace the writable fields of this one holding.",
       "holdingsReplaceNote": "Omitted optional fields are cleared. Name, currency, and pricing mode must be submitted. This holding keeps its position. Send the version just read. If the version has changed, read again and then submit. After success the version increases by one, and one modification notice may be sent that day.",
       "holdingsPatchHeading": "Change some fields of one holding",
       "holdingsPatchPath": "PATCH /agent/v1/holdings/{holding_id}",
-      "holdingsPatchAccess": "Applies during an active Jade period. Only a holdings-write token is accepted.",
+      "holdingsPatchAccess": "Applies during any active subscription. Only a holdings-write token is accepted.",
       "holdingsPatchAction": "Change only the submitted fields.",
       "holdingsPatchNote": "Fields that were not submitted stay as stored. A field is cleared only when it is explicitly submitted as empty. Required fields cannot be cleared. A successful request increases the version by one even when the stored content is unchanged. If the version does not match, read again and then change it. One modification notice may be sent that day.",
       "holdingsDeleteHeading": "Delete one holding",
       "holdingsDeletePath": "DELETE /agent/v1/holdings/{holding_id}",
-      "holdingsDeleteAccess": "Applies during an active Jade period. Only a holdings-write token is accepted.",
+      "holdingsDeleteAccess": "Applies during any active subscription. Only a holdings-write token is accepted.",
       "holdingsDeleteAction": "Delete this one holding.",
       "holdingsDeleteNote": "The last holding cannot be deleted. To clear the whole book, use the web page. Send the current version. After success the version increases by one, and one modification notice may be sent that day.",
       "holdingsValidateHeading": "Validate a holdings change before writing",
       "holdingsValidatePath": "POST /agent/v1/holdings/validate",
-      "holdingsValidateAccess": "Applies during an active Jade period. Read-only tokens and holdings-write tokens are both accepted.",
+      "holdingsValidateAccess": "Applies during any active subscription. Read-only tokens and holdings-write tokens are both accepted.",
       "holdingsValidateAction": "Validate whether a whole-book update, an addition, a single-holding replacement, or a partial change would be accepted.",
       "holdingsValidateNote": "Nothing is saved, no prices are fetched, no holdings notice is sent, and the version is not reserved. A passing validation does not mean a later write will succeed.",
       "endpointsClosing": "These endpoints do not connect to a broker and do not submit trades. Every request leaves an audit record. The audit does not store the holdings body or the full token.",
@@ -1705,7 +1706,7 @@
       "tokenNote": "Capabilities follow your plan at the time of the call, so an agent can call this first and stop instead of failing later. Uses the normal read limits and quiet windows. Sends no access notice.",
       "changesHeading": "Read holding change history",
       "changesPath": "GET /agent/v1/holdings/changes",
-      "changesAccess": "Applies during an active Jade period. Read-only tokens and holdings-write tokens are both accepted.",
+      "changesAccess": "Applies during any active subscription. Read-only tokens and holdings-write tokens are both accepted.",
       "changesAction": "Read field-level before and after values from web, file upload and Agent writes.",
       "changesNote": "Give inclusive Eastern Time dates within the last 30 days. At most the 100 newest groups are returned; narrow the range when truncated. History is encrypted and kept for 30 days. Reads share one daily access notice with current holdings, snapshots and Jade risk results.",
       "jadeHeading": "Read Jade risk results",
@@ -1794,7 +1795,7 @@
       },
       "agentGuide": {
         "title": "Automate your holdings updates with your own agent",
-        "description": "A complete guide for Jade users automating current-holdings updates through their own AI agent."
+        "description": "A complete guide for subscribers on every plan automating current-holdings updates through their own AI agent."
       }
     },
     "ogImageAlt": "Portfonia: holdings ingestion and market and macro tracking, summarized into the sections of a sample briefing",
@@ -2237,7 +2238,7 @@
           "Holdings upload from CSV, Excel or Markdown, with row-level editing",
           "Portfolio overview: allocation, performance against benchmarks, volatility and risk views",
           "Report history on the web, with Markdown or PDF download",
-          "Your AI agent can read your report history",
+          "Your AI agent can read report history, daily snapshots and macro headlines, and manage current holdings with a holdings-write token",
           "Up to 30 saved holding rows, including cash and watched rows"
         ]
       },
@@ -2249,7 +2250,7 @@
         "lead": "Everything in Briefing, plus:",
         "features": [
           "A briefing every weekday, Monday to Friday",
-          "Your AI agent can also read daily snapshots, technical position and intelligence topics related to your holdings",
+          "Your AI agent can also read holding-related headlines and technical position",
           "Up to 50 saved holding rows while Advanced is active, including cash and watched rows"
         ]
       },
@@ -2269,7 +2270,7 @@
           "<whatif>Holdings rebalancing what-if</whatif>: compare holdings with up to two edited versions and rebalancing rules over past prices",
           "Your AI agent can read these risk results",
           "Give your AI agent fuller intelligence: headline summaries and included article text for holdings and macro themes",
-          "<guide>Programmatic holdings writes</guide>: create a write-permission token so your AI agent can read and write standardized holdings, and update the instrument, quantity, cost, account and related details for one holding or the complete book. Every request is audit-logged.",
+          "<guide>Programmatic holdings writes</guide>, as on every active plan: create a write-permission token so your AI agent can read and write standardized holdings, and update the instrument, quantity, cost, account and related details for one holding or the complete book. Every request is audit-logged.",
           "Up to 100 saved holding rows while Jade is active, including cash and watched rows"
         ]
       }
@@ -2669,7 +2670,7 @@
   "agentGuide": {
     "title": "Automate your holdings updates with your own agent",
     "whatHeading": "What the pipeline does",
-    "what": "With active Jade, your own agent can turn an institution's holdings export into an updated current book in Portfonia. It checks the source, reads your book, prepares and validates changes, writes them, and checks change history. Your agent and tooling handle institution access, exports and scheduling. Portfonia does not log in to institutions, download statements or schedule these runs; it stores and updates your holdings records and does not execute trades.",
+    "what": "With any active subscription, your own agent can turn an institution's holdings export into an updated current book in Portfonia. It checks the source, reads your book, prepares and validates changes, writes them, and checks change history. Your agent and tooling handle institution access, exports and scheduling. Portfonia does not log in to institutions, download statements or schedule these runs; it stores and updates your holdings records and does not execute trades.",
     "howHeading": "Set up once",
     "how": "On the AI Agent page, create a holdings-write token for an agent that updates holdings, or a read-only token for one that only reads. Give your agent the token and https://portfonia.com/llms.txt. It first calls GET /agent/v1/token (Verify token permissions). An updating agent stops if capabilities.holdings_write is false; a read-only agent stops if capabilities.holdings_read is false.",
     "runHeading": "Each run, step by step",
@@ -2684,7 +2685,7 @@
       "Afterwards, read GET /agent/v1/holdings/changes with inclusive ET start and end dates within the last 30 days to confirm what changed. If truncated is true, narrow the date range. Unchanged writes and idempotent replays create no change-history group."
     ],
     "limitsHeading": "Limits and safeguards",
-    "limits": "Jade allows 100 stored holding rows, counting cash and watched rows. Single-row writes share 30 requests per minute and 100 per hour across your tokens. Reads, whole PUT and validation use the normal read limits. Quiet windows pause requests from five minutes before a heavy scheduled task until five minutes after it ends; use Retry-After when a request is refused. The last holding cannot be deleted through the API; clear the entire book only on the web. Successful current-holdings, change-history, snapshot and Jade risk-result reads share at most one access notice per ET day. Successful writes may trigger a separate daily modification notice; validation and idempotent replay send no data notice. A notice link revokes every token on your account at once, including other agents' tokens. It stops future access and does not undo saved changes. An Agent write or file upload that sharply reduces holdings rows or changes total value may trigger a separate alert email, at most one per Eastern Time date of the write.",
+    "limits": "Basic allows 30 stored holding rows, active Advanced 50 and active Jade 100, counting cash and watched rows. Single-row writes share 30 requests per minute and 100 per hour across your tokens. Reads, whole PUT and validation use the normal read limits. Quiet windows pause requests from five minutes before a heavy scheduled task until five minutes after it ends; use Retry-After when a request is refused. The last holding cannot be deleted through the API; clear the entire book only on the web. Successful current-holdings, change-history, snapshot and Jade risk-result reads share at most one access notice per ET day. Successful writes may trigger a separate daily modification notice; validation and idempotent replay send no data notice. A notice link revokes every token on your account at once, including other agents' tokens. It stops future access and does not undo saved changes. An Agent write or file upload that sharply reduces holdings rows or changes total value may trigger a separate alert email, at most one per Eastern Time date of the write.",
     "effectHeading": "What changes in Portfonia",
     "effect": "Writes update Portfonia's saved current book. Later briefings and the Jade tools—holdings replay, tail risk, historical stress scenarios, style exposure and tracking—use the updated book. Every request is audit-logged; the audit stores request metadata, not holding bodies or complete tokens."
   },

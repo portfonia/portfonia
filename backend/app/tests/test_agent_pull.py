@@ -146,7 +146,7 @@ def test_652_acceptance_02_report_validation(
     "plan,status",
     [("weekly", "active"), ("mwf", "active"), (None, "inactive"), ("daily", "inactive")],
 )
-def test_652_acceptance_03_reports_all_plans_intel_advanced(
+def test_652_acceptance_03_reports_all_plans_intel_subscribers(
     app_client: TestClient,
     db_session: Session,
     token: dict[str, object],
@@ -163,8 +163,9 @@ def test_652_acceptance_03_reports_all_plans_intel_advanced(
     assert response.json()["items"] == [] and response.json()["total_in_range"] == 0
     assert response.json()["truncated"] is False
     denied = app_client.get(INTEL, params={"date": DAY.isoformat()}, headers=bearer(token))
-    assert denied.status_code == 403
-    assert denied.json() == {"detail": "subscription_required"}
+    assert denied.status_code == (200 if status == "active" else 403)
+    if status != "active":
+        assert denied.json() == {"detail": "subscription_required"}
 
 
 @pytest.mark.parametrize("offset,status", [(-7, 422), (-6, 200), (0, 200), (1, 422)])
@@ -473,16 +474,32 @@ def freeze_intel(monkeypatch: pytest.MonkeyPatch, moment: datetime) -> None:
     monkeypatch.setattr("app.core.timezones.today_et", lambda: moment.date())
 
 
-def test_781_acceptance_01_advanced_headlines(
-    app_client: TestClient, db_session: Session, token: dict[str, object]
+@pytest.mark.parametrize("plan", ["weekly", "daily"])
+def test_877_basic_and_advanced_headlines(
+    app_client: TestClient,
+    db_session: Session,
+    token: dict[str, object],
+    plan: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.subscription_type = plan
     seed_intel(db_session)
     report(db_session, themes=["us_rates"])
+    monkeypatch.setattr("app.services.macro_detector._load_keywords", lambda: {"us_rates": ["Fed"]})
+    db_session.add(
+        News(url_hash="877-macro", origin="pool", published_at=NOW, record={"title": "Fed update"})
+    )
     db_session.commit()
     body = app_client.get(INTEL, params={"date": DAY.isoformat()}, headers=bearer(token)).json()
-    assert body["holdings"][0]["headlines"][1]["summary"] is None
     assert body["detail"] == "headlines"
-    assert body["holdings"][0]["articles"] == []
+    if plan == "weekly":
+        assert body["holdings"] == []
+    else:
+        assert body["holdings"][0]["headlines"][1]["summary"] is None
+        assert body["holdings"][0]["articles"] == []
+    assert body["macro"]["themes"][0]["headlines"]
     assert body["macro"]["themes"][0]["articles"] == []
 
 
@@ -664,7 +681,7 @@ def test_829_technical_requires_advanced(
 ) -> None:
     user = db_session.get(User, TEST_USER_ID)
     assert user is not None
-    user.subscription_type = "mwf"
+    user.subscription_type = "weekly"
     db_session.flush()
     response = app_client.get("/agent/v1/technical", headers=bearer(token))
     assert response.status_code == 403

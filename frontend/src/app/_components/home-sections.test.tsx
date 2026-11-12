@@ -718,3 +718,9 @@ it("833 places the technical preview between performance and the closing CTA out
   expect(technical.compareDocumentPosition(cta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(technical.closest("#preview")).toBeNull();
 });
+
+
+it("877 links agents to llms.txt from the homepage footer", () => {
+  const { container } = render(<LocaleProvider routeLocale="en"><HomeSections /></LocaleProvider>);
+  expect(container.querySelector('footer a[href="/llms.txt"]')).not.toBeNull();
+});

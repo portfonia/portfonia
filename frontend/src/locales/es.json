@@ -473,7 +473,7 @@
     "subscriptionDescription": {
       "weekly": "Un resumen de su cartera cada sábado.",
       "mwf": "Un resumen de su cartera cada lunes, miércoles y viernes.",
-      "daily": "Un resumen de su cartera de lunes a viernes. Plan Advanced: incluye acceso a datos para agentes de IA.",
+      "daily": "Un resumen de su cartera de lunes a viernes. Plan Advanced: agrega titulares de posiciones y situación técnica para su agente de IA.",
       "jade": "Herramientas de riesgo de cartera, todo el plan Advanced, un calendario de resúmenes que usted elige y lectura y gestión de posiciones actuales mediante su propio agente; los cambios requieren un token de escritura de posiciones."
     },
     "subscriptionFee": "Tarifa: {fee} créditos al mes.",
@@ -1175,13 +1175,14 @@
         },
         {
           "q": "¿Cuánto cuesta?",
-          "a": "Los planes comienzan en 0.99 créditos al mes por un resumen semanal, 1.99 por resúmenes lunes / miércoles / viernes, 2.49 por el plan diario Advanced con acceso a datos para agentes de IA, y 9.99 por Jade, que suma herramientas de riesgo de cartera a todo lo incluido en Advanced. Los créditos se venden en paquetes de US$10 y US$20; consulte Precios. Jade activo también permite leer y gestionar posiciones actuales mediante su propio agente; los cambios requieren un token de escritura."
+          "a": "Los planes comienzan en 0.99 créditos al mes por un resumen semanal, 1.99 por resúmenes lunes / miércoles / viernes, 2.49 por el plan diario Advanced con titulares de posiciones y situación técnica para agentes, y 9.99 por Jade, que suma herramientas de riesgo de cartera a todo lo incluido en Advanced. Los créditos se venden en paquetes de US$10 y US$20; consulte Precios. Todos los planes activos permiten a su agente leer instantáneas diarias y titulares macroeconómicos, y gestionar posiciones actuales; los cambios requieren un token de escritura."
         }
       ]
     },
     "status": "Servicio público limitado. Portfonia relaciona información pública del mercado con las posiciones que ingresa. Contenido generado por IA, solo informativo; no constituye asesoría de inversión.",
     "footer": {
       "stack1": "Next.js · FastAPI · Celery · PostgreSQL",
+      "forAgents": "Para agentes de IA",
       "stack2": "Proveedores de modelos intercambiables mediante OpenRouter"
     },
     "jadeTools": {
@@ -1234,7 +1235,7 @@
     "deliveryVerified": "Los informes se enviarán a {deliveryEmail}.",
     "deliveryUnverified": "Los informes no se enviarán hasta verificar {deliveryEmail}.",
     "errorLoadFailed": "No se pudo cargar su cuenta.",
-    "subscriptionPlans": "Portfonia envía resúmenes programados a suscriptores. Hay cuatro planes: semanal (0.99 créditos al mes), Lun/Mié/Vie (1.99), diario Advanced (2.49, días laborables y acceso a datos para agentes de IA) y Jade (9.99, herramientas de riesgo de cartera, todo lo incluido en Advanced y un calendario de resúmenes que usted elige). Las posiciones guardadas, incluido el efectivo y las posiciones en observación, se limitan a 30, 50 mientras Advanced está activo y 100 mientras Jade está activo. Suscríbase a Jade en la página Jade. Jade activo también permite leer y gestionar posiciones actuales mediante su propio agente; los cambios requieren un token de escritura.",
+    "subscriptionPlans": "Portfonia envía resúmenes programados a suscriptores. Hay cuatro planes: semanal (0.99 créditos al mes), Lun/Mié/Vie (1.99), diario Advanced (2.49, días laborables con titulares de posiciones y situación técnica para agentes) y Jade (9.99, herramientas de riesgo de cartera, todo lo incluido en Advanced y un calendario de resúmenes que usted elige). Las posiciones guardadas, incluido el efectivo y las posiciones en observación, se limitan a 30, 50 mientras Advanced está activo y 100 mientras Jade está activo. Suscríbase a Jade en la página Jade. Todos los planes activos permiten a su agente leer instantáneas diarias y titulares macroeconómicos, y gestionar posiciones actuales; los cambios requieren un token de escritura.",
     "subscriptionRequirements": "Hasta suscribirse, no se envían resúmenes programados y algunas funciones pueden no estar disponibles. Los resúmenes programados también requieren una dirección de correo verificada.",
     "choosePlan": "Elegir un plan"
   },
@@ -1317,7 +1318,7 @@
           "heading": "6. Uso aceptable",
           "body": [
             "Acepta no hacer uso indebido del Servicio, incluyendo intentar acceder a datos de otro usuario, interferir con su funcionamiento o construir un producto competidor a partir de sus resultados.",
-            "Los tokens de API permiten que el software que elija lea sus datos. Un token nuevo es de solo lectura salvo que elija escritura de posiciones. Jade activo permite gestionar posiciones actuales; los cambios requieren permiso de escritura. Revocar tokens detiene accesos futuros y no deshace cambios guardados. Manténgalos secretos; usted es responsable de los agentes a los que entregue un token. Portfonia aplica los límites descritos en Agente de IA y puede revocar tokens para proteger su cuenta o el servicio."
+            "Los tokens de API permiten que el software que elija lea sus datos. Un token nuevo es de solo lectura salvo que elija escritura de posiciones. Cualquier suscripción activa permite gestionar posiciones actuales; los cambios requieren permiso de escritura. Revocar tokens detiene accesos futuros y no deshace cambios guardados. Manténgalos secretos; usted es responsable de los agentes a los que entregue un token. Portfonia aplica los límites descritos en Agente de IA y puede revocar tokens para proteger su cuenta o el servicio."
           ]
         },
         {
@@ -1416,8 +1417,8 @@
         {
           "heading": "7. Acceso de agentes de IA",
           "body": [
-            "Si crea un token de API, almacenamos su hash irreversible, su nombre, su permiso (solo lectura o escritura de posiciones) y las fechas de creación, vencimiento y último uso. Cada solicitud registra hora, token, endpoint y fechas solicitadas, resultado, IP y User-Agent del solicitante. Conservamos estos registros 90 días para proteger su cuenta y detectar uso indebido. Cada solicitud de escritura exitosa del agente, incluso sin cambios, puede generar un aviso diario separado. Solo la creación mediante POST usa una clave de idempotencia, y un reintento dentro de 24 horas devuelve el resultado original; estos resultados se almacenan cifrados, y la auditoría no guarda cuerpos de solicitudes ni claves de idempotencia. Los datos de la API se entregan al agente que usted elige; usted controla cómo los almacena o usa ese agente. Una escritura del agente o una carga de archivo que reduzca considerablemente las filas de posiciones o cambie su valor total puede generar una alerta por correo separada, como máximo una por fecha de la escritura en hora del Este.",
-            "El historial de cambios de las posiciones realizados desde la web, una carga de archivo, un agente o una restauración se almacena cifrado durante 30 días. Puede verlo en la web; su agente puede leerlo mientras Jade esté activo. Las lecturas correctas de las posiciones actuales, su historial de cambios, las instantáneas y los resultados de riesgo de Jade comparten como máximo un aviso de acceso por día en hora del Este."
+            "Si crea un token de API, almacenamos su hash irreversible, su nombre, su permiso (solo lectura o escritura de posiciones) y las fechas de creación, vencimiento y último uso. Cada solicitud registra hora, token, endpoint y fechas solicitadas, resultado, IP y User-Agent del solicitante. Conservamos estos registros 90 días para proteger su cuenta y detectar uso indebido. Cada solicitud de escritura de posiciones exitosa del agente, incluso sin cambios, puede generar un aviso diario separado. Solo la creación mediante POST usa una clave de idempotencia, y un reintento dentro de 24 horas devuelve el resultado original; estos resultados se almacenan cifrados, y la auditoría no guarda cuerpos de solicitudes ni claves de idempotencia. Los datos de la API se entregan al agente que usted elige; usted controla cómo los almacena o usa ese agente. Una escritura del agente o una carga de archivo que reduzca considerablemente las filas de posiciones o cambie su valor total puede generar una alerta por correo separada, como máximo una por fecha de la escritura en hora del Este.",
+            "El historial de cambios de las posiciones realizados desde la web, una carga de archivo, un agente o una restauración se almacena cifrado durante 30 días. Puede verlo en la web; su agente puede leerlo con cualquier suscripción activa. Las lecturas correctas de las posiciones actuales, su historial de cambios, las instantáneas y los resultados de riesgo de Jade comparten como máximo un aviso de acceso por día en hora del Este."
           ]
         },
         {
@@ -1471,7 +1472,7 @@
             "Resumen diario (Advanced): 2.49 créditos al mes. Un correo personalizado cada día de lunes a viernes, incluidos festivos bursátiles.",
             "Jade: 9.99 créditos al mes. Incluye todo el plan Advanced. Elija resúmenes semanales, Lun / Mié / Vie o diarios y cambie el calendario cuando quiera en Jade. Incluye cinco herramientas de riesgo: simulación histórica de posiciones, riesgo de cola (VaR / CVaR), escenarios de estrés histórico, exposición por estilo y seguimiento frente a su referencia. También incluye la simulación de rebalanceo de posiciones: compare sus posiciones con hasta dos versiones editadas y reglas de rebalanceo sobre precios históricos.",
             "Ofertas de Jade. Período gratuito al mejorar: si pasa a Jade desde otro plan que aún está dentro de su período pagado y nunca ha estado suscrito a Jade, su primer período de Jade es gratuito y no se devuelve la parte no utilizada de la tarifa del plan anterior. Cada usuario puede recibir este período gratuito una sola vez; cancelar, dejar que un plan venza o volver a suscribirse no lo restablece, y los usuarios que ya se hayan suscrito a Jade no son elegibles. Períodos con descuento: todos los usuarios, incluidos los suscriptores actuales de Jade, reciben tres períodos de facturación de Jade a 6.99 créditos cada uno en lugar de 9.99, hasta que terminemos la oferta. Los tres períodos se cuentan uno a uno, no como tres meses seguidos, por lo que cancelar o cambiar de plan conserva los que no haya usado. El período gratuito no consume un período con descuento: los tres siguientes períodos de Jade que se cobren son los que tienen descuento. Después, Jade cuesta 9.99 créditos por período. Los suscriptores actuales de Jade reciben el descuento desde su próxima renovación.",
-            "Semanal y Lun / Mié / Vie solo difieren en frecuencia. Diario es el plan Advanced. Las suscripciones Advanced y Jade permiten que su agente de IA lea instantáneas diarias de posiciones y titulares relacionados con sus posiciones y las temáticas macroeconómicas; Jade también proporciona resúmenes de titulares y texto de artículos incluidos sobre sus posiciones y las temáticas macroeconómicas. El historial de informes está disponible para agentes en todos los planes. Las posiciones guardadas, incluido el efectivo y las posiciones en observación, se limitan a 30 en Semanal y Lun / Mié / Vie, 50 mientras Advanced está activo y 100 mientras Jade está activo. Jade activo también permite leer y gestionar posiciones actuales mediante su propio agente; los cambios requieren un token de escritura. Los agentes Advanced y Jade también pueden leer la situación técnica."
+            "Semanal y Lun / Mié / Vie solo difieren en frecuencia. Diario es el plan Advanced. Cualquier suscripción activa permite que su agente de IA lea instantáneas diarias de posiciones y titulares macroeconómicos; Advanced agrega titulares de posiciones, y Jade también proporciona resúmenes de titulares y texto de artículos incluidos sobre sus posiciones y las temáticas macroeconómicas. El historial de informes está disponible para agentes en todos los planes. Las posiciones guardadas, incluido el efectivo y las posiciones en observación, se limitan a 30 en Semanal y Lun / Mié / Vie, 50 mientras Advanced está activo y 100 mientras Jade está activo. Todos los planes activos también permiten leer y gestionar posiciones actuales mediante su propio agente; los cambios requieren un token de escritura. Los agentes Advanced y Jade también pueden leer la situación técnica."
           ]
         },
         {
@@ -1594,17 +1595,17 @@
   },
   "agent": {
     "title": "Agente de IA",
-    "intro": "Su propio agente de IA puede leer informes, instantáneas e información mediante un token de API personal. Con Jade activo, también puede leer sus posiciones actuales y gestionarlas con un token de escritura de posiciones. Los tokens nuevos son de solo lectura de forma predeterminada. Los agentes Advanced y Jade también pueden leer la situación técnica.",
+    "intro": "Su propio agente de IA puede leer informes mediante un token de API personal. Todos los planes activos incluyen instantáneas diarias, titulares macroeconómicos y gestión de posiciones actuales; Advanced agrega titulares de posiciones y situación técnica, y Jade agrega información completa y cinco herramientas de riesgo. Con un token de escritura de posiciones, su agente puede suscribirse o cambiar de plan con su saldo de créditos y gestionar posiciones en cualquier plan activo. Los tokens nuevos son de solo lectura de forma predeterminada.",
     "limitsTitle": "Límites de acceso y avisos",
     "limits": "Los límites combinan todos sus tokens. POST/PUT/PATCH/DELETE de una sola posición comparten 30 solicitudes por minuto y 100 por hora; la solicitud 31 bloquea todo el acceso de agentes durante 15 minutos. Las demás llamadas, incluidas GET, PUT completo y validación, permiten 20 por endpoint por hora y 10 entre endpoints por minuto; la solicitud 11 bloquea el acceso 15 minutos. Un rechazo devuelve Retry-After.",
     "quiet": "Las solicitudes se pausan desde cinco minutos antes de la hora programada de una tarea pesada hasta cinco minutos después de terminar, incluidas la recopilación de información y los resúmenes programados.",
-    "notice": "Las lecturas correctas de las posiciones actuales, su historial de cambios, las instantáneas y los resultados de riesgo de Jade comparten un aviso de acceso por día en hora del Este. Cada solicitud de escritura exitosa del agente, incluso sin cambios, puede generar un aviso diario separado. La validación y los reintentos idempotentes no envían avisos de datos. El enlace revoca todos los tokens de API de la cuenta a la vez, incluidos los que usan otros agentes. Después, cree nuevos tokens para los agentes que quiera seguir usando. La revocación no deshace los cambios guardados. Una escritura del agente o una carga de archivo que reduzca considerablemente las filas de posiciones o cambie su valor total puede generar una alerta por correo separada, como máximo una por fecha de la escritura en hora del Este.",
+    "notice": "Las lecturas correctas de las posiciones actuales, su historial de cambios, las instantáneas y los resultados de riesgo de Jade comparten un aviso de acceso por día en hora del Este. Cada solicitud de escritura de posiciones exitosa del agente, incluso sin cambios, puede generar un aviso diario separado. La validación y los reintentos idempotentes no envían avisos de datos. El enlace revoca todos los tokens de API de la cuenta a la vez, incluidos los que usan otros agentes. Después, cree nuevos tokens para los agentes que quiera seguir usando. La revocación no deshace los cambios guardados. Una escritura del agente o una carga de archivo que reduzca considerablemente las filas de posiciones o cambie su valor total puede generar una alerta por correo separada, como máximo una por fecha de la escritura en hora del Este.",
     "signIn": "Inicie sesión",
     "signInNote": "para gestionar sus tokens de API.",
     "settingsTitle": "Configuración de tokens",
     "tokenRule": "Puede tener hasta 5 tokens activos. Los no utilizados durante 60 días vencen automáticamente.",
     "permissionLabel": "Permiso",
-    "permissionNote": "El permiso se fija al crear el token. Para cambiarlo, cree otro token y revoque el anterior. La lectura de posiciones actuales, la validación y el historial de cambios requieren Jade activo; los cambios también requieren permiso de escritura de posiciones.",
+    "permissionNote": "El permiso se fija al crear el token. Para cambiarlo, cree otro token y revoque el anterior. La lectura de posiciones actuales, la validación y el historial de cambios requieren una suscripción activa; los cambios también requieren permiso de escritura de posiciones.",
     "permissions": {
       "read_only": "Solo lectura",
       "holdings_write": "Escritura de posiciones"
@@ -1649,52 +1650,52 @@
       "endpointsLead": "Los campos detallados y las convenciones de llamada de cada endpoint están en llms.txt y agent.md. A continuación se resume cada endpoint.",
       "reportsHeading": "Leer resúmenes",
       "reportsPath": "GET /agent/v1/reports",
-      "reportsAccess": "Se aplica a cualquier plan activo. Se aceptan tanto tokens de solo lectura como tokens de escritura de posiciones.",
+      "reportsAccess": "Disponible con o sin una suscripción activa. Se aceptan tanto tokens de solo lectura como tokens de escritura de posiciones.",
       "reportsAction": "Leer el cuerpo de resúmenes que ya se han generado.",
       "reportsNote": "Indique una fecha de inicio y una de fin, incluidos ambos días, en hora del Este. Se devuelven como máximo los cinco resúmenes más recientes de ese intervalo. Para leer resúmenes anteriores, mueva la fecha de fin a una fecha anterior.",
       "snapshotsHeading": "Leer instantáneas diarias",
       "snapshotsPath": "GET /agent/v1/snapshots",
-      "snapshotsAccess": "Se aplica durante un período activo de Advanced o Jade. Se aceptan tanto tokens de solo lectura como tokens de escritura de posiciones.",
+      "snapshotsAccess": "Se aplica durante cualquier suscripción activa. Se aceptan tanto tokens de solo lectura como tokens de escritura de posiciones.",
       "snapshotsAction": "Leer instantáneas diarias de posiciones.",
       "snapshotsNote": "Indique una fecha de inicio y una de fin, incluidos ambos días, en hora del Este. Una solicitud abarca como máximo 30 días. Tras una lectura exitosa, se envía como máximo un aviso de acceso ese día.",
       "intelHeading": "Leer información",
       "intelPath": "GET /agent/v1/intel",
-      "intelAccess": "Disponible con Advanced o Jade activo y con cualquiera de los dos permisos de token. Advanced recibe solo titulares; Jade también recibe resúmenes de titulares y texto de artículos incluidos sobre sus posiciones y las temáticas macroeconómicas.",
-      "intelAction": "Leer información relacionada con sus posiciones.",
-      "intelNote": "Indique una fecha en hora del Este de los últimos 7 días, incluido hoy, o una marca de tiempo con desfase UTC en modo since dentro del mismo intervalo. El modo since devuelve como máximo 24 horas de material recién incorporado, hasta 5 minutos antes del momento actual; guarde next_since y repita mientras has_more sea verdadero. Ambos planes incluyen titulares macroeconómicos de las temáticas del último resumen. No se incluyen enlaces a las fuentes.",
+      "intelAccess": "Disponible con cualquier suscripción activa y cualquiera de los dos permisos de token. Basic recibe solo titulares macroeconómicos; Advanced recibe titulares de posiciones y macroeconómicos; Jade también recibe resúmenes de titulares y texto de artículos incluidos sobre sus posiciones y las temáticas macroeconómicas.",
+      "intelAction": "Leer información macroeconómica y, con Advanced o Jade, información relacionada con sus posiciones.",
+      "intelNote": "Indique una fecha en hora del Este de los últimos 7 días, incluido hoy, o una marca de tiempo con desfase UTC en modo since dentro del mismo intervalo. El modo since devuelve como máximo 24 horas de material recién incorporado, hasta 5 minutos antes del momento actual; guarde next_since y repita mientras has_more sea verdadero. Todos los planes activos incluyen titulares macroeconómicos de las temáticas del último resumen. No se incluyen enlaces a las fuentes.",
       "holdingsReadHeading": "Leer las posiciones actuales",
       "holdingsReadPath": "GET /agent/v1/holdings",
-      "holdingsReadAccess": "Disponible mientras Jade esté activo. Se aceptan tokens de solo lectura y de escritura de posiciones.",
+      "holdingsReadAccess": "Disponible con cualquier suscripción activa. Se aceptan tokens de solo lectura y de escritura de posiciones.",
       "holdingsReadAction": "Leer la cartera actual de posiciones tal como está guardada.",
       "holdingsReadNote": "Se incluyen el efectivo y las posiciones en observación. El mismo instrumento en cuentas diferentes se guarda por separado. Las lecturas correctas de las posiciones actuales, su historial de cambios, las instantáneas y los resultados de riesgo de Jade comparten como máximo un aviso de acceso por día en hora del Este.",
       "holdingsReplaceAllHeading": "Actualizar toda la cartera de posiciones",
       "holdingsReplaceAllPath": "PUT /agent/v1/holdings",
-      "holdingsReplaceAllAccess": "Disponible mientras Jade esté activo. Solo se acepta un token de escritura de posiciones.",
+      "holdingsReplaceAllAccess": "Disponible con cualquier suscripción activa. Solo se acepta un token de escritura de posiciones.",
       "holdingsReplaceAllAction": "Enviar toda la cartera actual de posiciones.",
-      "holdingsReplaceAllNote": "Todas las posiciones existentes deben figurar, conservadas o eliminadas explícitamente. Una fila omitida no se elimina y se rechaza ese envío. Debe quedar al menos una posición. Una posición nueva no lleva un id existente. El orden de envío es el orden guardado. Jade permite como máximo 100 filas, y cuentan el efectivo y las posiciones en observación. Tras el éxito, la versión aumenta en uno y se puede enviar un aviso de modificación ese día.",
+      "holdingsReplaceAllNote": "Todas las posiciones existentes deben figurar, conservadas o eliminadas explícitamente. Una fila omitida no se elimina y se rechaza ese envío. Debe quedar al menos una posición. Una posición nueva no lleva un id existente. El orden de envío es el orden guardado. Basic permite 30 filas guardadas, Advanced activo 50 y Jade activo 100, incluidos el efectivo y las posiciones en observación. Tras el éxito, la versión aumenta en uno y se puede enviar un aviso de modificación ese día.",
       "holdingsAddHeading": "Añadir una posición",
       "holdingsAddPath": "POST /agent/v1/holdings",
-      "holdingsAddAccess": "Disponible mientras Jade esté activo. Solo se acepta un token de escritura de posiciones.",
+      "holdingsAddAccess": "Disponible con cualquier suscripción activa. Solo se acepta un token de escritura de posiciones.",
       "holdingsAddAction": "Añadir una posición al final de la cartera actual.",
       "holdingsAddNote": "Se requiere una clave de solicitud. Durante 24 horas, la misma clave y el mismo contenido devuelven el primer resultado y no añaden otra fila. Se rechaza la misma clave con contenido diferente. Los límites de filas son los mismos que para la actualización de toda la cartera. Tras el éxito, la versión aumenta en uno y se puede enviar un aviso de modificación ese día.",
       "holdingsReplaceHeading": "Reemplazar una posición",
       "holdingsReplacePath": "PUT /agent/v1/holdings/{holding_id}",
-      "holdingsReplaceAccess": "Disponible mientras Jade esté activo. Solo se acepta un token de escritura de posiciones.",
+      "holdingsReplaceAccess": "Disponible con cualquier suscripción activa. Solo se acepta un token de escritura de posiciones.",
       "holdingsReplaceAction": "Reemplazar los campos editables de esta posición.",
       "holdingsReplaceNote": "Se vacían los campos opcionales omitidos. Deben enviarse el nombre, la moneda y el modo de valoración. Esta posición conserva su lugar. Envíe la versión que acaba de leer. Si la versión ha cambiado, vuelva a leer y luego envíe. Tras el éxito, la versión aumenta en uno y se puede enviar un aviso de modificación ese día.",
       "holdingsPatchHeading": "Cambiar algunos campos de una posición",
       "holdingsPatchPath": "PATCH /agent/v1/holdings/{holding_id}",
-      "holdingsPatchAccess": "Disponible mientras Jade esté activo. Solo se acepta un token de escritura de posiciones.",
+      "holdingsPatchAccess": "Disponible con cualquier suscripción activa. Solo se acepta un token de escritura de posiciones.",
       "holdingsPatchAction": "Cambiar solo los campos enviados.",
       "holdingsPatchNote": "Los campos no enviados permanecen como están guardados. Un campo se vacía solo si se envía explícitamente vacío. Los campos obligatorios no se pueden vaciar. Una solicitud exitosa aumenta la versión en uno incluso cuando el contenido guardado no cambia. Si la versión no coincide, vuelva a leer y luego realice el cambio. Se puede enviar un aviso de modificación ese día.",
       "holdingsDeleteHeading": "Eliminar una posición",
       "holdingsDeletePath": "DELETE /agent/v1/holdings/{holding_id}",
-      "holdingsDeleteAccess": "Disponible mientras Jade esté activo. Solo se acepta un token de escritura de posiciones.",
+      "holdingsDeleteAccess": "Disponible con cualquier suscripción activa. Solo se acepta un token de escritura de posiciones.",
       "holdingsDeleteAction": "Eliminar esta posición.",
       "holdingsDeleteNote": "No se puede eliminar la última posición. Para vaciar toda la cartera, use la página web. Envíe la versión actual. Tras el éxito, la versión aumenta en uno y se puede enviar un aviso de modificación ese día.",
       "holdingsValidateHeading": "Validar un cambio de posiciones antes de guardarlo",
       "holdingsValidatePath": "POST /agent/v1/holdings/validate",
-      "holdingsValidateAccess": "Disponible mientras Jade esté activo. Se aceptan tokens de solo lectura y de escritura de posiciones.",
+      "holdingsValidateAccess": "Disponible con cualquier suscripción activa. Se aceptan tokens de solo lectura y de escritura de posiciones.",
       "holdingsValidateAction": "Validar si se aceptaría una actualización de toda la cartera, una adición, un reemplazo de una posición o un cambio parcial.",
       "holdingsValidateNote": "No se guarda nada, no se obtienen precios, no se envía ningún aviso de posiciones y no se reserva la versión. Superar la validación no significa que una escritura posterior vaya a tener éxito.",
       "endpointsClosing": "Estos endpoints no se conectan a un corredor ni envían operaciones. Cada solicitud deja un registro de auditoría. La auditoría no almacena el cuerpo de las posiciones ni el token completo.",
@@ -1705,7 +1706,7 @@
       "tokenNote": "Las capacidades dependen de su plan en el momento de la llamada, por lo que el agente puede consultar este endpoint primero y detenerse en lugar de fallar después. Se aplican los límites de lectura y los períodos de pausa habituales. No envía avisos de acceso.",
       "changesHeading": "Leer el historial de cambios de las tenencias",
       "changesPath": "GET /agent/v1/holdings/changes",
-      "changesAccess": "Disponible mientras Jade esté activo. Se aceptan tokens de solo lectura y de escritura de posiciones.",
+      "changesAccess": "Disponible con cualquier suscripción activa. Se aceptan tokens de solo lectura y de escritura de posiciones.",
       "changesAction": "Lee los valores anteriores y posteriores de cada campo modificado desde la web, una carga de archivo o un agente.",
       "changesNote": "Indique fechas inclusivas de los últimos 30 días en hora del Este. Se devuelven hasta los 100 grupos más recientes; acote el período si el resultado se trunca. El historial se cifra y se conserva durante 30 días. Estas lecturas comparten un aviso diario de acceso con las posiciones actuales, las instantáneas y los resultados de riesgo de Jade.",
       "jadeHeading": "Leer resultados de riesgo de Jade",
@@ -1794,7 +1795,7 @@
       },
       "agentGuide": {
         "title": "Automatice la actualización de sus posiciones con su propio agente",
-        "description": "Guía completa para usuarios de Jade que automatizan la actualización de posiciones actuales mediante su propio agente de IA."
+        "description": "Guía completa para suscriptores de todos los planes que automatizan la actualización de posiciones actuales mediante su propio agente de IA."
       }
     },
     "ogImageAlt": "Portfonia: carga de posiciones y seguimiento de mercado y macro, resumidos en las secciones de un informe de ejemplo",
@@ -2237,7 +2238,7 @@
           "Carga de posiciones desde CSV, Excel o Markdown, con edición por fila",
           "Resumen de cartera: distribución, rendimiento frente a índices, volatilidad y riesgo",
           "Historial de informes en la web, con descarga Markdown o PDF",
-          "Su agente de IA puede leer el historial de informes",
+          "Su agente de IA puede leer el historial de informes, instantáneas diarias y titulares macroeconómicos, y gestionar posiciones actuales con un token de escritura de posiciones",
           "Hasta 30 posiciones guardadas, incluidas efectivo y posiciones en observación"
         ]
       },
@@ -2249,7 +2250,7 @@
         "lead": "Todo lo incluido en Briefing, más:",
         "features": [
           "Un resumen cada día de lunes a viernes",
-          "Su agente de IA también puede leer instantáneas diarias, situación técnica y temas de información relacionados con sus posiciones",
+          "Su agente de IA también puede leer titulares relacionados con sus posiciones y la situación técnica",
           "Hasta 50 posiciones guardadas mientras Advanced está activo, incluidas efectivo y posiciones en observación"
         ]
       },
@@ -2269,7 +2270,7 @@
           "<whatif>Simulación de rebalanceo de posiciones</whatif>: compare posiciones con hasta dos versiones editadas y reglas de rebalanceo sobre precios históricos",
           "Su agente de IA puede leer estos resultados de riesgo",
           "Dé a su agente de IA información más detallada: resúmenes de titulares y texto de artículos incluidos sobre sus posiciones y las temáticas macroeconómicas",
-          "<guide>Escritura programática de posiciones</guide>: cree un token con permiso de escritura para que su agente de IA pueda leer y escribir posiciones estandarizadas, y actualizar el instrumento, la cantidad, el costo, la cuenta y los detalles relacionados de una posición o de toda la cartera. Cada solicitud queda registrada en el registro de auditoría.",
+          "<guide>Escritura programática de posiciones</guide>, como en cualquier plan activo: cree un token con permiso de escritura para que su agente de IA pueda leer y escribir posiciones estandarizadas, y actualizar el instrumento, la cantidad, el costo, la cuenta y los detalles relacionados de una posición o de toda la cartera. Cada solicitud queda registrada en el registro de auditoría.",
           "Hasta 100 posiciones guardadas mientras Jade está activo, incluidas efectivo y posiciones en observación"
         ]
       }
@@ -2669,7 +2670,7 @@
   "agentGuide": {
     "title": "Automatice la actualización de sus posiciones con su propio agente",
     "whatHeading": "Qué hace el flujo",
-    "what": "Con Jade activo, su propio agente puede convertir una exportación de posiciones de una institución en una cartera actualizada en Portfonia. Comprueba la fuente, lee la cartera, prepara y valida cambios, los guarda y consulta el historial. Su agente y sus herramientas gestionan el acceso a la institución, las exportaciones y la programación. Portfonia no inicia sesión en instituciones, descarga estados de cuenta ni programa estas ejecuciones; guarda y actualiza registros de posiciones y no ejecuta operaciones bursátiles.",
+    "what": "Con cualquier suscripción activa, su propio agente puede convertir una exportación de posiciones de una institución en una cartera actualizada en Portfonia. Comprueba la fuente, lee la cartera, prepara y valida cambios, los guarda y consulta el historial. Su agente y sus herramientas gestionan el acceso a la institución, las exportaciones y la programación. Portfonia no inicia sesión en instituciones, descarga estados de cuenta ni programa estas ejecuciones; guarda y actualiza registros de posiciones y no ejecuta operaciones bursátiles.",
     "howHeading": "Configuración inicial",
     "how": "En la página Agente de IA, cree un token de escritura de posiciones para un agente que las actualice, o un token de solo lectura para uno que únicamente lea. Entregue al agente el token y https://portfonia.com/llms.txt. Primero llama a GET /agent/v1/token (Verificar los permisos del token). Un agente que actualiza se detiene si capabilities.holdings_write es false; uno de solo lectura se detiene si capabilities.holdings_read es false.",
     "runHeading": "Cada ejecución, paso a paso",
@@ -2684,7 +2685,7 @@
       "Después, lea GET /agent/v1/holdings/changes con fechas ET start y end inclusivas dentro de los últimos 30 días para confirmar los cambios. Si truncated es true, reduzca el intervalo. Las escrituras sin cambios y los reintentos idempotentes no crean un grupo en el historial."
     ],
     "limitsHeading": "Límites y medidas de protección",
-    "limits": "Jade permite 100 filas guardadas, incluidos el efectivo y las posiciones en observación. Las escrituras de una fila comparten 30 solicitudes por minuto y 100 por hora entre todos sus tokens. Las lecturas, PUT de toda la cartera y la validación usan los límites de lectura habituales. Los períodos de pausa suspenden las solicitudes desde cinco minutos antes de una tarea programada pesada hasta cinco minutos después de su finalización; use Retry-After si se rechaza una solicitud. La API no permite eliminar la última posición; vacíe la cartera solo en la web. Las lecturas correctas de posiciones actuales, historial de cambios, instantáneas y resultados de riesgo de Jade comparten como máximo un aviso de acceso por día ET. Las escrituras correctas pueden generar un aviso diario de modificación separado; la validación y los reintentos idempotentes no envían avisos de datos. El enlace del aviso revoca todos los tokens de su cuenta a la vez, incluidos los de otros agentes. Detiene accesos futuros y no deshace cambios guardados. Una escritura del agente o una carga de archivo que reduzca considerablemente las filas de posiciones o cambie su valor total puede generar una alerta por correo separada, como máximo una por fecha de la escritura en hora del Este.",
+    "limits": "Basic permite 30 filas guardadas, Advanced activo 50 y Jade activo 100, incluidos el efectivo y las posiciones en observación. Las escrituras de una fila comparten 30 solicitudes por minuto y 100 por hora entre todos sus tokens. Las lecturas, PUT de toda la cartera y la validación usan los límites de lectura habituales. Los períodos de pausa suspenden las solicitudes desde cinco minutos antes de una tarea programada pesada hasta cinco minutos después de su finalización; use Retry-After si se rechaza una solicitud. La API no permite eliminar la última posición; vacíe la cartera solo en la web. Las lecturas correctas de posiciones actuales, historial de cambios, instantáneas y resultados de riesgo de Jade comparten como máximo un aviso de acceso por día ET. Las escrituras correctas pueden generar un aviso diario de modificación separado; la validación y los reintentos idempotentes no envían avisos de datos. El enlace del aviso revoca todos los tokens de su cuenta a la vez, incluidos los de otros agentes. Detiene accesos futuros y no deshace cambios guardados. Una escritura del agente o una carga de archivo que reduzca considerablemente las filas de posiciones o cambie su valor total puede generar una alerta por correo separada, como máximo una por fecha de la escritura en hora del Este.",
     "effectHeading": "Qué cambia en Portfonia",
     "effect": "Las escrituras actualizan la cartera actual guardada en Portfonia. Los resúmenes posteriores y las herramientas de Jade de simulación histórica de posiciones, riesgo de cola, escenarios de estrés histórico, exposición por estilo y seguimiento usan la cartera actualizada. Cada solicitud queda en el registro de auditoría, que guarda metadatos de la solicitud, sin cuerpos de posiciones ni tokens completos."
   },

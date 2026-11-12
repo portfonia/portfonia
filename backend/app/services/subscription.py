@@ -40,6 +40,10 @@ BRIEFING_PLANS: tuple[str, ...] = ("weekly", "mwf", "daily")
 ADVANCED_SUBSCRIPTION_TYPES: tuple[str, ...] = ("daily", "jade")
 
 
+def is_subscribed(user: User) -> bool:
+    return user.subscription_status == "active" and user.subscription_type in PLAN_FEES
+
+
 def is_advanced(user: User) -> bool:
     return (
         user.subscription_status == "active"

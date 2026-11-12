@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.me import SubscriptionOut
+
 
 class ApiAuditOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -90,3 +92,38 @@ class AgentIntelOut(BaseModel):
     holdings: list[AgentHoldingIntelOut]
     macro: AgentMacroOut | None
     other: list[AgentArticleOut] = []
+
+
+class AgentBalanceOut(BaseModel):
+    cash: str
+    gift: str
+    total: str
+
+
+class AgentPlanOut(BaseModel):
+    type: str
+    fee: str
+    briefings: str
+    agent: list[str]
+
+
+class AgentAccountOut(BaseModel):
+    subscription: SubscriptionOut
+    balance: AgentBalanceOut
+    plans: list[AgentPlanOut]
+    top_up_url: str
+
+
+class AgentCalendarEvent(BaseModel):
+    type: Literal["macro", "earnings"]
+    name: str
+    ticker: str | None
+    date: dt.date
+    source: str
+
+
+class AgentCalendarOut(BaseModel):
+    start: dt.date
+    end: dt.date
+    events: list[AgentCalendarEvent]
+    coverage: Literal["us"] = "us"

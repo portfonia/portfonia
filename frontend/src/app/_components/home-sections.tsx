@@ -406,6 +406,9 @@ export function HomeSections() {
           </span>
         </div>
         <div className="mx-auto mt-5 flex max-w-4xl items-center gap-4 text-xs text-muted-foreground">
+          <Link href="/llms.txt" className="underline underline-offset-2 hover:text-foreground/70">
+            {t.footer.forAgents}
+          </Link>
           <Link href={href("/pricing")} className="underline underline-offset-2 hover:text-foreground/70">
             {tLegalNav("pricing")}
           </Link>
