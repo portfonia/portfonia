@@ -760,3 +760,5 @@ the homepage describes six tools and the guides index lists six guides.
    in `backend/config/jade_substitutes.yml`; its load-time key check enforces this.
 3. The next 22:15 ET run downloads five years, followed by nightly updates.
 4. Update public surfaces that list the ETFs in the same PR.
+
+- #877 (2026-11-12): Agent holdings and snapshots open to all active plans; full intelligence and the five Agent risk-tool routes remain Jade-only. Existing risk-tool gates and limits are unchanged.

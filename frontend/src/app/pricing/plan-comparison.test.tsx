@@ -122,7 +122,7 @@ it("770 Jade comparison renders Agent risk-result access", () => {
 });
 
 
-it("775 programmatic holdings writes belong to Jade", () => {
+it("877 Jade card lists programmatic holdings writes available on every active plan", () => {
   renderPricing();
   const block = comparison();
   const advanced = block.querySelector('[data-plan="advanced"]');

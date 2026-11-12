@@ -7,10 +7,43 @@
 - [API reference](https://portfonia.com/agent.md): Authentication, endpoints, response schemas, limits and data handling.
 - [Human guide and token settings](https://portfonia.com/agent): Getting started and personal token management.
 
+## Access by plan
+
+| Capability | No subscription | Basic (Weekly / Mon-Wed-Fri) | Advanced (Daily) | Jade |
+| --- | --- | --- | --- | --- |
+| Token metadata, available reports, account, calendar | Yes | Yes | Yes | Yes |
+| Subscribe or change plan from credits | Holdings-write token | Holdings-write token | Holdings-write token | Holdings-write token |
+| Daily snapshots | No | Yes | Yes | Yes |
+| Intelligence | No | Macro headlines | Holding and macro headlines | Full detail |
+| Current holdings, validation and change history | No | Yes | Yes | Yes |
+| Current-holdings writes | No | Holdings-write token | Holdings-write token | Holdings-write token |
+| Technical position and series | No | No | Yes | Yes |
+| Five Jade risk tools | No | No | No | Yes |
+
+An active subscription has `subscription_status == "active"` and a recognized
+plan type. Row caps remain Basic 30, Advanced 50 and Jade 100, including cash
+and watched rows. All existing rate limits and quiet windows apply.
+
+## Onboarding a new user
+
+1. If you operate the user's signed-in browser, create a personal API token at https://portfonia.com/agent. Choose holdings-write permission if you will subscribe or edit holdings. Otherwise, ask the user for a token.
+2. Call `GET /agent/v1/token`, then `GET /agent/v1/account` to read capabilities, the current subscription, balance and plan fees in credits per month.
+3. Without an active subscription, explain which features need one, for example: "I can manage your holdings once you subscribe." Tell the user the plans, their prices and the user's balance. Call `POST /agent/v1/subscription` only on the user's instruction. If the balance is short, give the account response's `top_up_url` (https://portfonia.com/profile).
+4. The investment questionnaire may be skipped and answered later at https://portfonia.com/questionnaire.
+5. After subscribing, call `GET /agent/v1/holdings`. If the book is empty, remind the user to enter current holdings and offer to do it with the holdings endpoints.
+
+## Account, subscription and calendar
+
+- `GET /agent/v1/account`: any personal token, no subscription required; current subscription, cash/gift/total balance, four plans with user-specific fees and capability codes, and the web top-up URL.
+- `POST /agent/v1/subscription` with `{"type":"weekly"}` (or `mwf`, `daily`, `jade`): holdings-write token, no existing subscription required; subscribe or change plan using credits under the same rules as web Profile. Returns the updated account. Top-up stays on the web.
+- `GET /agent/v1/calendar?start=&end=`: any personal token, no subscription required; US FRED/FOMC releases and earnings for the caller's holdings, including mapped leveraged-product underlyings. ET start defaults to today and end to start + 14 days; at most 31 inclusive days. Dates are scheduled dates, not forecasts.
+
+These three endpoints send no data or modification notice. Consult agent.md for requests, responses and errors.
+
 ## Token permissions and change history
 
 - `GET /agent/v1/token`: token metadata and current capabilities, with normal read limits and no data notice.
-- `GET /agent/v1/holdings/changes?start=&end=`: active Jade, either permission, inclusive ET dates within the last 30 days, at most 100 groups newest first and a truncated flag. Field-level changes are stored encrypted for 30 days.
+- `GET /agent/v1/holdings/changes?start=&end=`: any active subscription, either permission, inclusive ET dates within the last 30 days, at most 100 groups newest first and a truncated flag. Field-level changes are stored encrypted for 30 days.
 
 ## Technical position
 
@@ -25,9 +58,9 @@ Normal Agent limits apply. These endpoints send no access notice and compute des
 
 ## Current holdings management
 
-- [Current holdings contract](https://portfonia.com/agent.md#current-holdings-jade): Active Jade can GET current holdings and validate complete replacement, creation, single replacement or PATCH with either token permission. POST/PUT/PATCH/DELETE changes require holdings-write permission. Stable IDs, decimal strings, explicit deletions and current versions apply; empty books and last-row Agent deletion are rejected. Only POST creation requires an idempotency key; a retry within 24 hours returns the original result. Every successful mutation increments the version once, including unchanged writes.
+- [Current holdings contract](https://portfonia.com/agent.md#current-holdings-all-active-plans): Any active subscriber can GET current holdings and validate complete replacement, creation, single replacement or PATCH with either token permission. POST/PUT/PATCH/DELETE changes require holdings-write permission. Stable IDs, decimal strings, explicit deletions and current versions apply; empty books and last-row Agent deletion are rejected. Only POST creation requires an idempotency key; a retry within 24 hours returns the original result. Every successful mutation increments the version once, including unchanged writes.
 
-Stored-row limits are Basic 30, active Advanced 50, active Jade 100, counting cash and watches. Single-row writes share 30/minute and 100/hour; other calls keep the existing counters. The five Jade routes additionally share one request per 3 minutes and at most 10 per hour per user; existing burst, per-route limits and quiet windows also apply. Current holdings, change history, snapshot and Jade reads share the daily access notice; every successful Agent write request may trigger a separate daily modification notice. Revocation stops future access without undoing changes. Request audit records metadata only; POST replay results are stored encrypted; retries within 24 hours return the original result.
+Stored-row limits are Basic 30, active Advanced 50, active Jade 100, counting cash and watches. Single-row writes share 30/minute and 100/hour; other calls keep the existing counters. The five Jade routes additionally share one request per 3 minutes and at most 10 per hour per user; existing burst, per-route limits and quiet windows also apply. Current holdings, change history, snapshot and Jade reads share the daily access notice; every successful Agent holdings write request may trigger a separate daily modification notice. Revocation stops future access without undoing changes. Request audit records metadata only; POST replay results are stored encrypted; retries within 24 hours return the original result.
 
 Discovery includes this file, agent.md and the Agent-only OpenAPI schema: https://api.portfonia.com/agent/openapi.json. Do not call planned routes or the disabled full production openapi.json.
 

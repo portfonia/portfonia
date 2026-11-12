@@ -146,7 +146,7 @@ still sends Saturday at 19:00 ET and permits an empty book. Daily uses
 single definition of Advanced access: active subscription status and membership
 in that tuple. A cancel-pending active Daily or Jade subscription remains Advanced
 until lifecycle expiry is processed. Switching to Weekly or Mon/Wed/Fri removes
-snapshot access immediately; expired, cancelled and inactive subscriptions have
+web snapshot and technical access immediately; Agent snapshots remain available on any active plan (#877). Expired, cancelled and inactive subscriptions have
 no Advanced access. `GET /auth/session-status` returns HTTP 200 with
 `{"advanced": bool, "jade": bool}` from the already-loaded principal; invalid sessions still
 return 401. The authenticated Daily user's Get started trigger is gold; Jade takes
@@ -184,7 +184,7 @@ until expiry. Rows already over the cap stay. Reads, edits and reductions
 remain available. An addition, including a file replace that creates new row
 IDs, must finish at or under the cap and otherwise returns HTTP 409
 `holding_cap`. The check runs inside the locked user transaction in
-`services/holdings_write.py`. Agent holdings routes are not registered.
+`services/holdings_write.py`. Agent holdings routes admit every active subscription (#877) and preserve the same caps.
 The [Agent mechanism](agent-api.md#confirmed-decisions-and-remaining-product-questions)
 records the same rule. Public Pricing, Welcome, Terms, holdings pages and
 the Agent reference state these caps.
@@ -406,3 +406,5 @@ are not repriced.
 - Out of scope: ending the campaign (a separate owner-requested PR), other plans,
   credit packs, and `scripts/activate_existing_subscriptions.py`, which still
   reports regular fees for its one-off launch run.
+
+- #877 (2026-11-12): Agent snapshots, macro headlines and holdings admit every active plan; Agent subscription reuses Profile charges and daily lock.

@@ -1021,32 +1021,36 @@ def test_malformed_json_obeys_auth_limits_and_entitlement(
     assert locked.status_code == 429
 
 
-def test_775_daily_cannot_access_programmatic_holdings(
+def test_877_weekly_holdings_write_permission(
     app_client: TestClient, db_session: Session, writer: dict[str, str]
 ) -> None:
     from app.models.user import User
 
     user = db_session.get(User, TEST_USER_ID)
     assert user is not None
-    user.subscription_type = "daily"
+    user.subscription_type = "weekly"
     db_session.commit()
-    responses = [
-        app_client.get(URL, headers=writer),
-        app_client.post(
-            URL + "/validate",
-            headers=writer,
-            json={"operation": "create", "version": "0", "holding": ROW},
-        ),
-        app_client.get(
-            URL + "/changes",
-            headers=writer,
-            params={"start": str(today_et()), "end": str(today_et())},
-        ),
-        app_client.post(URL, headers=writer, json={"version": "0", "holding": ROW}),
-    ]
-    for response in responses:
-        assert response.status_code == 403, response.text
-        assert response.json()["detail"]["code"] == "subscription_required"
+    token = app_client.post("/me/api-tokens", json={"name": "reader"}).json()
+    reader = {"Authorization": "Bearer " + token["token"]}
+    denied = app_client.post(URL, headers=reader, json={"version": "0", "holding": ROW})
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "holdings_write_required"
+    created = app_client.post(URL, headers=writer, json={"version": "0", "holding": ROW})
+    assert created.status_code == 201, created.text
+
+
+def test_877_inactive_holdings(
+    app_client: TestClient, db_session: Session, writer: dict[str, str]
+) -> None:
+    from app.models.user import User
+
+    user = db_session.get(User, TEST_USER_ID)
+    assert user is not None
+    user.subscription_status = "inactive"
+    db_session.commit()
+    response = app_client.get(URL, headers=writer)
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "subscription_required"
 
 
 def test_775_daily_keeps_snapshots(
@@ -1066,14 +1070,14 @@ def test_775_daily_keeps_snapshots(
     assert response.status_code == 200, response.text
 
 
-def test_775_daily_token_capabilities(
+def test_877_weekly_token_capabilities(
     app_client: TestClient, db_session: Session, writer: dict[str, str]
 ) -> None:
     from app.models.user import User
 
     user = db_session.get(User, TEST_USER_ID)
     assert user is not None
-    user.subscription_type = "daily"
+    user.subscription_type = "weekly"
     db_session.commit()
     response = app_client.get("/agent/v1/token", headers=writer)
     assert response.status_code == 200, response.text
@@ -1081,8 +1085,8 @@ def test_775_daily_token_capabilities(
         "reports": True,
         "snapshots": True,
         "intel": True,
-        "holdings_read": False,
-        "holdings_write": False,
+        "holdings_read": True,
+        "holdings_write": True,
         "jade": False,
     }
 

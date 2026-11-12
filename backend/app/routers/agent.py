@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Annotated, cast
 from uuid import UUID
 
@@ -12,16 +12,27 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import TypeAdapter, ValidationError
+from sqlalchemy import bindparam, select, text
 from sqlalchemy.orm import Session
 
 from app.core.agent_auth import AgentPrincipal, agent_principal
 from app.core.agent_limits import enforce_agent_limits
 from app.core.database import get_session
 from app.core.rate_limit import UNAVAILABLE_DETAIL, RateLimitUnavailable, get_backend
-from app.core.timezones import ET
+from app.core.timezones import ET, today_et
 from app.models.api_token import ApiToken
+from app.models.holding import Holding
+from app.models.user import User
 from app.routers.portfolio import BaseCurrency, BenchmarkCode
-from app.schemas.agent import AgentIntelOut, AgentReportsOut
+from app.schemas.agent import (
+    AgentAccountOut,
+    AgentBalanceOut,
+    AgentCalendarEvent,
+    AgentCalendarOut,
+    AgentIntelOut,
+    AgentPlanOut,
+    AgentReportsOut,
+)
 from app.schemas.agent_holdings import (
     Create,
     HoldingDeleted,
@@ -40,9 +51,10 @@ from app.schemas.jade import (
     JadeTailRiskOut,
     JadeTrackingOut,
 )
+from app.schemas.me import SubscriptionBody
 from app.schemas.portfolio import SnapshotExportOut
 from app.schemas.technical import TechnicalSeriesOut, TechnicalTableOut
-from app.services import agent_holdings, api_tokens, holding_changes
+from app.services import agent_holdings, api_tokens, holding_changes, subscription
 from app.services.agent_pull import pull_intel, pull_reports
 from app.services.jade_replay import compute_replay
 from app.services.jade_replay_config import DEFAULT_REPLAY_RANGE, ReplayRange, ScenarioId
@@ -51,8 +63,9 @@ from app.services.jade_style import compute_style
 from app.services.jade_tail_risk import compute_tail_risk
 from app.services.jade_tracking import compute_tracking
 from app.services.portfolio_snapshot_export import export_snapshot_range
-from app.services.subscription import is_advanced, is_jade
+from app.services.subscription import is_advanced, is_jade, is_subscribed
 from app.services.technical_position import technical_series, technical_table
+from app.services.ticker_leverage import load_leverage_entries, normalize_leverage_ticker
 from app.services.user_scope import report_currency_for
 from app.tasks.notification_tasks import send_api_access_notice_task
 
@@ -64,6 +77,13 @@ def agent_limits(request: Request, principal: AgentPrincipal = Depends(agent_pri
         request.scope["route"].path,
         api_tokens.now_et(),
     )
+
+
+def subscriber_access(
+    principal: AgentPrincipal = Depends(agent_principal), _limits: None = Depends(agent_limits)
+) -> None:
+    if not is_subscribed(principal.user):
+        raise HTTPException(403, "subscription_required")
 
 
 def advanced_access(
@@ -81,6 +101,136 @@ def jade_access(
 
 
 router = APIRouter(dependencies=[Depends(agent_limits)])
+
+
+# Plans are ordered for account discovery; fees use the subscription service.
+ACCOUNT_PLANS = (
+    ("weekly", "weekly", ("reports", "calendar", "snapshots", "intel_macro_headlines", "holdings")),
+    (
+        "mwf",
+        "mon_wed_fri",
+        ("reports", "calendar", "snapshots", "intel_macro_headlines", "holdings"),
+    ),
+    (
+        "daily",
+        "weekdays",
+        (
+            "reports",
+            "calendar",
+            "snapshots",
+            "intel_macro_headlines",
+            "holdings",
+            "intel_holding_headlines",
+            "technical",
+        ),
+    ),
+    (
+        "jade",
+        "chosen",
+        (
+            "reports",
+            "calendar",
+            "snapshots",
+            "intel_macro_headlines",
+            "holdings",
+            "intel_holding_headlines",
+            "technical",
+            "intel_full",
+            "jade_tools",
+        ),
+    ),
+)
+
+
+def _account(user: User) -> AgentAccountOut:
+    return AgentAccountOut(
+        subscription=subscription.summary(user, today_et()),
+        balance=AgentBalanceOut(
+            cash=f"{user.credit_cash_balance:.2f}",
+            gift=f"{user.credit_gift_balance:.2f}",
+            total=f"{user.credit_cash_balance + user.credit_gift_balance:.2f}",
+        ),
+        plans=[
+            AgentPlanOut(
+                type=plan,
+                fee=f"{subscription.plan_fee(user, plan):.2f}",
+                briefings=briefings,
+                agent=list(features),
+            )
+            for plan, briefings, features in ACCOUNT_PLANS
+        ],
+        top_up_url="https://portfonia.com/profile",
+    )
+
+
+@router.get("/account", response_model=AgentAccountOut)
+def account(principal: AgentPrincipal = Depends(agent_principal)) -> AgentAccountOut:
+    """Requires a personal API token, with no subscription requirement or data notice. Read balance, current subscription and monthly plan fees in credits. Rate-limit and quiet-window responses include Retry-After."""
+    return _account(principal.user)
+
+
+@router.post("/subscription", response_model=AgentAccountOut)
+def set_subscription(
+    body: SubscriptionBody,
+    principal: AgentPrincipal = Depends(agent_principal),
+    session: Session = Depends(get_session),
+) -> AgentAccountOut:
+    """Requires a holdings_write token, with no subscription requirement. Subscribe or change plan from credits under the same rules as Profile; sends no data or modification notice. Rate-limit and quiet-window responses include Retry-After."""
+    if principal.permission != "holdings_write":
+        raise agent_holdings.error(
+            403, "holdings_write_required", "Use a token with holdings_write permission."
+        )
+    try:
+        user = subscription.set_plan(session, principal.user_id, today_et(), body.type)
+    except subscription.SubscriptionError as exc:
+        session.rollback()
+        raise HTTPException(409, exc.code) from None
+    session.commit()
+    subscription.maybe_send_low_balance_reminder(session, principal.user_id)
+    return _account(user)
+
+
+@router.get("/calendar", response_model=AgentCalendarOut)
+def calendar(
+    request: Request,
+    start: Annotated[date | None, Query()] = None,
+    end: Annotated[date | None, Query()] = None,
+    principal: AgentPrincipal = Depends(agent_principal),
+    session: Session = Depends(get_session),
+) -> AgentCalendarOut:
+    """Requires a personal API token, with no subscription requirement or data notice. US releases and US-listed earnings only; dates are scheduled dates, not forecasts. Optional ET start/end dates default to today and start + 14 days; at most 31 inclusive days. Rate-limit and quiet-window responses include Retry-After."""
+    start = start or today_et()
+    end = end or start + timedelta(days=14)
+    if end < start or (end - start).days >= 31:
+        raise HTTPException(422, "invalid_date_range")
+    tickers = {
+        normalize_leverage_ticker(t)
+        for t in session.scalars(
+            select(Holding.ticker).where(
+                Holding.user_id == principal.user_id, Holding.ticker.is_not(None)
+            )
+        )
+        if t
+    }
+    entries = load_leverage_entries(session)
+    tickers |= {
+        entry.underlying_ticker.upper()
+        for ticker, entry in entries.items()
+        if ticker in tickers and entry.underlying_ticker
+    }
+    rows = session.execute(
+        text(
+            "SELECT event_type AS type, name, CASE WHEN event_type='macro' THEN NULL ELSE ticker END AS ticker, "
+            "scheduled_date AS date, source FROM forward_events "
+            "WHERE scheduled_date BETWEEN :start AND :end "
+            "AND (event_type='macro' OR (event_type='earnings' AND upper(ticker) IN :tickers)) "
+            "ORDER BY scheduled_date, event_type, name"
+        ).bindparams(bindparam("tickers", expanding=True)),
+        {"start": start, "end": end, "tickers": sorted(tickers)},
+    ).mappings()
+    events = [AgentCalendarEvent.model_validate(row) for row in rows]
+    request.state.agent_item_count = len(events)
+    return AgentCalendarOut(start=start, end=end, events=events)
 
 
 def _request_documentation(schema: TypeAdapter[object]) -> dict[str, object]:
@@ -101,8 +251,8 @@ def _request_documentation(schema: TypeAdapter[object]) -> dict[str, object]:
 @router.get(
     "/snapshots",
     response_model=SnapshotExportOut,
-    dependencies=[Depends(advanced_access)],
-    summary="Read your complete daily holding snapshots (Advanced)",
+    dependencies=[Depends(subscriber_access)],
+    summary="Read your complete daily holding snapshots (Basic, Advanced or Jade)",
 )
 def snapshots(
     request: Request,
@@ -111,7 +261,7 @@ def snapshots(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> SnapshotExportOut:
-    """Requires a personal API token and an active Advanced or Jade subscription. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a personal API token and an active Basic, Advanced or Jade subscription. Rate-limit and quiet-window responses include Retry-After."""
     result = export_snapshot_range(session, principal.user_id, start, end)
     now = api_tokens.now_et()
     try:
@@ -147,8 +297,8 @@ def reports(
 @router.get(
     "/intel",
     response_model=AgentIntelOut,
-    dependencies=[Depends(advanced_access)],
-    summary="Read intelligence by date or ingestion cursor (Advanced headlines; Jade full detail)",
+    dependencies=[Depends(subscriber_access)],
+    summary="Read intelligence by date or ingestion cursor (Basic macro headlines; Advanced holding and macro headlines; Jade full detail)",
 )
 def intel(
     request: Request,
@@ -157,8 +307,10 @@ def intel(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> AgentIntelOut:
-    """Requires a personal token and active Advanced (headlines only) or Jade (summaries and included articles) subscription. Supply exactly one of date (last seven ET dates) or since (offset timestamp in the same range, at most 24 elapsed hours per response, ending five minutes before now). Store next_since and repeat while has_more. Both tiers include stored macro headlines. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a personal token and active subscription: Basic macro headlines only, Advanced holding and macro headlines, Jade summaries and included articles. Supply exactly one of date (last seven ET dates) or since (offset timestamp in the same range, at most 24 elapsed hours per response, ending five minutes before now). Store next_since and repeat while has_more. All active plans include stored macro headlines. Rate-limit and quiet-window responses include Retry-After."""
     result = pull_intel(session, principal.user_id, date, since=since, full=is_jade(principal.user))
+    if not is_advanced(principal.user):
+        result.holdings = []
     request.state.agent_item_count = (
         sum(len(h.headlines) + len(h.articles) for h in result.holdings)
         + (
@@ -217,7 +369,7 @@ def current_holdings(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
-    """Requires a personal API token and an active Jade subscription. Both read_only and holdings_write tokens may read. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a personal API token and an active subscription. Both read_only and holdings_write tokens may read. Rate-limit and quiet-window responses include Retry-After."""
     result = agent_holdings.get_book(session, principal.user_id)
     request.state.agent_item_count = len(cast(list[object], result["holdings"]))
     _data_notice(principal.user_id, modified=False)
@@ -228,7 +380,7 @@ def current_holdings(
     "/holdings/changes",
     response_model=HoldingChangesOut,
     dependencies=[Depends(holdings_access)],
-    summary="Read your holding change history (Jade)",
+    summary="Read your holding change history (active subscription)",
 )
 def holding_change_history(
     request: Request,
@@ -237,7 +389,7 @@ def holding_change_history(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> HoldingChangesOut:
-    """Requires a personal API token and an active Jade subscription; either permission may read. Inclusive ET dates within the last 30 days, at most 100 groups. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a personal API token and an active subscription; either permission may read. Inclusive ET dates within the last 30 days, at most 100 groups. Rate-limit and quiet-window responses include Retry-After."""
     result = holding_changes.list_changes(session, principal.user_id, start, end)
     request.state.agent_item_count = len(result.items)
     _data_notice(principal.user_id, modified=False)
@@ -251,7 +403,7 @@ def token_information(
     """Requires a personal API token; available without a paid subscription and sends no data notice. Change history follows holdings_read. Rate-limit and quiet-window responses include Retry-After."""
     token = session.get(ApiToken, principal.token_id)
     assert token is not None
-    advanced = is_advanced(principal.user)
+    subscribed = is_subscribed(principal.user)
     return AgentTokenOut(
         name=token.name,
         prefix=token.token_prefix,
@@ -260,10 +412,10 @@ def token_information(
         expires_at=token.expires_at.astimezone(ET) if token.expires_at else None,
         capabilities=AgentCapabilities(
             reports=True,
-            snapshots=advanced,
-            intel=advanced,
-            holdings_read=is_jade(principal.user),
-            holdings_write=is_jade(principal.user) and principal.permission == "holdings_write",
+            snapshots=subscribed,
+            intel=subscribed,
+            holdings_read=subscribed,
+            holdings_write=subscribed and principal.permission == "holdings_write",
             jade=is_jade(principal.user),
         ),
     )
@@ -308,7 +460,7 @@ def validate_holdings(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
-    """Read-only validation; requires a personal API token and an active Jade subscription. Both token permissions may validate. Rate-limit and quiet-window responses include Retry-After."""
+    """Read-only validation; requires a personal API token and an active subscription. Both token permissions may validate. Rate-limit and quiet-window responses include Retry-After."""
     request.state.agent_item_count = len(body.holdings) if isinstance(body, ReplaceAll) else 1
     return JSONResponse(agent_holdings.validate(session, principal.user_id, body))
 
@@ -370,7 +522,7 @@ def create_current_holding(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
-    """Requires a holdings_write token and an active Jade subscription. POST creation requires Idempotency-Key; reuse the same key and body for a retry within 24 hours. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a holdings_write token and an active subscription. POST creation requires Idempotency-Key; reuse the same key and body for a retry within 24 hours. Rate-limit and quiet-window responses include Retry-After."""
     return _write_result(request, principal, session, body)
 
 
@@ -386,7 +538,7 @@ def replace_current_holdings(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
-    """Requires a holdings_write token and an active Jade subscription. Submit the current canonical version string and the complete surviving holdings with explicit delete_ids; omitted IDs are rejected. At least one row must remain. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a holdings_write token and an active subscription. Submit the current canonical version string and the complete surviving holdings with explicit delete_ids; omitted IDs are rejected. At least one row must remain. Rate-limit and quiet-window responses include Retry-After."""
     return _write_result(request, principal, session, body)
 
 
@@ -403,7 +555,7 @@ def replace_current_holding(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
-    """Requires a holdings_write token and an active Jade subscription. Supply the current canonical version string and a complete replacement holding. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a holdings_write token and an active subscription. Supply the current canonical version string and a complete replacement holding. Rate-limit and quiet-window responses include Retry-After."""
     return _write_result(request, principal, session, body, hid=holding_id)
 
 
@@ -420,7 +572,7 @@ def patch_current_holding(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
-    """Requires a holdings_write token and an active Jade subscription. Supply the current canonical version string and explicit changed fields. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a holdings_write token and an active subscription. Supply the current canonical version string and explicit changed fields. Rate-limit and quiet-window responses include Retry-After."""
     return _write_result(request, principal, session, body, hid=holding_id)
 
 
@@ -435,7 +587,7 @@ async def delete_current_holding(
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
 ) -> Response:
-    """Requires a holdings_write token and an active Jade subscription. Supply the quoted current canonical version string in If-Match, without a JSON body. Deleting the last holding is rejected. Rate-limit and quiet-window responses include Retry-After."""
+    """Requires a holdings_write token and an active subscription. Supply the quoted current canonical version string in If-Match, without a JSON body. Deleting the last holding is rejected. Rate-limit and quiet-window responses include Retry-After."""
     if await request.body():
         raise agent_holdings.error(422, "invalid_holding", "DELETE accepts no JSON body.")
     header = request.headers.get("if-match")

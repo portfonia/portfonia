@@ -1,4 +1,12 @@
-import { expect, it } from "vitest";
+import { createElement } from "react";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import { NextIntlClientProvider } from "next-intl";
+import { afterEach, expect, it, vi } from "vitest";
+import { AgentBody } from "@/app/agent/agent-body";
+
+vi.mock("@/hooks/use-session", () => ({ useSession: () => ({ status: "guest" }) }));
+vi.mock("@/lib/api", () => ({ listApiTokens: vi.fn(), createApiToken: vi.fn(), revokeApiToken: vi.fn() }));
+afterEach(cleanup);
 import { catalogs } from "./index";
 
 it.each(["zh-Hans", "zh-Hant"] as const)("A11 %s renames only Profile page references", locale => {
@@ -27,8 +35,12 @@ it.each(["en", "zh-Hans", "zh-Hant"] as const)("D9 %s includes the Jade price, s
   expect(c.welcome.subscriptionPlans).toContain("9.99");
   const name = c.profile.subscriptionTitle.jade;
   expect(c.legal.terms.sections[3].body[3]).toContain(name);
-  expect(c.agent.docs.snapshotsAccess).toContain(name);
-  expect(c.agent.docs.intelAccess).toContain(name);
+  render(createElement(NextIntlClientProvider, { locale, messages: c, children: createElement(AgentBody) }));
+  for (const endpoint of ["snapshots", "intel"] as const) {
+    const section = screen.getByRole("heading", { name: c.agent.docs[`${endpoint}Heading`] }).parentElement;
+    expect(section).not.toBeNull();
+    if (section) expect(within(section).getByText(c.agent.docs[`${endpoint}Access`])).toBeInTheDocument();
+  }
   expect(c.legal.pricing.lastUpdated).toContain("2026-10-13");
   expect(c.legal.terms.lastUpdated).toContain("2026-11-01");
   const newCopy = [c.jade.intro, c.jade.price, c.profile.subscriptionDescription.jade, c.profile.subscriptionJadeCadence, c.profile.jadeManage, c.profile.jadeScheduleNote, c.legal.pricing.sections[0].body[3], c.legal.terms.sections[3].body[3]].join(" ");

@@ -134,11 +134,11 @@ it("770 renders the Jade endpoint summary", () => {
 });
 
 
-it("775 verifies token permissions and reserves all eight holdings access lines for Jade", () => {
+it("877 verifies token permissions and all-plan holdings access lines", () => {
   render(wrapper(<AgentBody />));
   expect(screen.getByRole("heading", { name: "Verify token permissions" })).toBeInTheDocument();
   for (const prefix of ["holdingsRead", "holdingsReplaceAll", "holdingsAdd", "holdingsReplace", "holdingsPatch", "holdingsDelete", "holdingsValidate", "changes"] as const) {
     const card = screen.getByRole("heading", { name: en.agent.docs[`${prefix}Heading`] }).parentElement;
-    expect(card).toHaveTextContent(`Applies during an active Jade period. ${["holdingsRead", "holdingsValidate", "changes"].includes(prefix) ? "Read-only tokens and holdings-write tokens are both accepted." : "Only a holdings-write token is accepted."}`);
+    expect(card).toHaveTextContent(en.agent.docs[`${prefix}Access`]);
   }
 });

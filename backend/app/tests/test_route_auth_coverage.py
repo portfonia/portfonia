@@ -31,6 +31,7 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/unsubscribe/status"),  # HMAC-signed unsubscribe token
         ("POST", "/unsubscribe/confirm"),  # HMAC-signed unsubscribe token
         ("GET", "/agent/openapi.json"),  # public Agent API description, no user data
+        ("GET", "/"),  # public Agent documentation discovery, no user data
         ("GET", "/health"),  # liveness probe, no user data
     }
 )

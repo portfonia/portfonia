@@ -166,6 +166,7 @@ No open owner decisions remain for this copy.
 | `home.preview.footnote` | "Actual content varies depending on your subscription tier." → "Briefing frequency depends on your plan." |
 | `home` FAQ "What does it cost?" answer | closed-beta text → see Home copy below |
 | `home.status` | "MVP — multi-user closed beta. …" → see Home copy below |
+| `pricingPlans.plans[].features`, `home.faq.items[3].a`, `home.footer.forAgents`, `welcome.subscriptionPlans`, `profile.subscriptionDescription.daily`, `legal.terms.sections[5].body[1]`, `legal.privacy.sections[6].body`, `legal.pricing.sections[0].body[5]`, `agent.*`, `agentGuide.what`, `agentGuide.limits`, `seo.pages.agentGuide.description` | #877: Agent snapshots, macro headlines and holdings management on every active plan; modification notices narrowed to Agent holdings writes; homepage "For AI agents" link |
 
 Navigation (implementation issue): Pricing and Refund Policy links are
 added wherever Terms and Privacy are linked today (home footer, Profile,
@@ -199,9 +200,16 @@ after the intro and above section 1. The Pricing document text stays authoritati
      can change it at any time on the Jade page. Portfolio risk tools are
      added to Jade as they are released.
    - Weekly and Mon / Wed / Fri differ only in how often briefings are sent.
-     Daily is the Advanced plan. Daily and Jade both let your AI agent read
-     your daily holding snapshots and holding-related intelligence. Report
-     history is available to AI agents on every plan.
+     Daily is the Advanced plan. Every active subscription lets your AI
+     agent read daily holding snapshots and macro headlines; Advanced adds
+     holding-related headlines, and Jade additionally provides headline
+     summaries and included article text for holdings and macro themes.
+     Report history is available to AI agents on every plan. Saved holding
+     rows, including cash and watched rows, are limited to 30 on Weekly and
+     Mon / Wed / Fri, 50 while Advanced is active, and 100 while Jade is
+     active. Every active plan also supports reading and managing current
+     holdings through your own agent; changes require a holdings-write
+     token. Advanced and Jade agents can also read technical position.
 2. **Included in every plan**
    - Holdings upload from CSV, Excel, or Markdown, with row-level editing.
    - Portfolio overview: allocation, performance against benchmarks, and
@@ -408,9 +416,13 @@ Terms numbering is preserved; Privacy sections 7–12 become 8–13. See
 - `home.hero.eyebrow`: Limited public service
 - `home.preview.footnote`: Briefing frequency depends on your plan.
 - FAQ "What does it cost?": Plans start at 0.99 credits per month for a
-  weekly briefing, 1.99 for Monday / Wednesday / Friday briefings, and
-  2.49 for the Advanced Daily plan with AI Agent data access. Credits are
-  sold in US$10 and US$20 packs — see Pricing.
+  weekly briefing, 1.99 for Monday / Wednesday / Friday briefings, and 2.49
+  for the Advanced Daily plan with Agent holding-related headlines and
+  technical position, and 9.99 for Jade, which adds portfolio risk tools to
+  everything in the Advanced plan. Credits are sold in US$10 and US$20
+  packs — see Pricing. Every active plan supports Agent daily snapshots,
+  macro headlines and current-holdings management; changes require a
+  holdings-write token.
 - `home.status`: Limited public service. Portfonia maps public market
   information onto the holdings you enter. AI-generated content, for
   information only — not investment advice.

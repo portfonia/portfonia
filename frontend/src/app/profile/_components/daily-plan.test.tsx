@@ -7,6 +7,7 @@ vi.mock("./credit-purchase", () => ({ CreditPurchase: () => null }));
 vi.mock("@/lib/api", async () => ({ ...await vi.importActual<typeof import("@/lib/api")>("@/lib/api"), getSubscriptionQuote }));
 import { LocaleProvider } from "@/app/_components/locale-provider";
 import type { Me } from "@/lib/api";
+import { catalogs } from "@/locales";
 import { ProfilePageBody } from "./profile-page-body";
 const me: Me = { email: "daily@example.com", credit_balance: "5.00", delivery_email: null, email_verified_at: "2026-10-01T12:00:00Z", delivery_email_verified_at: null, tos_accepted_at: null, has_questionnaire: true, has_holdings: true, missing: [], pending_email_verifications: [], report_language: "en", report_currency: "USD", subscription: { status: "active", type: "daily", cadence: "daily", expires_on: "2026-11-01", cancel_pending: false, next_adjustment_at: null } };
 beforeEach(() => { vi.clearAllMocks(); });
@@ -23,6 +24,6 @@ it("daily_acceptance_12 Daily quote uses its briefing title and description", as
   fireEvent.change(screen.getByRole("combobox", { name: "Report schedule" }), { target: { value: "daily" } });
   const dialog = await screen.findByRole("alertdialog");
   expect(within(dialog).getByRole("heading", { name: "Daily briefing" })).toBeInTheDocument();
-  expect(within(dialog).getByText("A briefing on your portfolio every weekday, Monday to Friday. Advanced plan: includes AI Agent data access.")).toBeInTheDocument();
+  expect(within(dialog).getByText(catalogs.en.profile.subscriptionDescription.daily)).toBeInTheDocument();
   expect(getSubscriptionQuote).toHaveBeenCalledExactlyOnceWith("daily");
 });
