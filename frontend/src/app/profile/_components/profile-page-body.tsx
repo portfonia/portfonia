@@ -358,7 +358,7 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
             </div>
             <div className="flex flex-col gap-1.5">
               <select
-                disabled={isJade || noVerifiedRecipient || subscription.pending}
+                disabled={isJade || subscription.pending}
                 aria-label={t("reportScheduleHeading")}
                 className="w-full rounded-md border border-border bg-transparent px-2 py-1.5 text-sm"
                 value={isJade ? me.subscription.cadence : me.subscription.status === "active" ? me.subscription.type ?? "" : ""}
@@ -368,7 +368,7 @@ export function ProfilePageBody({ me, hadLoadError }: { me: Me | null; hadLoadEr
                 <option value="weekly">{t("reportScheduleOptions.weekly")}</option>
                 <option value="mwf">{t("reportScheduleOptions.everyOtherDay")}</option>
                 <option value="daily">{t("reportScheduleOptions.daily")}</option>
-                {!isJade && !noVerifiedRecipient && me.subscription.status === "active" && !me.subscription.cancel_pending && (
+                {!isJade && me.subscription.status === "active" && !me.subscription.cancel_pending && (
                   <option value="cancel">{t("subscriptionCancel")}</option>
                 )}
               </select>

@@ -183,10 +183,10 @@ describe("ProfilePageBody", () => {
     );
   });
 
-  it("keeps unverified subscription selection disabled while allowing account deletion", () => {
+  it("allows unverified subscription selection and account deletion", () => {
     renderBody(BASE_ME);
 
-    expect(screen.getByRole("combobox", { name: /report schedule/i })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: /report schedule/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Delete account" })).toBeEnabled();
     expect(screen.getByLabelText("Email")).toHaveAttribute("type", "email");
     expect(screen.getByRole("button", { name: "Confirm" })).toBeDisabled();
@@ -227,8 +227,8 @@ describe("ProfilePageBody", () => {
     const card = reportManagementCard();
     expect(within(card).getByRole("combobox", { name: /report language/i })).toBeEnabled();
     expect(within(card).getByRole("combobox", { name: /report currency/i })).toBeEnabled();
-    expect(within(card).getByRole("combobox", { name: /report schedule/i })).toBeDisabled();
-    expect(within(card).getByText("Verify your email to subscribe.")).toBeInTheDocument();
+    expect(within(card).getByRole("combobox", { name: /report schedule/i })).toBeEnabled();
+    expect(within(card).getByText(en.profile.subscriptionVerifyEmail)).toBeInTheDocument();
     expect(within(card).getByText(/no separate delivery address set/i)).toBeInTheDocument();
   });
 

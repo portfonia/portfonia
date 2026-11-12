@@ -46,7 +46,7 @@ before subscription edits, followed by flush; routers commit. Failed
 operations roll back. This ordering prevents ledger refresh from discarding
 unflushed subscription edits. A daily lock ends at the next ET midnight.
 
-`set_plan` requires a verified account or delivery email. Its branches are:
+`set_plan` does not require a verified email. Its branches are:
 
 1. Active, same plan, no pending cancellation: `no_change`, even if overdue.
 2. Active, same plan, pending cancellation, not overdue: resume without charge.
@@ -81,9 +81,9 @@ and sets expiry 2026-11-30. If the original charge used gift 0.50 and cash
 
 Cancel requires active status and no pending cancellation. It sets the flag
 without changing type, cadence, expiry or ledger. Resume requires active,
-pending cancellation, a non-overdue period and a verified email; it clears
+pending cancellation and a non-overdue period; it clears
 the flag without charging. Selecting the original plan before expiry also
-resumes. Error codes are `no_subscription`, `no_change`, `email_unverified`
+resumes. Error codes are `no_subscription`, `no_change`
 and the common `daily_limit`.
 
 Report-email unsubscribe still clears the matching verification timestamp
@@ -92,6 +92,8 @@ remains, `cancel_for_no_verified_email` marks an active subscription pending
 cancellation. This system action ignores and does not consume the daily
 adjustment lock. Another verified address prevents cancellation. Re-verifying
 an email does not automatically resume a cancelled subscription. The scheduled check transitions to cancelled after expiry.
+
+Issue #876: subscribing, resuming, quotes and scheduled renewal/recovery no longer require a verified email; scheduled report delivery still does.
 
 ## API and integrations
 
@@ -114,7 +116,7 @@ adjustment was made today. Expiry remains available for expired/cancelled displa
 Quotes share plan selection and return arithmetic with writes. They expose
 `action` (`subscribe`, `change`, `resume`, `none`), type, fee, returned, balance,
 balance after, sufficient, period start, expiry, first report time,
-cadence, `needs_holdings`, and nullable `blocked` (`daily_limit` or `email_unverified`).
+cadence, `needs_holdings`, and nullable `blocked` (`daily_limit` or null).
 Numbers remain present when blocked. `needs_holdings` warns for Mon/Wed/Fri
 and Daily with zero holdings, without refusing the subscription.
 
@@ -218,7 +220,7 @@ require separate owner authorization.
 ## Validation and rollout
 
 Real-Postgres tests cover the worked examples, atomic insufficient balances,
-ledger replay, verified-email requirements, ET daily lock including concurrent
+ledger replay, unverified-email subscriptions, ET daily lock including concurrent
 sessions, quotes, signup defaults, migration up/down preserving legacy
 cadences, Ops reads/suspension, overview email and unsubscribe behavior.
 Five helper examples assert ET date/hour/minute without literal UTC offsets.
@@ -257,11 +259,13 @@ and committed separately; failures roll back that user and continue.
 | State / condition | Result |
 |---|---|
 | Active, today at or before expiry | Unchanged |
-| Active, overdue, cancel pending or no verified email | Cancelled, null type, cadence none, clear cancel flag; retain expiry |
+| Active, overdue, cancel pending | Cancelled, null type, cadence none, clear cancel flag; retain expiry |
 | Active, overdue, sufficient balance | Charge one period and renew |
 | Active, overdue, insufficient balance | Expired; retain type, cadence, period, expiry and anchor; send expiry notice after commit |
-| Expired, verified email and sufficient balance | Charge one period, resume active from today |
+| Expired, sufficient balance | Charge one period, resume active from today |
 | Expired, otherwise | Unchanged |
+
+Scheduled report generation still requires a verified address (`user_scope._active_user_conditions`); unsubscribing the last verified address still marks the subscription pending cancellation.
 
 Normal renewal charges with `subscription:{id}:{old_expiry}:{plan}` and
 continues from old expiry using the existing anchor. If

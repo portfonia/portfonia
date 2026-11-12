@@ -266,14 +266,17 @@ def test_insufficient_balance_leaves_state_and_ledger_unchanged(
     ) == state
 
 
-def test_same_plan_and_email_preconditions(db_session: Session) -> None:
+def test_unverified_account_subscribes(db_session: Session) -> None:
     user = funded_user(db_session)
     user.email_verified_at = None
     db_session.flush()
-    with pytest.raises(subscription.SubscriptionError, match="email_unverified"):
-        subscription.set_plan(db_session, user.id, date(2026, 10, 15), "weekly")
-    user.email_verified_at = datetime(2026, 10, 15, tzinfo=ET)
-    db_session.flush()
+    subscription.set_plan(db_session, user.id, date(2026, 10, 15), "weekly")
+    assert user.subscription_status == "active"
+    assert user.credit_gift_balance == Decimal("4.01")
+
+
+def test_same_plan_and_unverified_resume(db_session: Session) -> None:
+    user = funded_user(db_session)
     subscription.set_plan(db_session, user.id, date(2026, 10, 15), "weekly")
     for day in (date(2026, 10, 16), date(2026, 11, 17)):
         with pytest.raises(subscription.SubscriptionError, match="no_change"):
@@ -281,10 +284,36 @@ def test_same_plan_and_email_preconditions(db_session: Session) -> None:
     subscription.cancel(db_session, user.id, date(2026, 10, 17))
     user.email_verified_at = None
     db_session.flush()
-    with pytest.raises(subscription.SubscriptionError, match="email_unverified"):
-        subscription.resume(db_session, user.id, date(2026, 10, 18))
+    subscription.resume(db_session, user.id, date(2026, 10, 18))
+    assert not user.subscription_cancel_pending
     with pytest.raises(subscription.SubscriptionError, match="no_subscription"):
         subscription.resume(db_session, user.id, date(2026, 11, 17))
+
+
+def test_scheduled_check_renews_unverified_account(db_session: Session) -> None:
+    user = funded_user(db_session)
+    subscription.set_plan(db_session, user.id, date(2026, 10, 15), "weekly")
+    user.email_verified_at = None
+    db_session.flush()
+    outcomes = subscription.run_cadence_checks(db_session, "weekly", date(2026, 11, 16))
+    assert [(outcome.user_id, outcome.outcome) for outcome in outcomes] == [(user.id, "renewed")]
+    assert user.subscription_status == "active"
+    assert user.subscription_expires_on == date(2026, 12, 15)
+    assert user.credit_gift_balance == Decimal("3.02")
+
+
+def test_scheduled_check_resumes_unverified_expired_account(db_session: Session) -> None:
+    user = funded_user(db_session)
+    subscription.set_plan(db_session, user.id, date(2026, 10, 15), "weekly")
+    user.email_verified_at = None
+    user.subscription_status = "expired"
+    db_session.flush()
+    outcomes = subscription.run_cadence_checks(db_session, "weekly", date(2026, 11, 16))
+    assert [(outcome.user_id, outcome.outcome) for outcome in outcomes] == [(user.id, "resumed")]
+    assert user.subscription_status == "active"
+    assert user.subscription_period_start == date(2026, 11, 16)
+    assert user.subscription_expires_on == date(2026, 12, 16)
+    assert user.credit_gift_balance == Decimal("3.02")
 
 
 def test_selecting_original_plan_resumes_without_charge(db_session: Session) -> None:

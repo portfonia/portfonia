@@ -499,7 +499,7 @@ export interface SubscriptionQuote {
   expires_on: string | null;
   first_report_at: string;
   needs_holdings: boolean;
-  blocked: "daily_limit" | "email_unverified" | null;
+  blocked: "daily_limit" | null;
 }
 
 export async function getSubscriptionQuote(type: SubscriptionType): Promise<SubscriptionQuote> {

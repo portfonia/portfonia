@@ -241,7 +241,7 @@ describe("subscription API helpers", () => {
     expect(fetchMock).toHaveBeenLastCalledWith("/api/me/subscription/cancel", { method: "POST" });
     expect(fetchMock.mock.calls.flat().join(" ")).not.toContain("/resume");
   });
-  it.each(["daily_limit", "email_unverified", "insufficient_credits", "no_change", "no_subscription"])("preserves 409 %s for translated UI handling", async code => {
+  it.each(["daily_limit", "insufficient_credits", "no_change", "no_subscription"])("preserves 409 %s for translated UI handling", async code => {
     global.fetch = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ detail: code }), { status: 409 })));
     await expect(setSubscription("weekly")).rejects.toMatchObject({ status: 409, message: code });
     await expect(cancelSubscription()).rejects.toMatchObject({ status: 409, message: code });

@@ -154,8 +154,6 @@ def set_plan(session: Session, user_id: uuid.UUID, today: date, plan: str) -> Us
     user = _lock_user(session, user_id, today)
     if is_jade(user) and plan != "jade":
         raise SubscriptionError("jade_managed")
-    if not has_verified_email(user):
-        raise SubscriptionError("email_unverified")
     action, cash, gift, old_key = _plan_change(session, user, today, plan)
     free = _free_upgrade(user, action, plan)
     if action == "none":
@@ -204,8 +202,6 @@ def resume(session: Session, user_id: uuid.UUID, today: date) -> User:
         raise SubscriptionError("no_subscription")
     if not user.subscription_cancel_pending:
         raise SubscriptionError("no_change")
-    if not has_verified_email(user):
-        raise SubscriptionError("email_unverified")
     user.subscription_cancel_pending = False
     user.subscription_adjusted_on = today
     session.flush()
@@ -242,11 +238,7 @@ def quote(session: Session, user_id: uuid.UUID, today: date, plan: str) -> Subsc
     free = _free_upgrade(user, action, plan)
     fee = Decimal("0.00") if free else plan_fee(user, plan)
     charged = fee if action in ("subscribe", "change") else Decimal("0.00")
-    blocked = (
-        "daily_limit"
-        if user.subscription_adjusted_on == today
-        else ("email_unverified" if not has_verified_email(user) else None)
-    )
+    blocked = "daily_limit" if user.subscription_adjusted_on == today else None
     cadence = resulting_cadence(user, plan)
     has_holdings = session.scalar(select(exists().where(Holding.user_id == user_id)))
     return SubscriptionQuoteOut(
@@ -343,15 +335,13 @@ def _check_user(session: Session, user: User, today: date) -> str:
         assert user.subscription_expires_on is not None
         if today <= user.subscription_expires_on:
             return "unchanged"
-        if user.subscription_cancel_pending or not has_verified_email(user):
+        if user.subscription_cancel_pending:
             user.subscription_status = "cancelled"
             user.subscription_type = None
             user.report_cadence = "none"
             user.subscription_cancel_pending = False
             return "cancelled"
     elif user.subscription_status == "expired":
-        if not has_verified_email(user):
-            return "unchanged"
         assert user.subscription_type is not None
         if user.credit_cash_balance + user.credit_gift_balance < plan_fee(
             user, user.subscription_type

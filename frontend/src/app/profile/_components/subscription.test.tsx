@@ -33,11 +33,11 @@ describe("subscription selector and account", () => {
     expect(screen.getByText(`subscription${cancel_pending ? "Ends" : "Renews"}{"plan":"reportScheduleOptions.weekly","expires_on":"2026-11-15"}`)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: cancel_pending ? "subscriptionResume" : "subscriptionCancel" })).toBeEnabled();
   });
-  it.each([subscription, { ...subscription, ...active }])("unverified selector is disabled and preserves active type", (s) => {
-    const select = show(s, false); expect(select).toBeDisabled();
-    expect(select).toHaveValue(s.status === "active" ? "weekly" : "");
+  it("unverified active subscription has an enabled selector and cancel option", () => {
+    const select = show(active, false); expect(select).toBeEnabled();
+    expect(select).toHaveValue("weekly");
     expect(screen.getByText("subscriptionVerifyEmail")).toBeInTheDocument();
-    expect(within(select).queryByRole("option", { name: "subscriptionCancel" })).not.toBeInTheDocument();
+    expect(within(select).getByRole("option", { name: "subscriptionCancel" })).toBeInTheDocument();
   });
   it.each(["inactive", "cancelled", "expired"] as const)("account highlights %s without a button", (status) => {
     show({ status, expires_on: "2026-11-15" });
@@ -107,7 +107,7 @@ describe("subscription dialogs and writes", () => {
     expect(revalidateSession).toHaveBeenCalledExactlyOnceWith();
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   });
-  it.each(["daily_limit", "email_unverified", "insufficient_credits", "no_change", "no_subscription"])("shows distinct 409 %s inside plan dialogs", async (code) => {
+  it.each(["daily_limit", "insufficient_credits", "no_change", "no_subscription"])("shows distinct 409 %s inside plan dialogs", async (code) => {
     setSubscription.mockRejectedValue(new ApiError(409, code));
     const dialog = await choose(); fireEvent.click(within(dialog).getByRole("button", { name: "subscriptionConfirm" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(`subscriptionErrors.${code}`);
@@ -167,7 +167,7 @@ describe("subscription dialogs and writes", () => {
   });
 });
 
-it.each(["daily_limit", "email_unverified", "insufficient_credits", "no_change", "no_subscription"])("cancel dialog shows 409 %s and re-enables confirmation", async code => {
+it.each(["daily_limit", "insufficient_credits", "no_change", "no_subscription"])("cancel dialog shows 409 %s and re-enables confirmation", async code => {
   getSubscriptionQuote.mockResolvedValue({ ...quote, action: "none", expires_on: "2026-11-15" });
   cancelSubscription.mockRejectedValue(new ApiError(409, code)); show(active);
   fireEvent.click(screen.getByRole("button", { name: "subscriptionCancel" }));
