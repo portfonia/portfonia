@@ -18,6 +18,7 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 import httpx
+import pandas as pd
 import yfinance as yf
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -26,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.core.timezones import today_et
 from app.models.benchmark_price import BenchmarkPrice
 from app.services._yfinance import _quiet_yfinance_logs, _retry_with_backoff
+from app.services.usage_recording import count_external_call
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +91,14 @@ def _fetch_index_closes(
         return {}
     try:
         with _quiet_yfinance_logs():
-            hist = _retry_with_backoff(
-                lambda: yf.download(
+
+            def _download() -> pd.DataFrame:
+                count_external_call("yfinance")
+                return yf.download(
                     tickers=" ".join(yf_tickers), period=period, auto_adjust=True, progress=False
                 )
-            )
+
+            hist = _retry_with_backoff(_download)
     except Exception:
         logger.exception("benchmark_prices: yfinance download failed for %s", yf_tickers)
         return {}
@@ -155,6 +160,7 @@ def _fetch_tencent_csi300_closes(start: date, end: date) -> dict[date, Decimal]:
     param = f"{CSI300_TENCENT_SYMBOL},day,{start.isoformat()},{end.isoformat()},{n},"
     try:
         with httpx.Client(timeout=15.0) as client:
+            count_external_call("tencent")
             resp = client.get(_TENCENT_KLINE_URL, params={"param": param}, headers=_TENCENT_HEADERS)
             resp.raise_for_status()
             payload: object = resp.json()

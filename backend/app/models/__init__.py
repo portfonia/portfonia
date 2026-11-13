@@ -38,10 +38,12 @@ __all__ = [
     "Base",
     "BenchmarkPrice",
     "CreditLedgerEntry",
+    "ExternalCallDaily",
     "ForwardEvent",
     "FxRate",
     "Holding",
     "HoldingChangeGroup",
+    "HostSample",
     "InstrumentProfile",
     "IntelArticle",
     "IntelArticleLink",
@@ -50,6 +52,7 @@ __all__ = [
     "Invite",
     "JadePricePoint",
     "JadePriceSeries",
+    "LlmUsage",
     "MacroCoverage",
     "News",
     "NewsInstrument",
@@ -69,3 +72,5 @@ __all__ = [
     "UserInvestmentContext",
     "WaitlistEntry",
 ]
+
+from app.models.usage import ExternalCallDaily, HostSample, LlmUsage

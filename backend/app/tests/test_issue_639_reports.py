@@ -41,7 +41,9 @@ def pipeline(
     }.items():
         stack.enter_context(patch.object(rg, name, return_value=value))
     stack.enter_context(patch.object(rg, "_call_llm", side_effect=bodies))
-    stack.enter_context(patch.object(rg, "_translate_md", side_effect=lambda text, lang: text))
+    stack.enter_context(
+        patch.object(rg, "_translate_md", side_effect=lambda text, lang, *, usage_ctx=None: text)
+    )
 
 
 def generate(

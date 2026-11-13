@@ -31,6 +31,8 @@ from decimal import Decimal, InvalidOperation
 
 import httpx
 
+from app.services.usage_recording import count_external_call
+
 logger = logging.getLogger(__name__)
 
 _TIME_SERIES_URL = "https://api.twelvedata.com/time_series"
@@ -54,6 +56,7 @@ def fetch_daily_history(
     the run rather than silently write partial/wrong data.
     """
     with httpx.Client(timeout=30) as client:
+        count_external_call("twelvedata")
         resp = client.get(
             _TIME_SERIES_URL,
             params={
@@ -115,6 +118,7 @@ def fetch_live_rate(symbol: str, api_key: str) -> Decimal:
     on a malformed or non-finite/non-positive price.
     """
     with httpx.Client(timeout=30) as client:
+        count_external_call("twelvedata")
         resp = client.get(
             _PRICE_URL,
             params={"symbol": symbol},

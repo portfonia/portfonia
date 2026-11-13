@@ -18,6 +18,7 @@ from typing import Literal
 import httpx
 
 from app.services.capture_results import is_positive_finite, prices_agree
+from app.services.usage_recording import count_external_call
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +123,7 @@ def fetch_tencent_daily_bars(
     param = f"{wire_symbol},day,{start.isoformat()},{end.isoformat()},{n},{suffix}"
     try:
         with httpx.Client(timeout=_TIMEOUT_SECONDS) as client:
+            count_external_call("tencent")
             resp = client.get(
                 _TENCENT_KLINE_URL,
                 params={"param": param},

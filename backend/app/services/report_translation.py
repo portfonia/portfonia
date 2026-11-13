@@ -14,6 +14,7 @@ import openai
 from app.core.config import get_settings
 from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lang
 from app.services.report_llm import _call_llm, _openrouter_client
+from app.services.usage_recording import LlmUsageContext
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ def _build_glossary_instruction(target_lang: str) -> str:
     )
 
 
-def _translate_md(md: str, target_lang: str) -> str:
+def _translate_md(md: str, target_lang: str, *, usage_ctx: LlmUsageContext | None = None) -> str:
     """Translate an assembled report to *target_lang* (#8).
 
     The LLM reasons in English upstream; this renders the final text in the
@@ -96,11 +97,22 @@ def _translate_md(md: str, target_lang: str) -> str:
             continue
         if i > 0:
             time.sleep(_TRANSLATION_PACING_SECONDS)
-        parts.append(_translate_chunk(client, settings.LOW_COST_LLM_MODEL, system, chunk))
+        parts.append(
+            _translate_chunk(
+                client, settings.LOW_COST_LLM_MODEL, system, chunk, usage_ctx=usage_ctx
+            )
+        )
     return "\n".join(parts)
 
 
-def _translate_call(client: openai.OpenAI, model: str, system: str, chunk: str) -> str:
+def _translate_call(
+    client: openai.OpenAI,
+    model: str,
+    system: str,
+    chunk: str,
+    *,
+    usage_ctx: LlmUsageContext | None = None,
+) -> str:
     effort = get_settings().LOW_COST_LLM_REASONING_EFFORT
     try:
         return _call_llm(
@@ -109,6 +121,7 @@ def _translate_call(client: openai.OpenAI, model: str, system: str, chunk: str) 
             system,
             chunk,
             with_holdings=True,
+            usage_ctx=usage_ctx,
             pin_provider=False,
             reasoning_effort=effort,
             allow_empty_content=True,
@@ -124,13 +137,21 @@ def _translate_call(client: openai.OpenAI, model: str, system: str, chunk: str) 
             system,
             chunk,
             with_holdings=True,
+            usage_ctx=usage_ctx,
             pin_provider=False,
             reasoning_effort=effort,
             allow_empty_content=True,
         )
 
 
-def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str) -> str:
+def _translate_chunk(
+    client: openai.OpenAI,
+    model: str,
+    system: str,
+    chunk: str,
+    *,
+    usage_ctx: LlmUsageContext | None = None,
+) -> str:
     """Translate via deny + flex (one standard-tier fallback), checking truncation.
 
     A successful HTTP 200 can still carry a truncated body (provider mid-response
@@ -156,13 +177,13 @@ def _translate_chunk(client: openai.OpenAI, model: str, system: str, chunk: str)
     # source (_short()) — _call_llm raising on a blank body by default
     # (PR #161 review) would replace that graceful degradation with a hard
     # failure of the whole translation pass over one chunk.
-    out = _translate_call(client, model, system, chunk)
+    out = _translate_call(client, model, system, chunk, usage_ctx=usage_ctx)
     if _short(out):
         logger.warning(
             "translation chunk looked truncated (%d->%d chars); retrying", len(chunk), len(out)
         )
         time.sleep(_TRANSLATION_PACING_SECONDS)
-        out = _translate_call(client, model, system, chunk)
+        out = _translate_call(client, model, system, chunk, usage_ctx=usage_ctx)
     if _short(out):
         logger.error("translation chunk still truncated after retry; keeping source for this chunk")
         return chunk

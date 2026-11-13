@@ -66,6 +66,8 @@ def by_title(
     model: str | None = None,
     stats: object = None,
     required: object = None,
+    *,
+    purpose: str,
 ) -> tuple[dict[str, object], float]:
     """#700: answer each stage by title, so re-indexed review calls stay aligned."""
     fixture = {c.title: row for c, row in zip(candidates(), labels(), strict=True)}

@@ -48,6 +48,7 @@ from app.services.portfolio_calculator import (
     PortfolioSnapshot,
 )
 from app.services.price_anomaly_detector import PriceAnomaly
+from app.services.usage_recording import LlmUsageContext
 from app.services.window_data import HoldingMove, MovesCache
 from app.tests.conftest import seed_user
 
@@ -986,7 +987,7 @@ def test_generate_report_translates_when_output_lang_set(db_session: Session) ->
         stack.enter_context(
             patch(
                 "app.services.report_generator._translate_md",
-                side_effect=lambda md, lang: f"[{lang}]\n{md}",
+                side_effect=lambda md, lang, *, usage_ctx=None: f"[{lang}]\n{md}",
             )
         )
         report = rg.generate_report(db_session, user_id=_USER, report_date=_TODAY, output_lang="zh")
@@ -2096,7 +2097,7 @@ def test_render_full_md_zh_keeps_page_links_out_of_translation() -> None:
 
     seen: list[str] = []
 
-    def _fake_translate(md: str, lang: str) -> str:
+    def _fake_translate(md: str, lang: str, *, usage_ctx: LlmUsageContext | None = None) -> str:
         seen.append(md)
         return f"[{lang}]\n{md}"
 
@@ -2504,6 +2505,7 @@ def test_issue725_generate_jade_route_and_stored_model(db_session: Session) -> N
         "reasoning_effort": "high",
         "with_holdings": True,
         "usage_sink": [],
+        "usage_ctx": LlmUsageContext(_USER, "report_pass2", "scheduled"),
     }
     db_session.expire(report, ["report_inputs"])
     assert report.report_inputs is not None
@@ -2532,6 +2534,7 @@ def test_issue725_generate_daily_request_unchanged(db_session: Session) -> None:
         "reasoning_effort": get_settings().PRIMARY_LLM_REASONING_EFFORT,
         "with_holdings": True,
         "usage_sink": [],
+        "usage_ctx": LlmUsageContext(_USER, "report_pass2", "scheduled"),
     }
     assert report.status == "success"
     assert report.report_inputs is not None
@@ -2567,6 +2570,7 @@ def test_issue725_analyze_uses_current_tier_and_updates_stored_model(db_session:
             "reasoning_effort": "high",
             "with_holdings": True,
             "usage_sink": [],
+            "usage_ctx": LlmUsageContext(_USER, "report_regenerate", "ops"),
         }
         db_session.expire(out, ["report_inputs"])
         assert out.report_inputs is not None
@@ -2584,6 +2588,7 @@ def test_issue725_analyze_uses_current_tier_and_updates_stored_model(db_session:
             "reasoning_effort": get_settings().PRIMARY_LLM_REASONING_EFFORT,
             "with_holdings": True,
             "usage_sink": [],
+            "usage_ctx": LlmUsageContext(_USER, "report_regenerate", "ops"),
         }
         db_session.expire(out, ["report_inputs"])
         assert out.report_inputs is not None
@@ -2598,7 +2603,10 @@ def test_render_full_md_zh_injects_section41_localized_link() -> None:
     from app.services.i18n_glossary import load_i18n_glossary
 
     body = "### 4.1 Concentration\nAssets.\n### 4.3 FX exposure\nCurrencies."
-    with patch("app.services.report_generator._translate_md", side_effect=lambda md, lang: md):
+    with patch(
+        "app.services.report_generator._translate_md",
+        side_effect=lambda md, lang, *, usage_ctx=None: md,
+    ):
         full_md, _violations, _dynamic = rg._render_full_md(
             "2026-09-25", _LINKS_PORTFOLIO, [], body, "zh"
         )
@@ -2619,7 +2627,7 @@ def test_829_render_and_generation_use_technical_page(db_session: Session) -> No
     block = Template(load_i18n_glossary().templates["section44_page_link"]["en"]).substitute(
         technical_url=get_settings().FRONTEND_URL.rstrip("/") + "/portfolio/technical"
     )
-    with patch.object(rg, "_translate_md", side_effect=lambda text, lang: text):
+    with patch.object(rg, "_translate_md", side_effect=lambda text, lang, *, usage_ctx=None: text):
         md, _, body = rg._render_full_md("2026-10-26", {}, [], "Quiet day.", "en")
     assert block in md
     assert "|" not in body.split(block.splitlines()[0], 1)[1]
@@ -2630,7 +2638,9 @@ def test_829_render_and_generation_use_technical_page(db_session: Session) -> No
 def test_render_full_md_yahoo_links_after_translation() -> None:
     recorded: list[str] = []
 
-    def record_translation(text: str, lang: str) -> str:
+    def record_translation(
+        text: str, lang: str, *, usage_ctx: LlmUsageContext | None = None
+    ) -> str:
         recorded.append(text)
         return text
 

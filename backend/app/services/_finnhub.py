@@ -24,6 +24,7 @@ import httpx
 
 from app.services._yfinance import _safe_scaled_price
 from app.services.price_errors import classify_exception
+from app.services.usage_recording import count_external_call
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ def fetch_quotes(tickers: list[str], api_key: str) -> dict[str, FinnhubQuote]:
         for ticker in tickers:
             start = time.monotonic()
             try:
+                count_external_call("finnhub")
                 resp = client.get(
                     _QUOTE_URL, params={"symbol": ticker, "token": api_key}, timeout=10
                 )

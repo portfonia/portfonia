@@ -60,7 +60,7 @@ def run_weekly_check(
             )
             calls += 1
             try:
-                data, spent = openrouter_json(GAP_PROMPT, content)
+                data, spent = openrouter_json(GAP_PROMPT, content, purpose="intel_name_check")
                 labelled = rows(data["labels"])
             except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
                 errors.append(classifier_error(exc))
@@ -94,7 +94,7 @@ def run_weekly_check(
         content = f"Ticker: {entry.ticker}; market: {entry.market}; names: {', '.join(listed) or 'unknown'}"
         calls += 1
         try:
-            data, spent = openrouter_json(SUGGEST_PROMPT, content)
+            data, spent = openrouter_json(SUGGEST_PROMPT, content, purpose="intel_name_check")
             cost += spent
             suggestions[identifier] = _suggestion(data)
         except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:

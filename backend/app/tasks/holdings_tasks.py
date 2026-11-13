@@ -132,7 +132,7 @@ def parse_holdings_upload(job_id: str) -> dict[str, str]:
         try:
             if not text:
                 raise RuntimeError("No extracted text found for this upload job.")
-            preview = holding_parser.parse(text)
+            preview = holding_parser.parse(text, user_id=job.user_id)
             job.status = "success"
             job.preview = preview.model_dump(mode="json")
         except RuntimeError as exc:

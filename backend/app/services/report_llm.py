@@ -23,6 +23,7 @@ from app.services.llm_errors import (
     is_retryable,
 )
 from app.services.llm_retry_config import load_llm_retry_config
+from app.services.usage_recording import LlmUsageContext, record_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,7 @@ def _call_llm(
     reasoning_effort: str | None = None,
     service_tier: str | None = None,
     usage_sink: list[dict[str, Any]] | None = None,
+    usage_ctx: LlmUsageContext | None = None,
     allow_empty_content: bool = False,
 ) -> str:
     """Call an OpenRouter model.  Returns the assistant content string.
@@ -169,6 +171,8 @@ def _call_llm(
         extra["reasoning"] = {"enabled": False}
     elif reasoning_effort is not None:
         extra["reasoning"] = {"effort": reasoning_effort}
+
+    extra["usage"] = {"include": True}
 
     retry_config = load_llm_retry_config()
     backoff_by_group = {
@@ -289,6 +293,14 @@ def _call_llm(
             "llm call: model=%s finished with reason=%r (possible truncation)",
             model,
             choice.finish_reason,
+        )
+    if usage_ctx is not None:
+        record_llm_call(
+            usage_ctx,
+            model,
+            getattr(usage, "prompt_tokens", None),
+            getattr(usage, "completion_tokens", None),
+            getattr(usage, "cost", None),
         )
     if usage_sink is not None:
         usage_sink.append(

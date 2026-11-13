@@ -17,6 +17,7 @@ from typing import Any
 from app.core.agent_audit import cleanup_api_audit, cleanup_holding_changes, cleanup_user_activity
 from app.core.operational_events import cleanup_expired_events
 from app.services.email_sender import send_ops_alert
+from app.services.usage_recording import cleanup_usage
 from app.tasks import celery_app
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ def cleanup_operational_events(self: Any) -> dict[str, int]:
         deleted = cleanup_expired_events(session)
         logger.info("cleanup_operational_events: deleted %d expired row(s)", deleted)
         api_audit_deleted = cleanup_api_audit(session)
+        cleanup_usage(session)
         return {
             "deleted": deleted,
             "api_audit_deleted": api_audit_deleted,

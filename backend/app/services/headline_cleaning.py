@@ -7,7 +7,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NotRequired, TypedDict
+from typing import NotRequired, TypedDict, cast
 from urllib.parse import urlparse
 
 import httpx
@@ -19,6 +19,7 @@ from app.services.instrument_profiles import match_instruments
 from app.services.instrument_relations import Relation
 from app.services.intel_http import quiet_transport
 from app.services.llm_json import parse_llm_json
+from app.services.usage_recording import LlmUsageContext, record_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +135,9 @@ def _stage(
     settings = get_settings()
     model = settings.INTEL_SCREEN_MODEL if stage == "screen" else settings.INTEL_CLASSIFIER_MODEL
     try:
-        data, cost = openrouter_json(system, content, model=model, stats=stats, required="labels")
+        data, cost = openrouter_json(
+            system, content, model=model, stats=stats, required="labels", purpose="intel_classifier"
+        )
     except CLASSIFIER_ERRORS as exc:
         cost = float(getattr(exc, "cost_usd", 0.0))
         _add(stats, f"{stage}_cost_usd", cost)
@@ -315,7 +318,7 @@ def classifier_error(exc: Exception) -> str:
 
 
 def _openrouter_once(
-    system: str, content: str, model: str, required: str | None
+    system: str, content: str, model: str, required: str | None, purpose: str
 ) -> tuple[dict[str, object], float]:
     settings = get_settings()
     with quiet_transport():
@@ -342,6 +345,13 @@ def _openrouter_once(
     resp.raise_for_status()
     data = mapping(resp.json())
     usage = mapping(data.get("usage") or {})
+    record_llm_call(
+        LlmUsageContext(None, purpose, "scheduled"),
+        model,
+        cast(int | None, usage.get("prompt_tokens")),
+        cast(int | None, usage.get("completion_tokens")),
+        cast(float | None, usage.get("cost")),
+    )
     reported = usage.get("cost", 0)
     cost = float(reported) if isinstance(reported, (int, float)) else 0.0
     try:
@@ -364,6 +374,8 @@ def openrouter_json(
     model: str | None = None,
     stats: dict[str, float] | None = None,
     required: str | None = None,
+    *,
+    purpose: str,
 ) -> tuple[dict[str, object], float]:
     """One classifier-model JSON request with `data_collection: deny`, retried once (#700).
 
@@ -375,7 +387,7 @@ def openrouter_json(
     spent = 0.0
     for attempt in range(2):
         try:
-            data, cost = _openrouter_once(system, content, chosen, required)
+            data, cost = _openrouter_once(system, content, chosen, required, purpose)
             return data, spent + cost
         except CLASSIFIER_ERRORS as exc:
             spent += float(getattr(exc, "cost_usd", 0.0))

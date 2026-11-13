@@ -22,11 +22,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 import feedparser
 import httpx
 
 from app.services.intel_http import quiet_transport
+from app.services.usage_recording import count_external_call
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +168,9 @@ def _fetch_feed(
     """
     try:
         with quiet_transport(), httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
+            count_external_call(
+                "google_news" if urlsplit(url).hostname == "news.google.com" else "rss"
+            )
             resp = client.get(
                 url,
                 headers={

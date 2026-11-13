@@ -2015,3 +2015,133 @@ def revoke_api_tokens(user_id: UUID, session: Session = Depends(get_session)) ->
     count = revoke_all_api_tokens(session, user_id, "ops")
     session.commit()
     return RevokedTokensOut(revoked_count=count)
+
+
+# Spend and host-resource observability (#886); inherits router auth and audit.
+@router.get("/usage/costs")
+def read_usage_costs(
+    start: date | None = None, end: date | None = None, session: Session = Depends(get_session)
+) -> dict[str, Any]:
+    from collections import defaultdict
+    from decimal import Decimal
+
+    from sqlalchemy import text
+
+    from app.core.timezones import today_et
+    from app.services.usage_recording import PRICE_PER_CALL_USD
+
+    end = end or today_et()
+    start = start or end - timedelta(days=6)
+    if start > end:
+        raise HTTPException(status_code=422, detail="start must not be after end")
+    days: dict[date, dict[str, Any]] = defaultdict(
+        lambda: {
+            "total_cost_usd": Decimal(0),
+            "llm_by_user": [],
+            "llm_shared": [],
+            "paid_search": [],
+            "external_calls": [],
+        }
+    )
+    parameters = {"start": start, "end": end}
+    day_expr = "(occurred_at AT TIME ZONE 'America/New_York')::date"
+    llm = session.execute(
+        text(
+            f"""SELECT {day_expr} AS day, user_id, purpose, trigger_source, count(*) AS calls, coalesce(sum(prompt_tokens),0) AS prompt_tokens, coalesce(sum(completion_tokens),0) AS completion_tokens, coalesce(sum(cost_usd),0) AS cost_usd, count(*) FILTER (WHERE cost_usd IS NULL) AS calls_without_cost FROM llm_usage WHERE {day_expr} BETWEEN :start AND :end AND purpose NOT IN ('intel_classifier','intel_name_check') GROUP BY 1,2,3,4 ORDER BY 1,2,3,4"""
+        ),
+        parameters,
+    ).mappings()
+    for row in llm:
+        data = dict(row)
+        day = data.pop("day")
+        days[day]["total_cost_usd"] += data["cost_usd"]
+        data["user_id"] = str(data["user_id"]) if data["user_id"] else None
+        data["cost_usd"] = float(data["cost_usd"])
+        days[day]["llm_by_user"].append(data)
+    shared = session.execute(
+        text(
+            f"""SELECT {day_expr} AS day, purpose, count(*) AS calls, coalesce(sum(cost_usd),0) AS cost_usd, count(*) FILTER (WHERE cost_usd IS NULL) AS calls_without_cost FROM llm_usage WHERE {day_expr} BETWEEN :start AND :end AND purpose IN ('intel_classifier','intel_name_check') GROUP BY 1,2 ORDER BY 1,2"""
+        ),
+        parameters,
+    ).mappings()
+    for row in shared:
+        data = dict(row)
+        day = data.pop("day")
+        days[day]["total_cost_usd"] += data["cost_usd"]
+        data["cost_usd"] = float(data["cost_usd"])
+        days[day]["llm_shared"].append(data)
+    paid_day = "(created_at AT TIME ZONE 'America/New_York')::date"
+    paid = session.execute(
+        text(
+            f"""SELECT {paid_day} AS day, provider, sum(units) AS units, sum(cost_usd) AS cost_usd FROM paid_api_usage WHERE {paid_day} BETWEEN :start AND :end GROUP BY 1,2 ORDER BY 1,2"""
+        ),
+        parameters,
+    ).mappings()
+    for row in paid:
+        data = dict(row)
+        day = data.pop("day")
+        days[day]["total_cost_usd"] += data["cost_usd"]
+        data["cost_usd"] = float(data["cost_usd"])
+        data["units"] = float(data["units"])
+        days[day]["paid_search"].append(data)
+    external = session.execute(
+        text(
+            "SELECT day, provider, calls FROM external_call_daily WHERE day BETWEEN :start AND :end ORDER BY day, provider"
+        ),
+        parameters,
+    ).mappings()
+    for row in external:
+        cost = row["calls"] * PRICE_PER_CALL_USD.get(row["provider"], Decimal(0))
+        days[row["day"]]["total_cost_usd"] += cost
+        days[row["day"]]["external_calls"].append(
+            {"provider": row["provider"], "calls": row["calls"], "cost_usd": float(cost)}
+        )
+    return {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "days": [
+            {"date": day.isoformat(), **data, "total_cost_usd": float(data["total_cost_usd"])}
+            for day, data in sorted(days.items())
+        ],
+    }
+
+
+@router.get("/usage/host")
+def read_usage_host(
+    start: date | None = None, end: date | None = None, session: Session = Depends(get_session)
+) -> dict[str, Any]:
+    from datetime import time
+
+    from app.core.timezones import ET, today_et
+    from app.models.usage import HostSample
+    from app.services.host_metrics import counter_delta
+
+    end = end or today_et()
+    start = start or end
+    if start > end:
+        raise HTTPException(status_code=422, detail="start must not be after end")
+    rows = session.scalars(
+        select(HostSample)
+        .where(
+            HostSample.sampled_at >= datetime.combine(start, time.min, tzinfo=ET),
+            HostSample.sampled_at < datetime.combine(end + timedelta(days=1), time.min, tzinfo=ET),
+        )
+        .order_by(HostSample.sampled_at)
+    ).all()
+    samples: list[dict[str, Any]] = []
+    previous: HostSample | None = None
+    for row in rows:
+        data = {col.name: getattr(row, col.name) for col in HostSample.__table__.columns}
+        data.update(
+            mem_available_ratio=row.mem_available_bytes / row.mem_total_bytes,
+            swap_used_bytes=row.swap_total_bytes - row.swap_free_bytes,
+            swap_used_ratio=(row.swap_total_bytes - row.swap_free_bytes) / row.swap_total_bytes,
+            disk_used_pct=100 * row.disk_used_bytes / (row.disk_used_bytes + row.disk_avail_bytes),
+        )
+        for counter in ("pswpin", "pswpout", "oom_kill"):
+            data[counter + "_delta"] = counter_delta(
+                getattr(row, counter), getattr(previous, counter) if previous else None
+            )
+        samples.append(data)
+        previous = row
+    return {"samples": samples}
