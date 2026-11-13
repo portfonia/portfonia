@@ -114,6 +114,7 @@ from app.services.section3_proportionality import (
     check_section3_proportionality,
 )
 from app.services.subscription import is_jade
+from app.services.usage_recording import LlmUsageContext
 from app.services.user_scope import user_holdings
 from app.services.watch_tier_config import load_watch_tier_weights
 from app.services.window_data import (
@@ -624,6 +625,7 @@ def _render_full_md(
     holding_news: dict[str, list[dict[str, Any]]] | None = None,
     label_hits: list[str] | None = None,
     leverage_links: dict[str, dict[str, str]] | None = None,
+    usage_ctx: LlmUsageContext | None = None,
 ) -> tuple[str, list[str], str]:
     """Annotate, assemble, language-render, and compliance-scan a report.
 
@@ -639,6 +641,11 @@ def _render_full_md(
     analysis to check) and any other caller can opt out simply by not
     passing them.
     """
+    translation_ctx = (
+        LlmUsageContext(usage_ctx.user_id, "translation", usage_ctx.trigger_source)
+        if usage_ctx
+        else None
+    )
     render_lang = "zh" if output_lang == "zh-Hant" else output_lang
     cleaned = _strip_markers(raw_body)
     if report_id is not None and holding_news is not None:
@@ -688,8 +695,8 @@ def _render_full_md(
     # Translate the snapshot and the body separately so §1's closing page-links
     # line (issue #560) is spliced in already localized and never reaches the
     # LLM. Chunking is by heading, so the chunk set is unchanged.
-    snapshot_out = _translate_md(header + window + section1, render_lang)
-    body_out = _translate_md(cleaned, render_lang)
+    snapshot_out = _translate_md(header + window + section1, render_lang, usage_ctx=translation_ctx)
+    body_out = _translate_md(cleaned, render_lang, usage_ctx=translation_ctx)
     body_out = _link_section42_identifiers(
         body_out, _yahoo_quote_links(portfolio.get("holdings", []))
     )
@@ -757,6 +764,7 @@ def _finish_report(
     *,
     stage_state: dict[str, str] | None = None,
     extra_url_hashes: set[str] | None = None,
+    usage_ctx: LlmUsageContext | None = None,
 ) -> Report:
     """Render, persist, mark news surfaced, and email — generate_report's
     common tail (steps 7/8/9/10), shared by the full pipeline and the
@@ -812,6 +820,7 @@ def _finish_report(
         holding_news=ctx.holding_news,
         label_hits=ctx.prompt_label_hits,
         leverage_links=ctx.leverage_links,
+        usage_ctx=usage_ctx,
     )
     ctx.pass2_translated = translated_body
     logger.info("report %s: assembled + rendered (lang=%s)", report.id, output_lang)
@@ -944,6 +953,7 @@ def generate_report(
     moves_cache: MovesCache | None = None,
     now: datetime | None = None,
     _telemetry_attrs: dict[str, Any] | None = None,
+    usage_trigger: str = "scheduled",
 ) -> Report:
     """
     Run the full F1 report generation pipeline and persist the result.
@@ -982,6 +992,7 @@ def generate_report(
     `None` (every other call site) attaches nothing extra.
 
     """
+    usage_ctx = LlmUsageContext(user_id, "report_pass2", usage_trigger)
     # issue #446: started before the idempotency lookup below (Design §3) —
     # inherits the caller's task run as a child span if one is active
     # (report_tasks.py), else becomes its own standalone root run (a direct
@@ -1204,6 +1215,7 @@ def generate_report(
                 resume_raw_body,
                 None,
                 stage_state=_stage_state,
+                usage_ctx=usage_ctx,
             )
             oe.end_attempt(
                 _attempt, "ok", attributes={"path": "resume_body", "stage_state": _stage_state}
@@ -1439,6 +1451,7 @@ def generate_report(
                 ctx.period_end,
                 ctx.window_trading_days,
                 price_data_through=ctx.price_data_through,
+                usage_ctx=usage_ctx,
             )
             report.status = "skipped"
             report.report_md = quiet_md
@@ -1576,6 +1589,7 @@ def generate_report(
             pass2_user,
             with_holdings=True,
             usage_sink=ctx.llm_calls,
+            usage_ctx=usage_ctx,
             **route_kwargs,
         )
         if body_is_incomplete(raw_pass2):
@@ -1600,6 +1614,7 @@ def generate_report(
             news_items,
             stage_state=_stage_state,
             extra_url_hashes=recalled_hashes,
+            usage_ctx=usage_ctx,
         )
         oe.end_attempt(
             _attempt,
@@ -1677,6 +1692,7 @@ def regenerate_report(
 
     Does not email — this is an iteration/inspection tool.
     """
+    usage_ctx = LlmUsageContext(user_id, "report_regenerate", "ops")
     log_ops_event("report.regenerate.start", report_id=str(report_id), mode=mode)
     report = session.execute(
         select(Report).where(Report.id == report_id, Report.user_id == user_id)
@@ -1745,6 +1761,7 @@ def regenerate_report(
             pass2_user,
             with_holdings=True,
             usage_sink=regen_calls,
+            usage_ctx=usage_ctx,
             **route_kwargs,
         )
         if body_is_incomplete(raw_body):
@@ -1805,6 +1822,7 @@ def regenerate_report(
         holding_news=inputs.get("holding_news", {}),
         label_hits=label_hits,
         leverage_links=inputs.get("leverage_links", {}),
+        usage_ctx=usage_ctx,
     )
     report.status = "needs_review" if violations else "success"
     report.report_md = full_md

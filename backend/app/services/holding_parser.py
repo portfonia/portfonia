@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from string import Template
 from typing import Any
+from uuid import UUID
 
 import openai
 import yaml
@@ -43,6 +44,7 @@ from app.services.llm_errors import (
     is_retryable,
 )
 from app.services.markets import VALID_HOLDING_MARKETS, resolve_holding_market
+from app.services.usage_recording import LlmUsageContext, record_llm_call
 from app.services.zh_hant import to_traditional
 
 _SUPPORTED_EXTENSIONS = {".md", ".txt", ".csv", ".xlsx", ".xls"}
@@ -1122,9 +1124,15 @@ _STRUCTURED_REASONING_EFFORT = "none"
 
 
 def _parse_attempt(
-    client: openai.OpenAI, model: str, provider: dict[str, object] | None, text: str
+    client: openai.OpenAI,
+    model: str,
+    provider: dict[str, object] | None,
+    text: str,
+    *,
+    user_id: UUID | None = None,
 ) -> str:
     extra_body: dict[str, object] = {"reasoning": {"effort": _STRUCTURED_REASONING_EFFORT}}
+    extra_body["usage"] = {"include": True}
     if provider is not None:
         extra_body["provider"] = provider
     response = client.chat.completions.create(
@@ -1136,6 +1144,14 @@ def _parse_attempt(
         ],
         temperature=0,
         extra_body=extra_body,
+    )
+    usage = response.usage
+    record_llm_call(
+        LlmUsageContext(user_id, "holdings_parse", "user"),
+        model,
+        getattr(usage, "prompt_tokens", None),
+        getattr(usage, "completion_tokens", None),
+        getattr(usage, "cost", None),
     )
     # Same malformed-200 guard report_llm._call_llm has carried since I-DEBT-2
     # — OpenRouter has been observed returning a 200 with choices=None. Indexing
@@ -1174,7 +1190,7 @@ _PARSE_ATTEMPT_TIMEOUT_SECONDS = 20.0
 _PARSE_MAX_ATTEMPTS = 2
 
 
-def parse(text: str) -> UploadPreview:
+def parse(text: str, *, user_id: UUID | None = None) -> UploadPreview:
     """Call LLM to parse free-form holdings text into a structured preview.
 
     Structured (JSON) extraction routes uniformly to STRUCTURED_LLM_MODEL
@@ -1228,7 +1244,7 @@ def parse(text: str) -> UploadPreview:
     for i in range(1, _PARSE_MAX_ATTEMPTS + 1):
         started = time.monotonic()
         try:
-            content = _parse_attempt(client, model, provider, text)
+            content = _parse_attempt(client, model, provider, text, user_id=user_id)
             raw_payload = json.loads(_strip_code_fence(content))
             # A model that returns `[]`, `"..."`, or `null` did not honour the
             # requested object shape — the same "wrong shape" miss as a

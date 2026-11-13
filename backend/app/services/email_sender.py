@@ -31,6 +31,7 @@ from app.services.i18n_glossary import load_i18n_glossary, locale_for_output_lan
 from app.services.portfolio_calculator import PortfolioSnapshot, compute_portfolio
 from app.services.report_sections import _build_footer
 from app.services.unsubscribe_token import create_token as create_unsubscribe_token
+from app.services.usage_recording import count_external_call
 from app.services.user_directory import recipient_email_with_purpose
 from app.services.user_scope import report_language_for
 from app.services.zh_hant import to_traditional
@@ -110,6 +111,7 @@ def send_invitation_letter(
     }
     try:
         with httpx.Client(timeout=15.0) as client:
+            count_external_call("resend")
             resp = client.post(
                 _RESEND_SEND_URL,
                 headers={
@@ -470,6 +472,7 @@ def send_report_email(report: Report, session: Session) -> bool:
 
     try:
         with httpx.Client(timeout=30.0) as client:
+            count_external_call("resend")
             resp = client.post(
                 _RESEND_SEND_URL,
                 headers={
@@ -705,6 +708,7 @@ def send_verification_email(email: str, token: str, *, locale: str = "en") -> st
     }
     try:
         with httpx.Client(timeout=15.0) as client:
+            count_external_call("resend")
             resp = client.post(_RESEND_SEND_URL, headers=headers, json=payload)
             resp.raise_for_status()
         resend_id = resp.json().get("id")
@@ -770,6 +774,7 @@ def send_ops_alert(
         headers["Idempotency-Key"] = idempotency_key
     try:
         with httpx.Client(timeout=15.0) as client:
+            count_external_call("resend")
             resp = client.post(
                 _RESEND_SEND_URL,
                 headers=headers,
@@ -1002,6 +1007,7 @@ def send_portfolio_overview_email(session: Session, user_id: UUID, base_currency
     # distinct, wanted send, unlike a report's regenerate-safety concern.
     try:
         with httpx.Client(timeout=30.0) as client:
+            count_external_call("resend")
             resp = client.post(
                 _RESEND_SEND_URL,
                 headers={
@@ -1092,6 +1098,7 @@ def send_subscription_notice(
             "Content-Type": "application/json",
         }
         with httpx.Client(timeout=15.0) as client:
+            count_external_call("resend")
             resp = client.post(_RESEND_SEND_URL, headers=headers, json=payload)
             resp.raise_for_status()
         message_id = resp.json().get("id")
@@ -1133,6 +1140,7 @@ def _send_api_data_notice(
         settings = get_settings()
         copy = copies.get(locale, copies["en"])
         with httpx.Client(timeout=15.0) as client:
+            count_external_call("resend")
             response = client.post(
                 _RESEND_SEND_URL,
                 headers={"Authorization": f"Bearer {settings.RESEND_API_KEY.get_secret_value()}"},

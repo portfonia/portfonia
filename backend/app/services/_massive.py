@@ -25,6 +25,7 @@ import httpx
 
 from app.services._yfinance import OhlcvPoint, _safe_scaled_price
 from app.services.price_errors import classify_exception
+from app.services.usage_recording import count_external_call
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ def fetch_prev_close_ohlcv(tickers: list[str], api_key: str) -> dict[str, OhlcvP
                 time.sleep(_INTER_REQUEST_DELAY_SECONDS)
             start = time.monotonic()
             try:
+                count_external_call("massive")
                 resp = client.get(
                     _PREV_CLOSE_URL.format(ticker=ticker),
                     params={"adjusted": "true", "apiKey": api_key},

@@ -33,6 +33,7 @@ from app.core.config import get_settings
 from app.services.instrument_symbols import normalize_legacy_ticker
 from app.services.markets import yf_batch_key
 from app.services.price_errors import classify_exception
+from app.services.usage_recording import count_external_call
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,7 @@ def _fetched_currency(ticker: str) -> str | None:
     """Best-effort yfinance currency for `ticker`. None on any failure."""
     try:
         with _quiet_yfinance_logs():
+            count_external_call("yfinance")
             info = yf.Ticker(ticker).fast_info
         cur = info.get("currency") if info is not None else None
     except Exception:
@@ -266,14 +268,17 @@ def _raw_download(tickers: list[str]) -> pd.DataFrame:
     start = time.monotonic()
     try:
         with _quiet_yfinance_logs():
-            hist = _retry_with_backoff(
-                lambda: yf.download(
+
+            def _download() -> pd.DataFrame:
+                count_external_call("yfinance")
+                return yf.download(
                     tickers=ticker_str,
                     period="5d",
                     auto_adjust=True,
                     progress=False,
                 )
-            )
+
+            hist = _retry_with_backoff(_download)
     except Exception as exc:
         logger.exception("yfinance download failed for %s", ticker_str)
         _log_fetch_telemetry(
@@ -365,6 +370,7 @@ def fetch_live_rate(tickers: list[str]) -> dict[str, ClosePoint]:
     out: dict[str, ClosePoint] = {}
     for ticker in tickers:
         try:
+            count_external_call("yfinance")
             price = yf.Ticker(ticker).fast_info["last_price"]
         except Exception:
             logger.exception("fetch_live_rate: failed for %s", ticker)
@@ -431,6 +437,7 @@ def _download_ohlcv_batches(
         started = time.monotonic()
 
         def _download(batch: list[str] = batch) -> pd.DataFrame:
+            count_external_call("yfinance")
             return yf.download(
                 tickers=" ".join(batch),
                 auto_adjust=True,
@@ -523,6 +530,7 @@ def fetch_spot(tickers: list[str]) -> dict[str, float]:
         start = time.monotonic()
         try:
             with _quiet_yfinance_logs():
+                count_external_call("yfinance")
                 info = yf.Ticker(t).fast_info
             last = info.get("lastPrice")
             latency_ms = (time.monotonic() - start) * 1000

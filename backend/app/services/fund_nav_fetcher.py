@@ -46,6 +46,7 @@ from app.services.capture_results import (
     NavPoint,
     is_positive_finite,
 )
+from app.services.usage_recording import count_external_call
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +123,7 @@ def _fetch_nav_fundgz(fund_code: str, client: httpx.Client) -> tuple[Decimal, da
     """
     url = _NAV_URL.format(fund_code=fund_code)
     try:
+        count_external_call("eastmoney")
         resp = client.get(url, timeout=10)
         resp.raise_for_status()
     except httpx.HTTPError:
@@ -182,6 +184,7 @@ def _sina_fund_nav(fund_code: str, client: httpx.Client) -> tuple[Decimal, datet
     line_re = re.compile(rf'hq_str_f_{re.escape(fund_code)}="([^"]+)"')
     for timeout in (10, 15):
         try:
+            count_external_call("sina")
             resp = client.get(url, headers=_SINA_HEADERS, timeout=timeout)
             resp.raise_for_status()
         except httpx.HTTPError:
@@ -290,6 +293,7 @@ def fetch_nav_history_outcome(
         end=end_date.strftime("%Y-%m-%d"),
     )
     try:
+        count_external_call("eastmoney")
         resp = client.get(url, headers=_LSJZ_HEADERS, timeout=10)
         resp.raise_for_status()
     except httpx.HTTPStatusError:
@@ -455,6 +459,7 @@ def fetch_nav_history_pages(
             end=end_date.isoformat(),
         ).replace("pageIndex=1", f"pageIndex={page}")
         try:
+            count_external_call("eastmoney")
             resp = client.get(url, headers=_LSJZ_HEADERS, timeout=10)
             resp.raise_for_status()
             payload = resp.json()

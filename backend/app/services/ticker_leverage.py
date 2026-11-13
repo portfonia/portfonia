@@ -31,6 +31,7 @@ from app.services.instrument_symbols import (
     intelligence_identifier,
     to_provider_symbol,
 )
+from app.services.usage_recording import count_external_call
 
 logger = logging.getLogger(__name__)
 
@@ -234,6 +235,7 @@ def detect_leveraged(tickers: list[str]) -> list[DetectedProduct]:
     detected = []
     for ticker in tickers:
         try:
+            count_external_call("yfinance")
             info = yf.Ticker(
                 to_provider_symbol("yfinance", InstrumentKey("ticker", ticker))
             ).get_info()

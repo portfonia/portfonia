@@ -38,6 +38,7 @@ def _make_job(
 def test_parse_holdings_upload_success(mock_session_cls: MagicMock, mock_parse: MagicMock) -> None:
     job_id = uuid.uuid4()
     job = _make_job(job_id)
+    job.user_id = TEST_USER_ID
     mock_session = MagicMock()
     mock_session.get.return_value = job
     mock_session_cls.return_value = mock_session
@@ -51,7 +52,7 @@ def test_parse_holdings_upload_success(mock_session_cls: MagicMock, mock_parse: 
     assert result == {"job_id": str(job_id), "status": "success"}
     assert job.status == "success"
     assert job.preview == preview.model_dump(mode="json")
-    mock_parse.assert_called_once_with("some holdings text")
+    mock_parse.assert_called_once_with("some holdings text", user_id=TEST_USER_ID)
     # Cleared once the parse attempt is done with it, regardless of outcome —
     # a holdings file's content shouldn't linger on the row (PR #82 review).
     assert job.raw_text is None

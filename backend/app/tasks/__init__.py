@@ -34,6 +34,7 @@ celery_app = Celery(
         "app.tasks.waitlist_tasks",
         "app.tasks.notification_tasks",
         "app.tasks.operational_events_tasks",
+        "app.tasks.host_metrics_tasks",
     ],
 )
 
@@ -331,6 +332,10 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.capture_tasks.capture_fx_evening_task",
         "schedule": crontab(hour=20, minute=0),
     },
+    "sample-host-every-5-minutes": {
+        "task": "app.tasks.host_metrics_tasks.sample_host",
+        "schedule": crontab(minute="*/5"),
+    },
     # operational_events retention sweep (issue #446, Design §4): 05:00 UTC
     # specifically, not ET like this schedule's other daily entries — the
     # confirmed 90-day retention policy is a UTC-window policy (occurred_at/
@@ -375,6 +380,7 @@ celery_app.conf.update(
 
 
 API_QUIET_BEAT_ENTRIES: dict[str, bool] = {
+    "sample-host-every-5-minutes": False,
     "capture-forward-events-daily": False,
     "capture-fx-daily": False,
     "capture-fund-navs-daily": False,

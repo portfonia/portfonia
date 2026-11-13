@@ -24,6 +24,7 @@ from app.models.fx_rate import FxRate
 from app.services._twelvedata import fetch_live_rate as twelvedata_fetch_live_rate
 from app.services._yfinance import _quiet_yfinance_logs, fetch_live_rate
 from app.services.email_sender import send_ops_alert
+from app.services.usage_recording import count_external_call
 
 logger = logging.getLogger(__name__)
 
@@ -257,6 +258,7 @@ def _fetch_rate_history(
         return {}
     try:
         with _quiet_yfinance_logs():
+            count_external_call("yfinance")
             hist = yf.download(
                 tickers=" ".join(yf_tickers), period=period, auto_adjust=True, progress=False
             )

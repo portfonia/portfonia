@@ -112,3 +112,100 @@ instances", which hides the real cause.
   then from inside a container. A 404 that carries IMDS's own response
   headers means the source address was rejected, not a missing path or an
   IAM policy (contrast the unquoted-policy `BucketNotFound` 404 above).
+
+## Spend and host-resource observability
+
+Issue #886 adds backend-only accounting and on-demand Ops reads. There is no
+frontend change, scheduled spend report, or cost alert. Records contain metadata
+only: no prompts, responses, holdings, report content, or email addresses.
+
+### Storage and recording
+
+One migration adds three tables:
+
+- `llm_usage`: UUID, indexed `occurred_at`, nullable user FK (`ON DELETE SET NULL`),
+  purpose, trigger source, requested model, nullable prompt/completion token counts,
+  and nullable OpenRouter `usage.cost` as `numeric(12,6)` USD. User deletion retains
+  spend while removing the user link.
+- `external_call_daily`: composite ET date/provider primary key and a call counter.
+- `host_samples`: UUID, indexed sample time, and the host measurements below.
+
+`usage_recording.py` uses the independent operational-event sink engine and an
+immediately committed, short-lived connection, never the business `Session`.
+Database failures log one warning and return without changing the caller's outcome.
+External counts use an atomic upsert for the ET day/provider pair.
+
+Report Pass 2 uses `report_pass2`, analyze reruns use `report_regenerate`, render
+translation uses `translation`, and upload parsing uses `holdings_parse`. Each
+carries the owning user. Triggers are `scheduled` for Beat fan-out, `ops` for Ops
+generation/reruns (inherited by translation), and `user` for uploads. Shared
+`intel_classifier` and `intel_name_check` calls have no user and are never allocated
+to users. OpenRouter requests retain their routing, reasoning and
+`data_collection=deny` settings; usage inclusion supplies the reported cost.
+Missing cost stays null. `_call_llm` records its final response only, excluding
+responses discarded by its retry loop. Holdings parsing records each received
+response; shared classification records before validating content, including
+billed unusable responses. Existing `report_inputs.llm_calls`, intelligence
+accounting/digests, and paid-search recording remain unchanged.
+
+Each named outbound data request is counted, including retries, with one count per
+yfinance fetching call regardless of batch size. Providers are `resend`, `finnhub`,
+`massive`, `twelvedata`, `yfinance`, `eastmoney`, `sina`, `tencent`, `google_news`,
+`sec`, `rss`, and `fred`. Direct Yahoo Search HTTP calls count as `yfinance`;
+FRED requests count as `fred`. Only Resend sends have a per-call price:
+USD 0.0009 (USD 0.90/1,000 emails). All other external counts cost zero.
+Resend status GETs and `app/scripts/` calls are excluded. Tavily, Parallel and Exa
+continue using `paid_api_usage`; OpenRouter uses `llm_usage`.
+
+### Five-minute host sampling and alerts
+
+`app.tasks.host_metrics_tasks.sample_host` runs under Beat as
+`sample-host-every-5-minutes`, `crontab(minute="*/5")`, with API-quiet heavy
+classification `False`. `host_metrics.py` reads host-level Linux files and commits
+one row before finding the previous sample and evaluating alerts:
+
+- `/proc/loadavg`: 15-minute load average.
+- `/proc/meminfo`: total/available memory and total/free swap, converted from kB
+  to bytes.
+- `/proc/vmstat`: raw cumulative `pswpin`, `pswpout` pages and `oom_kill` count.
+- `/proc/sys/vm/swappiness`: current swappiness.
+- Root `statvfs`: used = `(f_blocks - f_bfree) * f_frsize`, available =
+  `f_bavail * f_frsize`.
+- Postgres: `pg_database_size(current_database())` bytes.
+- Redis `INFO memory`: `used_memory` bytes, null on `RedisError`.
+
+The reader exposes module-level `/proc` and statvfs paths for fixture tests.
+Page size is 4096 bytes. Kernel counters stay raw; derived deltas skip negative
+values after counter resets.
+
+Alerts go to the admin mailbox for disk used/(used+available) >= 80%, memory
+available/total < 10%, swap used/total >= 50%, swap-in >= 100 MiB since a previous
+sample no more than 10 minutes old, a positive OOM-kill delta, or load >= 2.0.
+Swap-in also requires a nonnegative counter delta. Each metric uses
+`host-alert:{metric}:{ET date}` with existing `already_alerted`/`mark_alerted`;
+only a successful `send_ops_alert(..., severity="ALERT")` marks the key, for two
+days. This suppresses further successful alerts for that metric on that ET day.
+
+### Ops reads and retention
+
+Both endpoints inherit admin bearer authentication and router audit logging.
+Dates are inclusive ET dates; reversed ranges return 422.
+
+- `GET /admin/usage/costs?start=YYYY-MM-DD&end=YYYY-MM-DD`: defaults to today
+  and the preceding six days. Returns `start`, `end`, and populated `days` only,
+  ascending. Each day includes `llm_by_user` grouped by user/purpose/trigger
+  (including purged null-user groups), `llm_shared` grouped by intel purpose,
+  `paid_search` grouped by provider, and `external_calls` with calculated prices.
+  LLM groups count calls with missing costs separately; totals sum known costs.
+  Timestamp bucketing uses `America/New_York`; external daily dates are stored ET.
+- `GET /admin/usage/host?start=YYYY-MM-DD&end=YYYY-MM-DD`: defaults both dates
+  to today. Returns ascending `samples`, all stored columns, memory-available
+  ratio, swap-used bytes/ratio, disk-used percentage, and `pswpin_delta`,
+  `pswpout_delta`, `oom_kill_delta` relative to the preceding returned sample.
+  First-row and negative deltas are null.
+
+The existing daily `cleanup_operational_events` task also removes these three
+record types older than 90 days, using bounded 1,000-row batches and their
+`occurred_at`, `sampled_at`, or ET `day` fields. This does not change `user_purge.py`.
+Production cost verification after deployment is a read of the two endpoints;
+implementation tests mock OpenRouter, HTTP and Redis and make no paid calls.

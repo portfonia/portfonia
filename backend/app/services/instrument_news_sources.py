@@ -24,6 +24,7 @@ from app.services.news_fetcher import (
     strip_google_suffix,
     url_hash,
 )
+from app.services.usage_recording import count_external_call
 
 
 @dataclass
@@ -79,6 +80,15 @@ def request(url: str, *, params: dict[str, str | int] | None = None) -> httpx.Re
                     time.sleep(wait)
                 _LAST[host] = time.monotonic()
                 with quiet_transport(), httpx.Client(timeout=12) as client:
+                    count_external_call(
+                        {
+                            "finnhub.io": "finnhub",
+                            "www.sec.gov": "sec",
+                            "query1.finance.yahoo.com": "yfinance",
+                            "np-anotice-stock.eastmoney.com": "eastmoney",
+                            "news.google.com": "google_news",
+                        }[host]
+                    )
                     resp = client.get(url, params=params, headers=headers, follow_redirects=True)
                 resp.raise_for_status()
             return resp

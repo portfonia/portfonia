@@ -27,6 +27,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.models.forward_event import ForwardEvent
+from app.services.usage_recording import count_external_call
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,7 @@ def fetch_fred_release_dates(
     with httpx.Client(timeout=20.0) as client:
         for release_id, name in _FRED_RELEASES.items():
             try:
+                count_external_call("fred")
                 resp = client.get(
                     _FRED_BASE,
                     params={
@@ -146,6 +148,7 @@ def fetch_earnings_dates(
     try:
         for ticker in tickers:
             try:
+                count_external_call("yfinance")
                 cal = yf.Ticker(ticker).calendar or {}
                 dates = cal.get("Earnings Date") or []
                 if isinstance(dates, date):

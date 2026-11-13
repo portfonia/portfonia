@@ -411,6 +411,7 @@ def generate_report_job(
             report = generate_report(
                 session,
                 user_id=job.user_id,
+                usage_trigger="ops",
                 report_date=date.fromisoformat(report_date) if report_date else None,
                 report_type=report_type,
                 # Issue #350 item 1: an explicit base_currency in the accepted

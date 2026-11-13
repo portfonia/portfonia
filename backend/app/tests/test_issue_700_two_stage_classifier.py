@@ -256,7 +256,7 @@ def test_payload_models_and_policy() -> None:
 def test_openrouter_json_retries_once_then_raises() -> None:
     router = Router({REVIEW: [fail()]})
     with pytest.raises(httpx.HTTPStatusError):
-        run(router, lambda: hc.openrouter_json("system", "content"))
+        run(router, lambda: hc.openrouter_json("system", "content", purpose="intel_classifier"))
     assert len(router.calls) == 2
 
 
@@ -608,14 +608,19 @@ def test_macro_survivor_omitted_by_review_keeps_prefixed_screen_label() -> None:
 
 def test_required_key_not_a_list_is_retried() -> None:
     router = Router({REVIEW: [ok('{"labels": "none"}'), ok(labels_json([]))]})
-    data, cost = run(router, lambda: hc.openrouter_json("s", "c", required="labels"))
+    data, cost = run(
+        router, lambda: hc.openrouter_json("s", "c", required="labels", purpose="intel_classifier")
+    )
     assert data == {"labels": []} and cost == pytest.approx(0.002) and len(router.calls) == 2
 
 
 def test_final_exception_carries_billed_cost() -> None:
     router = Router({REVIEW: [ok("{}", cost=0.003)]})
     with pytest.raises(KeyError) as caught:
-        run(router, lambda: hc.openrouter_json("s", "c", required="labels"))
+        run(
+            router,
+            lambda: hc.openrouter_json("s", "c", required="labels", purpose="intel_classifier"),
+        )
     assert vars(caught.value)["cost_usd"] == pytest.approx(0.006)
 
 

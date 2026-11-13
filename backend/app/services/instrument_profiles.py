@@ -13,6 +13,7 @@ from app.models.intel import InstrumentProfile
 from app.services._yfinance import _quiet_yfinance_logs
 from app.services.holding_news import load_entity_aliases
 from app.services.instrument_universe import UniverseEntry
+from app.services.usage_recording import count_external_call
 
 
 def match_instruments(text: str, alias_map: Mapping[str, Sequence[str]]) -> set[str]:
@@ -104,6 +105,7 @@ def resolve_profiles(
                         errors.append(f"finnhub: {type(exc).__name__}")
                 if not name_en:
                     with _quiet_yfinance_logs():
+                        count_external_call("yfinance")
                         data = mapping(yf.Ticker(entry.ticker).info)
                     name_en = (
                         text_value(data.get("longName"))
