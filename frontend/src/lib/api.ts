@@ -602,12 +602,11 @@ export async function updateReportLanguage(reportLanguage: "en" | "zh" | "zh-Han
 }
 
 export async function recordPageView(path: string): Promise<void> {
-  const res = await fetch("/api/me/activity/page", {
+  await fetch("/api/me/activity/page", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path }),
   });
-  if (!res.ok) await throwOnHttpError(res);
 }
 
 // Set the caller's own report currency (issue #350 item 1, Profile page's

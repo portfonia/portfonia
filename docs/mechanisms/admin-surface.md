@@ -196,7 +196,8 @@ comment (issue #645).
 - **Every `/admin/*` call is audit-logged** (`AdminLoggingRoute` in
   `app/routers/admin.py`, the router's `route_class`) — endpoint, method,
   path/query params, status code, duration, via the existing
-  `log_ops_event` (`app/core/ops_log.py`). Each call is also recorded as an `admin_call` row in `user_activity` (#880). Never logs the Authorization
+  `log_ops_event` (`app/core/ops_log.py`). Each call is also recorded as an
+  `admin_call` row in `user_activity` (#880). Never logs the Authorization
   header or token value. A run of 5 consecutive 401s on `/admin/*` fires
   one alert, then resets — a sustained guessing attempt doesn't resend the
   alert on every subsequent request; any 200 resets the counter. **The

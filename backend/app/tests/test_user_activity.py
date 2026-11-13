@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.deps import current_principal
+from app.core.deps import Principal, current_principal
 from app.core.timezones import ET, today_et
 from app.main import app
 from app.models.api_audit_log import ApiAuditLog
@@ -69,6 +69,37 @@ def test_01_login_session(db_session: Session, monkeypatch: pytest.MonkeyPatch) 
     current_principal(request, db_session)
     assert len(activity(db_session, "login")) == 2
     assert backend.set_nx.call_args.args == ("activity:login:session-two", 8 * 3600)
+
+
+def test_login_commit_failure_returns_principal(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = seed_user(db_session, TEST_USER_ID)
+    user.auth_subject = str(uuid4())
+    db_session.commit()
+    expected = Principal(
+        user_id=user.id,
+        email=user.email,
+        locale=user.locale,
+        base_currency=user.base_currency,
+        advanced=subscription.is_advanced(user),
+        jade=subscription.is_jade(user),
+    )
+    claims = SimpleNamespace(sub=user.auth_subject, session_id="commit-failure")
+    monkeypatch.setattr("app.core.deps.verify_access_token", lambda _: claims)
+    monkeypatch.setattr("app.core.deps.is_idle", lambda *a, **k: False)
+    monkeypatch.setattr("app.core.deps.session_lifetime_expired", lambda *a, **k: False)
+    monkeypatch.setattr("app.core.deps.touch_activity", lambda *a, **k: None)
+    backend = Mock()
+    backend.set_nx.return_value = True
+    monkeypatch.setattr("app.core.rate_limit.get_backend", lambda: backend)
+    monkeypatch.setattr(db_session, "commit", Mock(side_effect=RuntimeError("commit failed")))
+    rollback = Mock(wraps=db_session.rollback)
+    monkeypatch.setattr(db_session, "rollback", rollback)
+    request = Request({"type": "http", "headers": [(b"authorization", b"Bearer valid")]})
+
+    assert current_principal(request, db_session) == expected
+    rollback.assert_called_once_with()
 
 
 def test_02_page_view(app_client: TestClient, db_session: Session) -> None:

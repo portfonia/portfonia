@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,6 +17,8 @@ from app.models.user import User
 from app.services import user_activity
 from app.services.auth_provider import InvalidAccessToken, verify_access_token
 from app.services.subscription import is_advanced, is_jade
+
+logger = logging.getLogger(__name__)
 
 
 def get_current_user_id() -> UUID:
@@ -96,9 +99,13 @@ def current_principal(request: Request, session: Session = Depends(get_session))
     except rate_limit.RateLimitUnavailable:
         new_session = False
     if new_session:
-        user.last_login_at = datetime.now(tz=ET)
-        user_activity.record(session, user.id, "login", request=request)
-        session.commit()
+        try:
+            user.last_login_at = datetime.now(tz=ET)
+            user_activity.record(session, user.id, "login", request=request)
+            session.commit()
+        except Exception:
+            logger.error("Account activity commit failed")
+            session.rollback()
     return principal
 
 
