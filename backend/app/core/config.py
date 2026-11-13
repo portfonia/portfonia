@@ -1,12 +1,13 @@
 """Typed configuration loaded from .env.local (dev) or process env (prod)."""
 
+import re
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
 from cryptography.fernet import Fernet
-from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, PrivateAttr, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Project root contains .env.local (one level above backend/)
@@ -44,6 +45,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     # App
@@ -363,6 +365,43 @@ class Settings(BaseSettings):
     # same double-key pattern as HOLDINGS_ENCRYPTION_KEY/_PREV.
     ADMIN_API_TOKEN: SecretStr
     ADMIN_API_TOKEN_PREV: SecretStr | None = None
+    OPS_AGENT_TOKENS: SecretStr = SecretStr("")
+    _ops_agent_tokens: list[tuple[str, Literal["standard", "elevated"], str]] = PrivateAttr(
+        default_factory=list
+    )
+
+    @property
+    def ops_agent_tokens(self) -> list[tuple[str, Literal["standard", "elevated"], str]]:
+        return self._ops_agent_tokens
+
+    @model_validator(mode="after")
+    def _parse_ops_agent_tokens(self) -> "Settings":
+        raw = self.OPS_AGENT_TOKENS.get_secret_value().strip()
+        parsed: list[tuple[str, Literal["standard", "elevated"], str]] = []
+        names: set[str] = set()
+        tokens: set[str] = set()
+        for index, entry in enumerate(raw.split(",") if raw else [], start=1):
+            parts = [part.strip() for part in entry.split(":")]
+            if len(parts) != 3:
+                raise ValueError(f"OPS_AGENT_TOKENS entry {index} is malformed")
+            name, tier, token = parts
+            if (
+                not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name)
+                or name == "admin"
+                or tier not in ("standard", "elevated")
+                or not token
+                or name in names
+                or token in tokens
+            ):
+                raise ValueError(f"OPS_AGENT_TOKENS entry {index} is invalid or duplicated")
+            names.add(name)
+            tokens.add(token)
+            if tier == "standard":
+                parsed.append((name, "standard", token))
+            else:
+                parsed.append((name, "elevated", token))
+        self._ops_agent_tokens = parsed
+        return self
 
     # Hosted Auth (Supabase). Required — B4 is the first wiring of these
     # fields; a missing value must fail Settings load, same as

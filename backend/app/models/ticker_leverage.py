@@ -65,3 +65,5 @@ class TickerLeverageOverride(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+    ops_agent: Mapped[str | None] = mapped_column(Text)

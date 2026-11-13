@@ -3,6 +3,7 @@ import logging
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -132,7 +133,17 @@ def _digest(value: str) -> bytes:
     return hashlib.sha256(value.encode("utf-8")).digest()
 
 
-def require_ops_token(authorization: str | None = Header(default=None)) -> None:
+OpsTier = Literal["standard", "elevated", "admin"]
+OPS_TIER_ORDER: dict[OpsTier, int] = {"standard": 0, "elevated": 1, "admin": 2}
+
+
+@dataclass(frozen=True)
+class OpsCaller:
+    name: str | None
+    tier: OpsTier
+
+
+def require_ops_token(request: Request, authorization: str | None = Header(default=None)) -> None:
     """Bearer <ADMIN_API_TOKEN>. Completely independent of current_principal —
     queries no table, doesn't care whether the user system exists or is
     healthy (Ring 1-B design doc §4.3: the ops channel must still work when
@@ -147,18 +158,25 @@ def require_ops_token(authorization: str | None = Header(default=None)) -> None:
     if provided is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing ops token")
 
-    candidates = [settings.ADMIN_API_TOKEN.get_secret_value()]
+    candidates = [(settings.ADMIN_API_TOKEN.get_secret_value(), OpsCaller(None, "admin"))]
     if settings.ADMIN_API_TOKEN_PREV is not None:
-        candidates.append(settings.ADMIN_API_TOKEN_PREV.get_secret_value())
+        candidates.append(
+            (settings.ADMIN_API_TOKEN_PREV.get_secret_value(), OpsCaller(None, "admin"))
+        )
+    candidates.extend(
+        (token, OpsCaller(name, tier)) for name, tier, token in settings.ops_agent_tokens
+    )
 
     # Every candidate is compared unconditionally (no `any()` short-circuit) —
     # matching the primary token must take exactly as long as matching _PREV
     # or matching nothing, or the timing itself would reveal which candidate
     # matched during a rotation window (PR #177 review round 2).
     provided_digest = _digest(provided)
-    matched = False
-    for candidate in candidates:
-        matched |= secrets.compare_digest(provided_digest, _digest(candidate))
+    matched: OpsCaller | None = None
+    for candidate, caller in candidates:
+        if secrets.compare_digest(provided_digest, _digest(candidate)) and matched is None:
+            matched = caller
 
-    if not matched:
+    if matched is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid ops token")
+    request.state.ops_caller = matched

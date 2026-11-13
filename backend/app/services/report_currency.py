@@ -24,6 +24,7 @@ def apply_report_currency_change(
     *,
     source: str,
     actor_user_id: uuid.UUID | None,
+    ops_agent: str | None = None,
 ) -> bool:
     """Set `users.base_currency` and insert an audit row when it changes.
 
@@ -42,6 +43,7 @@ def apply_report_currency_change(
             new_currency=new_currency,
             source=source,
             actor_user_id=actor_user_id,
+            ops_agent=ops_agent,
         )
     )
     user.base_currency = new_currency

@@ -100,6 +100,7 @@ def _post(
     note: str | None = None,
     reference: str | None = None,
     allow_negative: bool = False,
+    actor_id: str | None = None,
 ) -> CreditLedgerEntry:
     if (
         not _valid_amount(amount)
@@ -131,6 +132,7 @@ def _post(
         balance_after=balance_after,
         reason=reason,
         actor_type=actor_type,
+        actor_id=actor_id,
         idempotency_key=idempotency_key,
         note=note,
         reference=reference,
@@ -178,6 +180,7 @@ def adjust_by_admin(
     idempotency_key: str,
     reference: str | None = None,
     bucket: str = "gift",
+    actor_id: str | None = None,
 ) -> LedgerWrite:
     stored_key = "admin_adjustment:" + idempotency_key
     user = _lock_user(session, user_id)
@@ -199,6 +202,7 @@ def adjust_by_admin(
         amount=amount,
         reason="admin_adjustment",
         actor_type="admin",
+        actor_id=actor_id,
         idempotency_key=stored_key,
         note=note,
         reference=reference,

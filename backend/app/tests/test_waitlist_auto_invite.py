@@ -8,11 +8,13 @@ from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import Request
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.deps import OpsCaller
 from app.core.timezones import ET, today_et
 from app.models.invite import Invite
 from app.models.waitlist_entry import WaitlistEntry
@@ -23,6 +25,12 @@ from app.tests.conftest import seed_user
 _UUID_RE = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 )
+
+
+def _ops_request() -> Request:
+    request = Request({"type": "http"})
+    request.state.ops_caller = OpsCaller(None, "admin")
+    return request
 
 
 def _limit(monkeypatch: pytest.MonkeyPatch, value: int) -> None:
@@ -603,7 +611,7 @@ def test_selected_entry_is_rechecked_under_lock(
                     other.commit()
                 else:
                     result = send_invitation_letter_endpoint(
-                        InvitationLetterBody(email=email), session=other, _=None
+                        _ops_request(), InvitationLetterBody(email=email), session=other, _=None
                     )
                     manual_id = result.invite_id
         return original(session, email, **kwargs)  # type: ignore[arg-type]
@@ -710,7 +718,10 @@ def test_admin_id_creates_manual_and_automatic_letters(
         patch("app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"),
     ):
         manual = send_invitation_letter_endpoint(
-            InvitationLetterBody(email="manual-actor@example.com"), session=db_session, _=None
+            _ops_request(),
+            InvitationLetterBody(email="manual-actor@example.com"),
+            session=db_session,
+            _=None,
         )
         assert _run() == "reported"
     rows = db_session.scalars(

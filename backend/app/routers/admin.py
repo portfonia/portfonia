@@ -39,7 +39,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
 from app.core.database import get_session
-from app.core.deps import require_ops_token
+from app.core.deps import OPS_TIER_ORDER, OpsTier, require_ops_token
 from app.core.ops_log import log_ops_event
 from app.core.rate_limit import (
     check_report_resend_cooldown,
@@ -158,6 +158,7 @@ def _record_admin_activity(request: Request, status_code: int, duration_ms: floa
                     "endpoint": request.scope["route"].path,
                     "status_code": status_code,
                     "duration_ms": duration_ms,
+                    "caller": _ops_caller_name(request),
                 },
                 request,
             )
@@ -198,6 +199,7 @@ class AdminLoggingRoute(APIRoute):
                     params=dict(request.path_params) | dict(request.query_params),
                     status_code=status_code,
                     duration_ms=duration_ms,
+                    caller=_ops_caller_name(request),
                 )
                 await run_in_threadpool(_record_admin_activity, request, status_code, duration_ms)
                 if status_code == 401:
@@ -231,7 +233,65 @@ class AdminLoggingRoute(APIRoute):
         return logged_handler
 
 
-router = APIRouter(route_class=AdminLoggingRoute, dependencies=[Depends(require_ops_token)])
+ADMIN_ROUTE_TIERS: dict[tuple[str, str], OpsTier] = {
+    ("DELETE", "/admin/users/by-email"): "admin",
+    ("DELETE", "/admin/users/{user_id}"): "admin",
+    ("POST", "/admin/payments/refunds"): "admin",
+    ("POST", "/admin/users/{user_id}/bind-subject"): "elevated",
+    ("POST", "/admin/users/{user_id}/api-tokens/revoke-all"): "elevated",
+    ("POST", "/admin/users/{user_id}/cadence"): "elevated",
+    ("GET", "/admin/activity"): "standard",
+    ("GET", "/admin/credits/ledger.csv"): "standard",
+    ("GET", "/admin/credits/balances.csv"): "standard",
+    ("POST", "/admin/portfolio/refresh"): "standard",
+    ("POST", "/admin/portfolio/snapshots/recover"): "standard",
+    ("POST", "/admin/invitation-letters"): "standard",
+    ("GET", "/admin/waitlist"): "standard",
+    ("GET", "/admin/waitlist/by-email"): "standard",
+    ("GET", "/admin/waitlist/{entry_id}"): "standard",
+    ("POST", "/admin/waitlist/{entry_id}/invite"): "standard",
+    ("POST", "/admin/waitlist/{entry_id}/sent"): "standard",
+    ("PATCH", "/admin/waitlist/{entry_id}/status"): "standard",
+    ("POST", "/admin/invites"): "standard",
+    ("GET", "/admin/invites"): "standard",
+    ("DELETE", "/admin/invites/{invite_id}"): "standard",
+    ("GET", "/admin/users"): "standard",
+    ("POST", "/admin/users/{user_id}/reports/generate"): "standard",
+    ("GET", "/admin/report-jobs/{job_id}"): "standard",
+    ("POST", "/admin/users/{user_id}/reports/{report_id}/send"): "standard",
+    ("POST", "/admin/users/{user_id}/reports/{report_id}/rerun"): "standard",
+    ("POST", "/admin/users/by-email/credit-adjustments"): "standard",
+    ("POST", "/admin/users/by-email/report-language"): "standard",
+    ("POST", "/admin/users/by-email/report-currency"): "standard",
+    ("GET", "/admin/users/{user_id}/report-currency-audit"): "standard",
+    ("POST", "/admin/email-verifications"): "standard",
+    ("GET", "/admin/email-verifications/{verification_id}"): "standard",
+    ("POST", "/admin/ticker-leverage"): "standard",
+    ("GET", "/admin/ticker-leverage"): "standard",
+    ("GET", "/admin/ticker-leverage/{ticker}"): "standard",
+    ("PATCH", "/admin/ticker-leverage/{ticker}"): "standard",
+    ("DELETE", "/admin/ticker-leverage/{ticker}"): "standard",
+    ("GET", "/admin/users/{user_id}/api-audit"): "standard",
+    ("GET", "/admin/usage/costs"): "standard",
+    ("GET", "/admin/usage/host"): "standard",
+}
+
+
+def _require_route_tier(request: Request) -> None:
+    minimum = ADMIN_ROUTE_TIERS.get((request.method, request.scope["route"].path), "admin")
+    if OPS_TIER_ORDER[request.state.ops_caller.tier] < OPS_TIER_ORDER[minimum]:
+        raise HTTPException(status_code=403, detail="insufficient ops token tier")
+
+
+def _ops_caller_name(request: Request) -> str | None:
+    caller = getattr(request.state, "ops_caller", None)
+    return (caller.name or "admin") if caller is not None else None
+
+
+router = APIRouter(
+    route_class=AdminLoggingRoute,
+    dependencies=[Depends(require_ops_token), Depends(_require_route_tier)],
+)
 
 
 @router.get("/activity")
@@ -428,6 +488,7 @@ class InvitationLetterOut(BaseModel):
 
 @router.post("/invitation-letters", response_model=InvitationLetterOut, status_code=201)
 def send_invitation_letter_endpoint(
+    request: Request,
     body: InvitationLetterBody,
     session: Session = Depends(get_session),
     _: None = Depends(rate_limit_create_invite),
@@ -441,6 +502,7 @@ def send_invitation_letter_endpoint(
             language=body.language,
             expires_days=body.expires_days,
             created_by=UUID(get_settings().ADMIN_ID),
+            ops_agent=request.state.ops_caller.name,
             require_pending=False,
         )
     except LetterConflict as exc:
@@ -542,6 +604,7 @@ def get_waitlist(entry_id: UUID, session: Session = Depends(get_session)) -> Wai
 
 @router.post("/waitlist/{entry_id}/invite", response_model=WaitlistInviteOut)
 def mint_waitlist_invite(
+    request: Request,
     entry_id: UUID,
     body: WaitlistInviteBody,
     session: Session = Depends(get_session),
@@ -557,6 +620,7 @@ def mint_waitlist_invite(
         issued = create_invite(
             session,
             created_by=UUID(get_settings().ADMIN_ID),
+            ops_agent=request.state.ops_caller.name,
             email=entry.email,
             expires_days=body.expires_days,
             waitlist_entry_id=entry.id,
@@ -624,6 +688,7 @@ class InviteOut(BaseModel):
 
 @router.post("/invites", response_model=InviteOut, status_code=201)
 def create_invite_endpoint(
+    request: Request,
     body: CreateInviteBody,
     session: Session = Depends(get_session),
     _: None = Depends(rate_limit_create_invite),
@@ -632,6 +697,7 @@ def create_invite_endpoint(
         issued = create_invite(
             session,
             created_by=UUID(get_settings().ADMIN_ID),
+            ops_agent=request.state.ops_caller.name,
             email=body.email,
             expires_days=body.expires_days,
         )
@@ -1470,6 +1536,7 @@ def refund_payment(
 
 @router.post("/users/by-email/credit-adjustments", response_model=CreditAdjustmentOut)
 def credit_adjustment_by_email(
+    request: Request,
     body: CreditAdjustmentBody,
     session: Session = Depends(get_session),
 ) -> CreditAdjustmentOut:
@@ -1486,6 +1553,7 @@ def credit_adjustment_by_email(
             note=body.note,
             idempotency_key=body.idempotency_key,
             reference=body.reference,
+            actor_id=request.state.ops_caller.name,
         )
         session.commit()
     except InsufficientCredits as exc:
@@ -1595,6 +1663,7 @@ class UpdateReportCurrencyByEmailOut(BaseModel):
 
 @router.post("/users/by-email/report-currency", response_model=UpdateReportCurrencyByEmailOut)
 def update_report_currency_by_email(
+    request: Request,
     body: UpdateReportCurrencyByEmailBody,
     email: str | None = None,
     session: Session = Depends(get_session),
@@ -1621,6 +1690,7 @@ def update_report_currency_by_email(
         body.report_currency,
         source="admin",
         actor_user_id=None,
+        ops_agent=request.state.ops_caller.name,
     )
     session.commit()
     return UpdateReportCurrencyByEmailOut(
@@ -1897,7 +1967,7 @@ class CreateLeverageOverrideBody(BaseModel):
 
 @router.post("/ticker-leverage", response_model=LeverageOverrideOut, status_code=201)
 def create_ticker_leverage_endpoint(
-    body: CreateLeverageOverrideBody, session: Session = Depends(get_session)
+    request: Request, body: CreateLeverageOverrideBody, session: Session = Depends(get_session)
 ) -> LeverageOverrideOut:
     """Issue #87: system-wide leveraged-product multiplier, applied at read
     time by window_data.py (anomaly thresholds widened) and
@@ -1913,6 +1983,7 @@ def create_ticker_leverage_endpoint(
             asset_class=body.asset_class,
             underlying_ticker=body.underlying_ticker,
             created_by=UUID(get_settings().ADMIN_ID),
+            ops_agent=request.state.ops_caller.name,
         )
     except LeverageOverrideAlreadyExists:
         raise HTTPException(

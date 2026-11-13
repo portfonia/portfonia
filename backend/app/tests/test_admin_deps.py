@@ -13,7 +13,7 @@ import secrets as secrets_module
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from pydantic import SecretStr, ValidationError
 
 from app.core.config import get_settings
@@ -26,30 +26,36 @@ def _primary_token() -> str:
 
 def test_missing_authorization_header_rejected() -> None:
     with pytest.raises(HTTPException) as exc_info:
-        require_ops_token(authorization=None)
+        require_ops_token(request=Request({"type": "http"}), authorization=None)
     assert exc_info.value.status_code == 401
 
 
 def test_non_bearer_scheme_rejected() -> None:
     with pytest.raises(HTTPException) as exc_info:
-        require_ops_token(authorization=f"Basic {_primary_token()}")
+        require_ops_token(
+            request=Request({"type": "http"}), authorization=f"Basic {_primary_token()}"
+        )
     assert exc_info.value.status_code == 401
 
 
 def test_bearer_with_no_token_rejected() -> None:
     with pytest.raises(HTTPException) as exc_info:
-        require_ops_token(authorization="Bearer ")
+        require_ops_token(request=Request({"type": "http"}), authorization="Bearer ")
     assert exc_info.value.status_code == 401
 
 
 def test_wrong_token_rejected() -> None:
     with pytest.raises(HTTPException) as exc_info:
-        require_ops_token(authorization="Bearer not-the-real-token")
+        require_ops_token(
+            request=Request({"type": "http"}), authorization="Bearer not-the-real-token"
+        )
     assert exc_info.value.status_code == 401
 
 
 def test_correct_primary_token_accepted() -> None:
-    require_ops_token(authorization=f"Bearer {_primary_token()}")  # must not raise
+    require_ops_token(
+        request=Request({"type": "http"}), authorization=f"Bearer {_primary_token()}"
+    )  # must not raise
 
 
 def test_prev_token_accepted_during_rotation_window(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -60,8 +66,12 @@ def test_prev_token_accepted_during_rotation_window(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(settings, "ADMIN_API_TOKEN", SecretStr("brand-new-current-token"))
     monkeypatch.setattr(settings, "ADMIN_API_TOKEN_PREV", SecretStr(old_token))
 
-    require_ops_token(authorization=f"Bearer {old_token}")  # must not raise
-    require_ops_token(authorization="Bearer brand-new-current-token")  # must not raise
+    require_ops_token(
+        request=Request({"type": "http"}), authorization=f"Bearer {old_token}"
+    )  # must not raise
+    require_ops_token(
+        request=Request({"type": "http"}), authorization="Bearer brand-new-current-token"
+    )  # must not raise
 
 
 def test_unset_prev_token_never_matches_anything(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -69,7 +79,7 @@ def test_unset_prev_token_never_matches_anything(monkeypatch: pytest.MonkeyPatch
     settings = get_settings()
     monkeypatch.setattr(settings, "ADMIN_API_TOKEN_PREV", None)
     with pytest.raises(HTTPException) as exc_info:
-        require_ops_token(authorization="Bearer ")
+        require_ops_token(request=Request({"type": "http"}), authorization="Bearer ")
     assert exc_info.value.status_code == 401
 
 
@@ -78,7 +88,7 @@ def test_comparison_uses_compare_digest_not_eq(monkeypatch: pytest.MonkeyPatch) 
     spy = MagicMock(wraps=secrets_module.compare_digest)
     monkeypatch.setattr("app.core.deps.secrets.compare_digest", spy)
 
-    require_ops_token(authorization=f"Bearer {_primary_token()}")
+    require_ops_token(request=Request({"type": "http"}), authorization=f"Bearer {_primary_token()}")
 
     assert spy.called
 
@@ -89,7 +99,7 @@ def test_non_ascii_bearer_token_rejected_not_raised() -> None:
     round 2: reproduced as a real 500 through the full TestClient stack,
     which also reset the consecutive-401 anti-flood counter)."""
     with pytest.raises(HTTPException) as exc_info:
-        require_ops_token(authorization="Bearer café")
+        require_ops_token(request=Request({"type": "http"}), authorization="Bearer café")
     assert exc_info.value.status_code == 401
 
 
@@ -105,7 +115,7 @@ def test_every_candidate_compared_no_short_circuit(monkeypatch: pytest.MonkeyPat
     spy = MagicMock(wraps=secrets_module.compare_digest)
     monkeypatch.setattr("app.core.deps.secrets.compare_digest", spy)
 
-    require_ops_token(authorization=f"Bearer {_primary_token()}")
+    require_ops_token(request=Request({"type": "http"}), authorization=f"Bearer {_primary_token()}")
 
     assert spy.call_count == 2
 
@@ -133,7 +143,7 @@ def test_admin_api_token_prev_blank_treated_as_unset(monkeypatch: pytest.MonkeyP
         )
         # Either representation must fail to authenticate an empty credential.
         with pytest.raises(HTTPException):
-            require_ops_token(authorization="Bearer ")
+            require_ops_token(request=Request({"type": "http"}), authorization="Bearer ")
     finally:
         get_settings.cache_clear()
 
@@ -177,6 +187,6 @@ def test_admin_api_token_prev_whitespace_only_treated_as_unset(
         settings = get_settings()
         assert settings.ADMIN_API_TOKEN_PREV is None
         with pytest.raises(HTTPException):
-            require_ops_token(authorization="Bearer  ")
+            require_ops_token(request=Request({"type": "http"}), authorization="Bearer  ")
     finally:
         get_settings.cache_clear()
