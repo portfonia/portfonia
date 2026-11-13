@@ -1267,3 +1267,35 @@ bindings. Ops waitlist list/by-email/id views add `source` and
 
 First-subscription and purchase rewards, negative cash and refund handling
 are specified in [Credit ledger](credit-ledger.md#referral-rewards-and-refund-clawbacks-issue-675).
+
+
+### Account activity log (#880)
+
+`user_activity` records small account events without holding contents.
+
+| Column | Stored value |
+| --- | --- |
+| `id`, `occurred_at` | Bigint identity and timezone-aware timestamp written in ET |
+| `user_id`, `event`, `detail` | Nullable user FK, event name and small JSON metadata |
+| `client_ip`, `user_agent` | Request client IP and raw user agent (512 characters; NUL replaced); null without a request |
+
+Events are `login`, `page_view`, `subscription`, `holdings_change`, `upload`,
+`download`, `questionnaire`, `token`, `email`, `admin_call` and `settings`.
+Page views record each signed-in pathname change without deduplication.
+A new sign-in session updates `users.last_login_at` once through an 8-hour
+session key. Unbound Ops verification confirmations and every admin call,
+including 401s, have a null user. Admin metadata contains the route template,
+method, status and duration, without parameter values.
+
+The existing daily operational cleanup deletes rows older than 90 days in
+1,000-row batches. Account purge deletes that user's rows. There is no size
+cap. Holding identifiers, names, quantities, costs, accounts and notes are
+never copied into activity metadata.
+
+Ops reads JSON through `GET /admin/activity` with the Ops bearer token.
+Optional filters are `email`, `user_id`, repeatable `event`, and inclusive ET
+`start`/`end` dates (default last seven days, maximum 90 days). `limit`
+defaults to 1,000 and caps at 5,000. Results are newest first and include
+existing `api_audit_log` rows as `api_call`, without duplicating their writes.
+Unfiltered reads include null-user rows; a user filter excludes them and an
+unknown email returns `[]`. There is no activity UI or export.

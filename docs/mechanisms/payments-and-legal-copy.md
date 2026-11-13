@@ -167,6 +167,7 @@ No open owner decisions remain for this copy.
 | `home` FAQ "What does it cost?" answer | closed-beta text → see Home copy below |
 | `home.status` | "MVP — multi-user closed beta. …" → see Home copy below |
 | `pricingPlans.plans[].features`, `home.faq.items[3].a`, `home.footer.forAgents`, `welcome.subscriptionPlans`, `profile.subscriptionDescription.daily`, `legal.terms.sections[5].body[1]`, `legal.privacy.sections[6].body`, `legal.pricing.sections[0].body[5]`, `agent.*`, `agentGuide.what`, `agentGuide.limits`, `seo.pages.agentGuide.description` | #877: Agent snapshots, macro headlines and holdings management on every active plan; modification notices narrowed to Agent holdings writes; homepage "For AI agents" link |
+| `legal.privacy.sections[1].body[2]`, `legal.privacy.sections[5].body[0]`, `legal.privacy.lastUpdated` | #880: activity log disclosure and 90-day retention; Privacy dated 2026-11-12 |
 
 Navigation (implementation issue): Pricing and Refund Policy links are
 added wherever Terms and Privacy are linked today (home footer, Profile,

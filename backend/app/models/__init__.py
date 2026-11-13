@@ -26,6 +26,7 @@ from app.models.report_currency_change import ReportCurrencyChange
 from app.models.report_job import ReportJob
 from app.models.upload_job import UploadJob
 from app.models.user import User
+from app.models.user_activity import UserActivity
 from app.models.user_investment_context import UserInvestmentContext
 from app.models.waitlist_entry import WaitlistEntry
 
@@ -64,6 +65,7 @@ __all__ = [
     "ReportJob",
     "UploadJob",
     "User",
+    "UserActivity",
     "UserInvestmentContext",
     "WaitlistEntry",
 ]

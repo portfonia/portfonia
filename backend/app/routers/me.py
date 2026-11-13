@@ -5,8 +5,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, field_validator
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -29,7 +29,7 @@ from app.schemas.me import (
     SubscriptionOut,
     SubscriptionQuoteOut,
 )
-from app.services import credit_ledger, subscription
+from app.services import credit_ledger, subscription, user_activity
 from app.services.altcha_challenge import (
     create_account_deletion_challenge,
     create_change_password_challenge,
@@ -135,6 +135,7 @@ class UpdateReportLanguageOut(BaseModel):
 
 @router.patch("/report-language", response_model=UpdateReportLanguageOut)
 def update_report_language(
+    request: Request,
     body: UpdateReportLanguageBody,
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
@@ -148,6 +149,13 @@ def update_report_language(
     user = session.get(User, principal.user_id)
     assert user is not None  # current_principal already required this row
     user.locale = body.report_language
+    user_activity.record(
+        session,
+        principal.user_id,
+        "settings",
+        {"setting": "report_language", "value": body.report_language},
+        request,
+    )
     session.commit()
     return UpdateReportLanguageOut(report_language=user.locale)
 
@@ -175,6 +183,7 @@ class UpdateReportCurrencyOut(BaseModel):
 
 @router.patch("/report-currency", response_model=UpdateReportCurrencyOut)
 def update_report_currency(
+    request: Request,
     body: UpdateReportCurrencyBody,
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
@@ -194,6 +203,13 @@ def update_report_currency(
         body.report_currency,
         source="self",
         actor_user_id=user.id,
+    )
+    user_activity.record(
+        session,
+        principal.user_id,
+        "settings",
+        {"setting": "report_currency", "value": body.report_currency},
+        request,
     )
     session.commit()
     return UpdateReportCurrencyOut(report_currency=user.base_currency)
@@ -244,6 +260,7 @@ def subscription_quote(
 
 @router.post("/subscription", response_model=SubscriptionOut)
 def set_subscription(
+    request: Request,
     body: SubscriptionBody,
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
@@ -254,6 +271,13 @@ def set_subscription(
     except subscription.SubscriptionError as exc:
         session.rollback()
         raise HTTPException(status_code=409, detail=exc.code) from None
+    user_activity.record(
+        session,
+        principal.user_id,
+        "subscription",
+        {"action": "subscribe", "plan": body.type, "source": "web"},
+        request,
+    )
     session.commit()
     subscription.maybe_send_low_balance_reminder(session, principal.user_id)
     return subscription.summary(user, today)
@@ -261,6 +285,7 @@ def set_subscription(
 
 @router.post("/subscription/cancel", response_model=SubscriptionOut)
 def cancel_subscription(
+    request: Request,
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> SubscriptionOut:
@@ -270,12 +295,20 @@ def cancel_subscription(
     except subscription.SubscriptionError as exc:
         session.rollback()
         raise HTTPException(status_code=409, detail=exc.code) from None
+    user_activity.record(
+        session,
+        principal.user_id,
+        "subscription",
+        {"action": "cancel", "plan": user.subscription_type, "source": "web"},
+        request,
+    )
     session.commit()
     return subscription.summary(user, today)
 
 
 @router.post("/subscription/resume", response_model=SubscriptionOut)
 def resume_subscription(
+    request: Request,
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
 ) -> SubscriptionOut:
@@ -285,6 +318,13 @@ def resume_subscription(
     except subscription.SubscriptionError as exc:
         session.rollback()
         raise HTTPException(status_code=409, detail=exc.code) from None
+    user_activity.record(
+        session,
+        principal.user_id,
+        "subscription",
+        {"action": "resume", "plan": user.subscription_type, "source": "web"},
+        request,
+    )
     session.commit()
     return subscription.summary(user, today)
 
@@ -435,6 +475,7 @@ def refer_someone(
 
 @router.patch("/jade/cadence", response_model=SubscriptionOut)
 def set_jade_cadence(
+    request: Request,
     body: JadeCadenceBody,
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
@@ -444,5 +485,32 @@ def set_jade_cadence(
     except subscription.SubscriptionError as exc:
         session.rollback()
         raise HTTPException(status_code=409, detail=exc.code) from None
+    user_activity.record(
+        session,
+        principal.user_id,
+        "subscription",
+        {"action": "cadence", "plan": body.cadence, "source": "web"},
+        request,
+    )
     session.commit()
     return subscription.summary(user, today_et())
+
+
+class ActivityPageBody(BaseModel):
+    path: str = Field(max_length=200)
+
+
+@router.post("/activity/page", status_code=status.HTTP_204_NO_CONTENT)
+def record_activity_page(
+    body: ActivityPageBody,
+    request: Request,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+) -> Response:
+    user_activity.record(session, principal.user_id, "page_view", {"path": body.path}, request)
+    try:
+        session.commit()
+    except Exception:
+        logging.getLogger(__name__).error("Account activity commit failed")
+        session.rollback()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

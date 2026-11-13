@@ -601,6 +601,14 @@ export async function updateReportLanguage(reportLanguage: "en" | "zh" | "zh-Han
   if (!res.ok) await throwOnHttpError(res);
 }
 
+export async function recordPageView(path: string): Promise<void> {
+  await fetch("/api/me/activity/page", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+}
+
 // Set the caller's own report currency (issue #350 item 1, Profile page's
 // new Report Currency control) — same save-immediately discipline as
 // updateReportLanguage above.

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,7 @@ from app.schemas.questionnaire import (
     InvestmentContextIn,
     InvestmentContextOut,
 )
+from app.services import user_activity
 from app.services.questionnaire_taxonomy import QUESTIONNAIRE_VERSION
 
 router = APIRouter()
@@ -38,6 +39,7 @@ def get_investment_context(
 
 @router.put("", response_model=InvestmentContextOut)
 def put_investment_context(
+    request: Request,
     body: InvestmentContextIn,
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
@@ -76,6 +78,7 @@ def put_investment_context(
         )
     )
     session.execute(stmt)
+    user_activity.record(session, principal.user_id, "questionnaire", {}, request)
     session.commit()
     ctx = session.get(UserInvestmentContext, principal.user_id)
     assert ctx is not None  # just upserted, by definition present

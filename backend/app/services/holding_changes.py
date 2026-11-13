@@ -98,6 +98,20 @@ def record(
             )
     if not entries:
         return None
+    from app.services import user_activity
+
+    user_activity.record(
+        session,
+        user_id,
+        "holdings_change",
+        {
+            "source": source,
+            **{
+                kind: sum(entry["kind"] == kind for entry in entries)
+                for kind in ("created", "updated", "deleted")
+            },
+        },
+    )
     token = session.get(ApiToken, token_id) if source == "agent" and token_id is not None else None
     group = HoldingChangeGroup(
         user_id=user_id,

@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -43,7 +43,7 @@ from app.schemas.portfolio import (
     SnapshotExportOut,
 )
 from app.schemas.technical import TechnicalSeriesOut, TechnicalTableOut
-from app.services import subscription
+from app.services import subscription, user_activity
 from app.services.portfolio_calculator import compute_portfolio
 from app.services.portfolio_export import (
     ExportFormat,
@@ -276,6 +276,7 @@ def send_portfolio_overview(
 
 @router.get("/export")
 def export_portfolio(
+    request: Request,
     format: Annotated[ExportFormat, Query()],
     base_currency: Annotated[BaseCurrency, Query()] = "USD",
     locale: str | None = Query(None),
@@ -295,16 +296,26 @@ def export_portfolio(
     effective_locale = locale if locale is not None else _export_locale(session, principal.user_id)
     filename = portfolio_export_filename(format)
     if format == "xlsx":
-        return Response(
+        response = Response(
             content=render_portfolio_export_xlsx(snap, effective_locale),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
-    return Response(
-        content=render_portfolio_export_md(snap, effective_locale),
-        media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    else:
+        response = Response(
+            content=render_portfolio_export_md(snap, effective_locale),
+            media_type="text/markdown",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    user_activity.record(
+        session, principal.user_id, "download", {"kind": "portfolio", "format": format}, request
     )
+    try:
+        session.commit()
+    except Exception:
+        logger.error("Account activity commit failed")
+        session.rollback()
+    return response
 
 
 @router.get("/performance", response_model=PortfolioPerformanceResponse)

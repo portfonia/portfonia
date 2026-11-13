@@ -9,17 +9,22 @@ plus an explicit-click POST (design doc §3.7 step 4).
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
+from app.services import user_activity
 from app.services.unsubscribe import (
     UNSUBSCRIBE_REJECTED_MESSAGE,
     UnsubscribeRejected,
     confirm_unsubscribe,
     get_unsubscribe_status,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -45,11 +50,25 @@ class ConfirmResponse(BaseModel):
 
 
 @router.post("/confirm", response_model=ConfirmResponse)
-def confirm(req: ConfirmRequest, session: Session = Depends(get_session)) -> ConfirmResponse:
+def confirm(
+    req: ConfirmRequest, request: Request, session: Session = Depends(get_session)
+) -> ConfirmResponse:
     try:
         claims = confirm_unsubscribe(session, token=req.token)
     except UnsubscribeRejected:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=UNSUBSCRIBE_REJECTED_MESSAGE
         ) from None
+    user_activity.record(
+        session,
+        claims.user_id,
+        "email",
+        {"action": "unsubscribed", "purpose": claims.purpose},
+        request,
+    )
+    try:
+        session.commit()
+    except Exception:
+        logger.error("Account activity commit failed")
+        session.rollback()
     return ConfirmResponse(email=claims.email)

@@ -35,6 +35,7 @@ it.each(["en", "zh-Hans", "zh-Hant"] as const)("D9 %s includes the Jade price, s
   expect(c.welcome.subscriptionPlans).toContain("9.99");
   const name = c.profile.subscriptionTitle.jade;
   expect(c.legal.terms.sections[3].body[3]).toContain(name);
+  // eslint-disable-next-line react/no-children-prop -- NextIntlClientProvider's props type requires children
   render(createElement(NextIntlClientProvider, { locale, messages: c, children: createElement(AgentBody) }));
   for (const endpoint of ["snapshots", "intel"] as const) {
     const section = screen.getByRole("heading", { name: c.agent.docs[`${endpoint}Heading`] }).parentElement;
