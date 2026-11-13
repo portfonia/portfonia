@@ -528,8 +528,9 @@ After every `git push`:
    investigate.
 2. **Green** → task may proceed.
 3. **Red** → read the failing job's log with
-   `gh api repos/portfonia/portfonia/actions/jobs/<check-run-id>/logs` (an
-   Actions check run's `id` is its job id), fix the root
+   `gh api --allow-escape-sequences repos/portfonia/portfonia/actions/jobs/<check-run-id>/logs`
+   (an Actions check run's `id` is its job id; without the flag `gh` refuses
+   to print the log because it contains terminal escape sequences), fix the root
    cause locally (never retry blindly), commit, push again, re-watch.
 
 **Verifying a reported merge is not re-running the gate** (2026-09-15): the
