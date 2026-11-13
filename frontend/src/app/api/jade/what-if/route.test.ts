@@ -2,6 +2,16 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
+vi.mock("next/headers", () => ({
+  headers: async () => ({
+    get: (name: string) => new Map([
+      ["x-forwarded-for", "203.0.113.7"],
+      ["user-agent", "TestBrowser/1.0"],
+    ]).get(name.toLowerCase()) ?? null,
+  }),
+}));
+vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
+
 const { token } = vi.hoisted(() => ({ token: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ currentAccessToken: token }));
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -13,7 +23,7 @@ it("804 A1 forwards the unchanged body, token and backend response", async () =>
   const { POST } = await import("./route");
   const body = '{ "versions": [] }';
   const response = await POST(new NextRequest("http://localhost/api/jade/what-if", { method: "POST", body }));
-  expect(fetchMock).toHaveBeenCalledWith(`${process.env.BACKEND_URL ?? "http://localhost:8000"}/jade/what-if`, expect.objectContaining({ method: "POST", body, headers: { "content-type": "application/json", authorization: "Bearer session-token" }, cache: "no-store" }));
+  expect(fetchMock).toHaveBeenCalledWith(`${process.env.BACKEND_URL ?? "http://localhost:8000"}/jade/what-if`, expect.objectContaining({ method: "POST", body, headers: { "X-Forwarded-For": "203.0.113.7", "User-Agent": "TestBrowser/1.0", "content-type": "application/json", authorization: "Bearer session-token" }, cache: "no-store" }));
   expect(response.status).toBe(201);
   expect(await response.text()).toBe('{"result":true}');
 });

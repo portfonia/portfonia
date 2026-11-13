@@ -1,5 +1,7 @@
 "use server";
 
+import { forwardedClientHeaders } from "@/lib/server-api";
+
 import { redirect } from "next/navigation";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
@@ -12,12 +14,7 @@ export interface ConfirmEmailVerificationState {
 
 // The one state-changing step (design doc §3.3 step 4) — everything before
 // this (the GET status lookup in page.tsx, the Altcha challenge fetch) is
-// inert. No IP/session context to forward here (contrast forgot-password's
-// actions.ts, whose backend endpoint rate-limits by IP): the confirm
-// endpoint isn't rate-limited yet — see docs/mechanisms or the design doc's
-// note that the only caller able to CREATE a record today is the
-// ADMIN_API_TOKEN-gated Ops API, so there's no untrusted-facing surface to
-// flood this one with guesses against (the token is 128 bits regardless).
+// inert. Browser IP and user agent are forwarded for the activity log (#884).
 export async function confirmEmailVerification(
   _prevState: ConfirmEmailVerificationState | undefined,
   formData: FormData,
@@ -34,7 +31,7 @@ export async function confirmEmailVerification(
 
   const res = await fetch(`${BACKEND_URL}/email-verifications/confirm`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await forwardedClientHeaders()) },
     body: JSON.stringify({ token, altcha: altchaPayload }),
   });
 

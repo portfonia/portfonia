@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { forwardedClientHeaders } from "@/lib/server-api";
 import { currentAccessToken } from "@/lib/supabase/server";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const token = await currentAccessToken();
-  const headers: HeadersInit = {};
+  const headers: HeadersInit = await forwardedClientHeaders();
   if (token) headers.authorization = `Bearer ${token}`;
 
   let res: Response;

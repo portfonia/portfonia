@@ -13,6 +13,11 @@ const { currentAccessToken } = vi.hoisted(() => ({
   currentAccessToken: vi.fn(),
 }));
 
+vi.mock("next/headers", () => ({
+  headers: async () => ({
+    get: () => null,
+  }),
+}));
 vi.mock("@/lib/supabase/server", () => ({ currentAccessToken }));
 
 import { POST } from "./route";

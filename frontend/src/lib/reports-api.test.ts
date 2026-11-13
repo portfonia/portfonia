@@ -1,5 +1,8 @@
 // @vitest-environment node
 import { afterEach, expect, it, vi } from "vitest";
+vi.mock("next/headers", () => ({
+  headers: async () => ({ get: () => null }),
+}));
 vi.mock("@/lib/auth-actions", () => ({ logout: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ currentAccessToken: () => Promise.resolve("fixture-token") }));
 import { listReports } from "./api";

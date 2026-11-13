@@ -1,6 +1,13 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const { headerStore } = vi.hoisted(() => ({ headerStore: new Map<string, string>() }));
+vi.mock("next/headers", () => ({
+  headers: async () => ({
+    get: (name: string) => headerStore.get(name.toLowerCase()) ?? null,
+  }),
+}));
+
 const { currentAccessToken } = vi.hoisted(() => ({
   currentAccessToken: vi.fn(),
 }));
@@ -26,6 +33,7 @@ const originalFetch = global.fetch;
 
 describe("listHoldingsServer", () => {
   afterEach(() => {
+    headerStore.clear();
     global.fetch = originalFetch;
     vi.resetAllMocks();
   });
@@ -40,6 +48,34 @@ describe("listHoldingsServer", () => {
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const headers = new Headers(init.headers);
     expect(headers.get("authorization")).toBe("Bearer sb-access-token-ssr");
+  });
+
+  it("forwards browser IP and user agent alongside the session bearer", async () => {
+    headerStore.set("x-forwarded-for", "203.0.113.7");
+    headerStore.set("user-agent", "TestBrowser/1.0");
+    currentAccessToken.mockResolvedValue("sb-access-token-ssr");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify([]), { status: 200 }));
+    global.fetch = fetchMock;
+
+    await listHoldingsServer();
+
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({
+      "X-Forwarded-For": "203.0.113.7",
+      "User-Agent": "TestBrowser/1.0",
+      authorization: "Bearer sb-access-token-ssr",
+    });
+  });
+
+  it("omits client header keys when neither incoming header exists", async () => {
+    currentAccessToken.mockResolvedValue("sb-access-token-ssr");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify([]), { status: 200 }));
+    global.fetch = fetchMock;
+
+    await listHoldingsServer();
+
+    const headers = fetchMock.mock.calls[0][1].headers;
+    expect(headers).not.toHaveProperty("X-Forwarded-For");
+    expect(headers).not.toHaveProperty("User-Agent");
   });
 
   it("sends no Authorization header when there is no session", async () => {
@@ -78,6 +114,7 @@ describe("listHoldingsServer", () => {
 
 describe("getPortfolioSummaryServer", () => {
   afterEach(() => {
+    headerStore.clear();
     global.fetch = originalFetch;
     vi.resetAllMocks();
   });
