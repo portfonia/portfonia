@@ -166,4 +166,24 @@ def test_12_daily_cleanup_retains_newer_rows(db_session: Session) -> None:
             ).scalar()
             == 0
         )
-        assert db_session.execute(text(f"SELECT count(*) FROM {table}")).scalar_one() >= 1
+    assert (
+        db_session.execute(
+            text("SELECT count(*) FROM llm_usage WHERE model = 'retention' AND occurred_at = :new"),
+            {"new": new},
+        ).scalar_one()
+        == 1
+    )
+    assert (
+        db_session.execute(
+            text("SELECT count(*) FROM host_samples WHERE sampled_at = :new"),
+            {"new": new},
+        ).scalar_one()
+        == 1
+    )
+    assert (
+        db_session.execute(
+            text("SELECT count(*) FROM external_call_daily WHERE day = :day AND provider = 'fred'"),
+            {"day": new.date()},
+        ).scalar_one()
+        == 1
+    )

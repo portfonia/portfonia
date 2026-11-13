@@ -332,14 +332,14 @@ _beat_schedule: dict[str, dict[str, Any]] = {
         "task": "app.tasks.capture_tasks.capture_fx_evening_task",
         "schedule": crontab(hour=20, minute=0),
     },
-    # operational_events retention sweep (issue #446, Design §4): 05:00 UTC
-    # specifically, not ET like this schedule's other daily entries — the
-    # confirmed 90-day retention policy is a UTC-window policy (occurred_at/
-    # recorded_at are stored in UTC), not tied to a US market session.
     "sample-host-every-5-minutes": {
         "task": "app.tasks.host_metrics_tasks.sample_host",
         "schedule": crontab(minute="*/5"),
     },
+    # operational_events retention sweep (issue #446, Design §4): 05:00 UTC
+    # specifically, not ET like this schedule's other daily entries — the
+    # confirmed 90-day retention policy is a UTC-window policy (occurred_at/
+    # recorded_at are stored in UTC), not tied to a US market session.
     "cleanup-operational-events-daily": {
         "task": "app.tasks.operational_events_tasks.cleanup_operational_events",
         "schedule": crontab(hour=5, minute=0, nowfun=_NowIn(UTC)),
