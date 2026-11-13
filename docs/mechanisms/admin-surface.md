@@ -1,5 +1,50 @@
 # Admin surface implementation detail
 
+## Scoped agent tokens (#888)
+
+`OPS_AGENT_TOKENS` is optional and defaults to empty (including whitespace-only).
+It contains comma-separated `name:tier:token` entries; spaces around entries and
+parts are stripped. For example:
+`OPS_AGENT_TOKENS=ops-reader:standard:<token>,ops-helper:elevated:<token>`.
+Names match `^[a-z0-9][a-z0-9-]*$`; `admin` is reserved. Tiers are exactly
+`standard` or `elevated`, tokens must be non-empty, and names and tokens must
+be unique. Invalid configuration fails Settings load with the entry index,
+without revealing the token. Ops authentication queries no database.
+
+Access is cumulative: `standard < elevated < admin`. Existing
+`ADMIN_API_TOKEN` and `ADMIN_API_TOKEN_PREV` retain full admin access.
+Agent tokens cannot have the admin tier. Every route has an explicit minimum
+in `ADMIN_ROUTE_TIERS`; structural tests require complete coverage. A missing
+table entry defaults to admin at runtime.
+
+Classification follows the owner-approved rule: returning user private data
+stored encrypted at rest, or a write that cannot be undone through the Ops
+API, requires at least elevated. Unencrypted platform data such as credit
+balances and ledger rows does not raise the tier. Sending email, triggering
+report generation (LLM spend), and credit adjustments of either sign in either
+bucket are standard. Hard user deletion and payment refunds are admin only.
+The current elevated routes are bind-subject, revoke-all API tokens, and cadence;
+all remaining routes are standard except the three admin-only routes (the two
+user deletion endpoints and refunds). Missing or unknown tokens return 401;
+a valid token below the route's minimum returns 403, without contributing to
+the consecutive-401 alert.
+
+The `admin.call` Ops audit log and `admin_call` activity detail include `caller`:
+the agent name, `admin` for either root token, or null when authentication fails.
+Token values are never logged. Agent credit adjustments keep `actor_type=admin`
+and set `credit_ledger.actor_id` to the agent name. Report-currency audit rows,
+invites (including waitlist invites and invitation letters), and new ticker
+leverage overrides store that name in nullable `ops_agent` columns on
+`report_currency_changes`, `invites`, and `ticker_leverage_overrides`.
+Root-admin writes keep these fields null; `source=admin`, `actor_user_id=null`,
+and invite/override `created_by=ADMIN_ID` retain their existing meanings.
+Response schemas are unchanged.
+
+Add, revoke, or rotate tokens by editing the production `.env` and restarting
+the backend. Rotation replaces the agent's token directly, with no overlap
+window. There is no token-management API or token table. These production
+operations require separate owner authorization.
+
 ## Admin surface: API endpoint first, UI later (MANDATORY)
 
 Any feature with an **administrative purpose** — something only the product

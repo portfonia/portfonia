@@ -62,3 +62,5 @@ class ReportCurrencyChange(Base):
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
+
+    ops_agent: Mapped[str | None] = mapped_column(Text)

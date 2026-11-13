@@ -72,6 +72,7 @@ def send_letter(
     expires_days: int,
     created_by: UUID,
     require_pending: bool,
+    ops_agent: str | None = None,
 ) -> LetterResult:
     email_n = email.strip().lower()
     if (
@@ -118,6 +119,7 @@ def send_letter(
         issued = create_invite(
             session,
             created_by=created_by,
+            ops_agent=ops_agent,
             email=email_n,
             expires_days=expires_days,
             waitlist_entry_id=entry.id if entry else None,

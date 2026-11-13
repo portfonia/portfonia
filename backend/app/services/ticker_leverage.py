@@ -94,6 +94,7 @@ def create_leverage_override(
     notes: str | None = None,
     asset_class: str | None = None,
     underlying_ticker: str | None = None,
+    ops_agent: str | None = None,
 ) -> LeverageOverride:
     normalized = normalize_leverage_ticker(ticker)
     if session.get(TickerLeverageOverride, normalized) is not None:
@@ -108,6 +109,7 @@ def create_leverage_override(
         if underlying_ticker is not None
         else None,
         created_by=created_by,
+        ops_agent=ops_agent,
     )
     session.add(row)
     session.flush()

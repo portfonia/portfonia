@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import delete, select
@@ -20,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_engine
+from app.core.deps import OpsCaller
 from app.core.timezones import ET
 from app.models.invite import Invite
 from app.models.waitlist_entry import WaitlistEntry
@@ -27,6 +29,12 @@ from app.services.email_sender import send_invitation_letter
 from app.services.invitation_unsubscribe import verify_token
 from app.services.invites import create_invite
 from app.tests.conftest import seed_user
+
+
+def _ops_request() -> Request:
+    request = Request({"type": "http"})
+    request.state.ops_caller = OpsCaller(None, "admin")
+    return request
 
 
 def _ops_headers() -> dict[str, str]:
@@ -65,7 +73,9 @@ def _assert_send_lock_blocks_ops(intervention: str) -> None:
             with Session(engine) as other:
                 started.set()
                 if intervention == "remint":
-                    mint_waitlist_invite(entry_id, WaitlistInviteBody(), session=other, _=None)
+                    mint_waitlist_invite(
+                        _ops_request(), entry_id, WaitlistInviteBody(), session=other, _=None
+                    )
                 else:
                     set_waitlist_status(
                         entry_id, WaitlistStatusBody(status=intervention), session=other
@@ -92,7 +102,7 @@ def _assert_send_lock_blocks_ops(intervention: str) -> None:
             patch("app.services.invitation_letters.poll_invitation_letter_delivery.apply_async"),
         ):
             sent = send_invitation_letter_endpoint(
-                InvitationLetterBody(email=email), session=first, _=None
+                _ops_request(), InvitationLetterBody(email=email), session=first, _=None
             )
         assert finished.wait(5)
         assert errors == []

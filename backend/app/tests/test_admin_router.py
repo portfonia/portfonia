@@ -293,3 +293,13 @@ def test_success_resets_consecutive_401_counter(
     for _ in range(threshold - 1):
         app_client.post("/admin/portfolio/refresh", headers=_headers("bad-token"))
     alert_mock.assert_not_called()
+
+
+def test_all_admin_routes_have_explicit_tiers() -> None:
+    routes = [r for r in app.routes if isinstance(r, APIRoute) and r.path.startswith("/admin")]
+    keys = {(method, route.path) for route in routes for method in route.methods}
+    assert keys == set(getattr(admin_module, "ADMIN_ROUTE_TIERS", {}))
+    for route in routes:
+        assert admin_module._require_route_tier in {
+            dep.call for dep in route.dependant.dependencies
+        }

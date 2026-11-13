@@ -149,7 +149,7 @@ The per-issue index text that stood here until 2026-10-21 is archived in
 - [Subscription](docs/mechanisms/subscription.md) — plans and charges, cancel/resume/unsubscribe, scheduled lifecycle, Daily Advanced, Jade tier and offers.
 - [Payments and legal copy](docs/mechanisms/payments-and-legal-copy.md) — Paddle checkout, webhook crediting, refunds, Pricing comparison and legal pages.
 - [Frontend chrome](docs/mechanisms/frontend-chrome.md) — shared `SiteHeader`, menus and locale switcher, onboarding flow, public SEO pages and locale URLs, Jade page and logo, calculating overlay, light and dark themes.
-- [Admin surface](docs/mechanisms/admin-surface.md) — `/admin/*` token auth, rotation and audit logging.
+- [Admin surface](docs/mechanisms/admin-surface.md) — `/admin/*` token auth, scoped agent tokens, rotation and audit logging.
 - [Backup and ops](docs/mechanisms/backup-and-ops.md) — daily `pg_dump` to object storage, restore drills, container instance-principal IMDS SNAT dependency, spend and host-resource observability.
 - Playbooks: [documentation governance](docs/playbooks/documentation-governance.md) (incl. public surface sync), [full-context review](docs/playbooks/full-context-review.md), [git and review identities](docs/playbooks/git-and-review-incidents.md), [LLM and data handling](docs/playbooks/llm-and-data-handling.md), [regression notes](docs/playbooks/regression-notes.md), [testing notes](docs/playbooks/testing-notes.md).
 
