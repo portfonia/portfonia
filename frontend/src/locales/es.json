@@ -1368,7 +1368,7 @@
     },
     "privacy": {
       "title": "Política de privacidad",
-      "lastUpdated": "Última actualización: 2026-11-01",
+      "lastUpdated": "Última actualización: 2026-11-12",
       "intro": "Su privacidad nos importa. Esta política explica qué recopilamos, por qué y cómo lo protegemos.",
       "sections": [
         {
@@ -1382,7 +1382,7 @@
           "body": [
             "Datos de cuenta: su correo electrónico y credenciales de autenticación, gestionados por nuestro proveedor de autenticación.",
             "Datos de posiciones e inversión: posiciones, corredores o custodios y cantidades que suba, además de sus respuestas al cuestionario de preferencias de informes.",
-            "Datos de uso: información básica de sesión y actividad necesaria para operar el Servicio de forma segura, como horas de inicio de sesión y aplicación de límites de inactividad.",
+            "Datos de uso: cuando inicia sesión, registramos las páginas que abre y las acciones que realiza (inicios de sesión y cambios de suscripción, posiciones, cargas, descargas, tokens, correo electrónico y configuración, sin registrar las posiciones en sí), junto con la hora, su dirección IP y el agente de usuario de su navegador, para operar y mejorar el Servicio.",
             "Datos de pago y créditos: {merchantOfRecord} procesa las compras como comerciante registrado (Merchant of Record). {merchantOfRecord} recopila sus datos de pago y facturación bajo su propio aviso de privacidad; recibimos registros como identificador de pedido, importe, moneda, país y correo usado al pagar, pero nunca el número completo de su tarjeta. También registramos su saldo y cada crédito agregado o utilizado."
           ]
         },
@@ -1410,7 +1410,7 @@
         {
           "heading": "6. Conservación de datos",
           "body": [
-            "Conservamos sus datos de cuenta y posiciones mientras su cuenta esté activa. Algunos registros operativos, como metadatos de carga, se eliminan automáticamente tras un breve período. Puede solicitar la eliminación de su cuenta en cualquier momento (consulte «Sus derechos»).",
+            "Conservamos sus datos de cuenta y posiciones mientras su cuenta esté activa. Algunos registros operativos, como metadatos de carga, se eliminan automáticamente tras un breve período. Puede solicitar la eliminación de su cuenta en cualquier momento (consulte «Sus derechos»). Los registros de actividad de la cuenta se eliminan después de 90 días.",
             "Al eliminar su cuenta se borran posiciones, preferencias de informes, informes generados, API tokens, inscripción en lista de espera y otros datos personales. Los registros de créditos y transacciones se conservan por motivos contables y fiscales, desvinculados de su correo salvo una huella irreversible usada solo para evitar conceder dos veces el crédito de registro."
           ]
         },

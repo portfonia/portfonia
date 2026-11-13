@@ -12,11 +12,12 @@ against (the token is 128 bits regardless).
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -25,6 +26,7 @@ from app.core.deps import Principal, current_principal
 from app.core.rate_limit import rate_limit_enforce_resend_verification
 from app.models.email_verification import EmailVerification
 from app.models.user import User
+from app.services import user_activity
 from app.services.altcha_challenge import create_email_verification_challenge
 from app.services.email_verification import (
     ResendTooSoon,
@@ -34,6 +36,8 @@ from app.services.email_verification import (
     create_verification,
     get_verification_status,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -71,7 +75,9 @@ class ConfirmResponse(BaseModel):
 
 
 @router.post("/confirm", response_model=ConfirmResponse)
-def confirm(req: ConfirmRequest, session: Session = Depends(get_session)) -> ConfirmResponse:
+def confirm(
+    req: ConfirmRequest, request: Request, session: Session = Depends(get_session)
+) -> ConfirmResponse:
     """The one state-changing step (design doc §3.3 step 4). Any failure
     (bad token, expired, already used, failed Altcha) returns the same 400
     detail — never distinguishes which check failed."""
@@ -79,6 +85,14 @@ def confirm(req: ConfirmRequest, session: Session = Depends(get_session)) -> Con
         record = confirm_verification(session, token=req.token, altcha_payload=req.altcha)
     except VerificationRejected as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    user_activity.record(
+        session, record.user_id, "email", {"action": "verified", "purpose": record.purpose}, request
+    )
+    try:
+        session.commit()
+    except Exception:
+        logger.error("Account activity commit failed")
+        session.rollback()
     return ConfirmResponse(email=record.email)
 
 

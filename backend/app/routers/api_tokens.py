@@ -4,7 +4,7 @@ from datetime import date, datetime, time
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from app.core.deps import Principal, current_principal
 from app.core.timezones import ET, today_et
 from app.models.api_token import ApiToken
 from app.models.user import User
+from app.services import user_activity
 from app.services.api_tokens import new_token, now_et, token_status
 
 router = APIRouter(dependencies=[Depends(current_principal)])
@@ -73,6 +74,7 @@ def list_tokens(
 
 @router.post("/api-tokens", response_model=CreatedTokenOut, status_code=201)
 def create_token(
+    request: Request,
     body: TokenBody,
     principal: Principal = Depends(current_principal),
     session: Session = Depends(get_session),
@@ -93,6 +95,13 @@ def create_token(
     row, plaintext = new_token(
         session, principal.user_id, body.name, expires, permission=body.permission
     )
+    user_activity.record(
+        session,
+        principal.user_id,
+        "token",
+        {"action": "create", "permission": row.permission},
+        request,
+    )
     session.commit()
     return CreatedTokenOut(
         token=plaintext,
@@ -107,6 +116,7 @@ def create_token(
 
 @router.delete("/api-tokens/{token_id}", status_code=204)
 def revoke_token(
+    request: Request,
     token_id: UUID,
     principal: Principal = Depends(current_principal),
     session: Session = Depends(get_session),
@@ -124,5 +134,12 @@ def revoke_token(
         raise HTTPException(404, "token not found")
     row.revoked_at = now_et()
     row.revoked_by = "user"
+    user_activity.record(
+        session,
+        principal.user_id,
+        "token",
+        {"action": "revoke", "permission": row.permission},
+        request,
+    )
     session.commit()
     return Response(status_code=204)

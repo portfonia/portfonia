@@ -32,9 +32,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select, union_all
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
 from app.core.database import get_session
@@ -53,12 +54,13 @@ from app.models.report import Report
 from app.models.report_currency_change import ReportCurrencyChange
 from app.models.report_job import ReportJob
 from app.models.user import User
+from app.models.user_activity import UserActivity
 from app.models.user_investment_context import UserInvestmentContext
 from app.models.waitlist_entry import WaitlistEntry
 from app.schemas.agent import ApiAuditOut, ApiAuditPage, RevokedTokensOut
 from app.schemas.holdings import VALID_CURRENCIES
 from app.schemas.reports import GenerateReportRequest, ReportJobOut
-from app.services import fx_fetcher, price_fetcher
+from app.services import fx_fetcher, price_fetcher, user_activity
 from app.services.api_tokens import revoke_all as revoke_all_api_tokens
 from app.services.auth_provider import (
     AuthProviderError,
@@ -142,6 +144,28 @@ _CONSECUTIVE_401_ALERT_THRESHOLD = 5
 _consecutive_401_count = 0
 
 
+def _record_admin_activity(request: Request, status_code: int, duration_ms: float) -> None:
+    from app.core.database import SessionLocal
+
+    try:
+        with SessionLocal() as session:
+            user_activity.record(
+                session,
+                None,
+                "admin_call",
+                {
+                    "method": request.method,
+                    "endpoint": request.scope["route"].path,
+                    "status_code": status_code,
+                    "duration_ms": duration_ms,
+                },
+                request,
+            )
+            session.commit()
+    except Exception:
+        logger.error("Admin activity recording failed")
+
+
 class AdminLoggingRoute(APIRoute):
     """Audits every /admin/* call: endpoint, params, result, duration.
 
@@ -175,6 +199,7 @@ class AdminLoggingRoute(APIRoute):
                     status_code=status_code,
                     duration_ms=duration_ms,
                 )
+                await run_in_threadpool(_record_admin_activity, request, status_code, duration_ms)
                 if status_code == 401:
                     _consecutive_401_count += 1
                     if _consecutive_401_count % _CONSECUTIVE_401_ALERT_THRESHOLD == 0:
@@ -207,6 +232,81 @@ class AdminLoggingRoute(APIRoute):
 
 
 router = APIRouter(route_class=AdminLoggingRoute, dependencies=[Depends(require_ops_token)])
+
+
+@router.get("/activity")
+def read_user_activity(
+    email: str | None = None,
+    user_id: UUID | None = None,
+    event: list[str] | None = Query(None),
+    start: date | None = None,
+    end: date | None = None,
+    limit: int = Query(1000, ge=1, le=5000),
+    session: Session = Depends(get_session),
+) -> list[dict[str, object]]:
+    end = end if end is not None else today_et()
+    start = start if start is not None else end - timedelta(days=6)
+    if end < start or (end - start).days >= 90:
+        raise HTTPException(422, "activity date range must span 1 to 90 days")
+    lower = datetime.combine(start, datetime.min.time(), tzinfo=ET)
+    upper = datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=ET)
+    if email is not None:
+        resolved = session.scalar(
+            select(User.id).where(func.lower(User.email) == email.strip().lower())
+        )
+        if resolved is None or (user_id is not None and user_id != resolved):
+            return []
+        user_id = resolved
+    activity_query = (
+        select(
+            UserActivity.occurred_at,
+            UserActivity.user_id,
+            User.email.label("email"),
+            UserActivity.event,
+            UserActivity.detail,
+            UserActivity.client_ip,
+            UserActivity.user_agent,
+        )
+        .outerjoin(User, User.id == UserActivity.user_id)
+        .where(
+            UserActivity.occurred_at >= lower,
+            UserActivity.occurred_at < upper,
+        )
+    )
+    audit_query = (
+        select(
+            ApiAuditLog.occurred_at,
+            ApiAuditLog.user_id,
+            User.email.label("email"),
+            literal("api_call").label("event"),
+            func.jsonb_build_object(
+                "endpoint",
+                ApiAuditLog.endpoint,
+                "status_code",
+                ApiAuditLog.status_code,
+                "item_count",
+                ApiAuditLog.item_count,
+            ).label("detail"),
+            ApiAuditLog.client_ip,
+            ApiAuditLog.user_agent,
+        )
+        .outerjoin(User, User.id == ApiAuditLog.user_id)
+        .where(
+            ApiAuditLog.occurred_at >= lower,
+            ApiAuditLog.occurred_at < upper,
+        )
+    )
+    if user_id is not None:
+        activity_query = activity_query.where(UserActivity.user_id == user_id)
+        audit_query = audit_query.where(ApiAuditLog.user_id == user_id)
+    if event is not None:
+        activity_query = activity_query.where(UserActivity.event.in_(event))
+        audit_query = audit_query.where(literal("api_call").in_(event))
+    combined = union_all(activity_query, audit_query).subquery()
+    rows = session.execute(
+        select(combined).order_by(combined.c.occurred_at.desc()).limit(limit)
+    ).mappings()
+    return [dict(row) for row in rows]
 
 
 @router.get("/credits/ledger.csv")

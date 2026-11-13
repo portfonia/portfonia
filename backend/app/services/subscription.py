@@ -402,7 +402,21 @@ def run_cadence_checks(
                 .with_for_update()
                 .execution_options(populate_existing=True)
             ).scalar_one()
+            plan = user.subscription_type
             outcome = _check_user(session, user, today)
+            if outcome != "unchanged":
+                from app.services import user_activity
+
+                user_activity.record(
+                    session,
+                    user.id,
+                    "subscription",
+                    {
+                        "action": outcome,
+                        "plan": plan,
+                        "source": "system",
+                    },
+                )
             session.commit()
             outcomes.append(CheckOutcome(user_id, outcome))
             if outcome == "expired":

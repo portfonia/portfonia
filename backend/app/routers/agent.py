@@ -54,7 +54,7 @@ from app.schemas.jade import (
 from app.schemas.me import SubscriptionBody
 from app.schemas.portfolio import SnapshotExportOut
 from app.schemas.technical import TechnicalSeriesOut, TechnicalTableOut
-from app.services import agent_holdings, api_tokens, holding_changes, subscription
+from app.services import agent_holdings, api_tokens, holding_changes, subscription, user_activity
 from app.services.agent_pull import pull_intel, pull_reports
 from app.services.jade_replay import compute_replay
 from app.services.jade_replay_config import DEFAULT_REPLAY_RANGE, ReplayRange, ScenarioId
@@ -171,6 +171,7 @@ def account(principal: AgentPrincipal = Depends(agent_principal)) -> AgentAccoun
 
 @router.post("/subscription", response_model=AgentAccountOut)
 def set_subscription(
+    request: Request,
     body: SubscriptionBody,
     principal: AgentPrincipal = Depends(agent_principal),
     session: Session = Depends(get_session),
@@ -185,6 +186,13 @@ def set_subscription(
     except subscription.SubscriptionError as exc:
         session.rollback()
         raise HTTPException(409, exc.code) from None
+    user_activity.record(
+        session,
+        principal.user_id,
+        "subscription",
+        {"action": "subscribe", "plan": body.type, "source": "agent"},
+        request,
+    )
     session.commit()
     subscription.maybe_send_low_balance_reminder(session, principal.user_id)
     return _account(user)

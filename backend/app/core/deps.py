@@ -1,6 +1,7 @@
 import hashlib
 import secrets
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -10,7 +11,9 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import get_session
 from app.core.idle_activity import is_idle, session_lifetime_expired, touch_activity
+from app.core.timezones import ET
 from app.models.user import User
+from app.services import user_activity
 from app.services.auth_provider import InvalidAccessToken, verify_access_token
 from app.services.subscription import is_advanced, is_jade
 
@@ -76,7 +79,7 @@ def current_principal(request: Request, session: Session = Depends(get_session))
     if session_lifetime_expired(user.id, session_id=claims.session_id):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
     touch_activity(user.id, session_id=claims.session_id)
-    return Principal(
+    principal = Principal(
         user_id=user.id,
         email=user.email,
         locale=user.locale,
@@ -84,6 +87,19 @@ def current_principal(request: Request, session: Session = Depends(get_session))
         advanced=is_advanced(user),
         jade=is_jade(user),
     )
+    from app.core import rate_limit
+
+    try:
+        new_session = rate_limit.get_backend().set_nx(
+            f"activity:login:{claims.session_id}", 8 * 3600
+        )
+    except rate_limit.RateLimitUnavailable:
+        new_session = False
+    if new_session:
+        user.last_login_at = datetime.now(tz=ET)
+        user_activity.record(session, user.id, "login", request=request)
+        session.commit()
+    return principal
 
 
 def _bearer_token(authorization: str | None) -> str | None:

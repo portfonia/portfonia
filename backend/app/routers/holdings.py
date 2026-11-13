@@ -26,7 +26,7 @@ from app.schemas.holdings import (
     ReorderIn,
     UploadJobOut,
 )
-from app.services import holding_changes, holding_parser, holdings_write
+from app.services import holding_changes, holding_parser, holdings_write, user_activity
 from app.services.holding_ordering import sorted_holdings as _sorted_holdings
 from app.services.holdings_export import holdings_export_filename, render_export, render_template
 from app.tasks.holdings_tasks import parse_holdings_upload
@@ -130,6 +130,7 @@ async def upload_holdings(
         user_id=principal.user_id, filename=file.filename, status="pending", raw_text=text
     )
     session.add(job)
+    user_activity.record(session, principal.user_id, "upload", {"stage": "submitted"}, request)
     session.commit()
     session.refresh(job)
     try:
@@ -164,6 +165,7 @@ def get_upload_job(
 
 @router.post("/confirm", response_model=list[HoldingOut])
 def confirm_holdings(
+    request: Request,
     rows: list[ParsedRow],
     mode: Literal["append", "replace"] = Query("append"),
     session: Session = Depends(get_session),
@@ -174,7 +176,20 @@ def confirm_holdings(
     File confirm strips watch_tier inside the shared writer. Single-row
     create still accepts a client watch_tier.
     """
-    return holdings_write.confirm_holdings(session, principal.user_id, rows, mode)
+    result = holdings_write.confirm_holdings(session, principal.user_id, rows, mode)
+    user_activity.record(
+        session,
+        principal.user_id,
+        "upload",
+        {"stage": "confirmed", "mode": mode, "rows": len(rows)},
+        request,
+    )
+    try:
+        session.commit()
+    except Exception:
+        logger.error("Account activity commit failed")
+        session.rollback()
+    return result
 
 
 @router.get("", response_model=list[HoldingOut])
@@ -239,6 +254,7 @@ def reorder_holdings(
 
 @router.get("/export")
 def export_holdings(
+    request: Request,
     locale: str | None = Query(None),
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
@@ -254,6 +270,14 @@ def export_holdings(
     effective_locale = locale if locale is not None else _report_locale(session, principal.user_id)
     md = render_export(list(rows), effective_locale)
     filename = holdings_export_filename()
+    user_activity.record(
+        session, principal.user_id, "download", {"kind": "holdings", "format": None}, request
+    )
+    try:
+        session.commit()
+    except Exception:
+        logger.error("Account activity commit failed")
+        session.rollback()
     return Response(
         content=md,
         media_type="text/markdown",
@@ -263,6 +287,7 @@ def export_holdings(
 
 @router.get("/template")
 def holdings_template(
+    request: Request,
     locale: str | None = Query(None),
     session: Session = Depends(get_session),
     principal: Principal = Depends(current_principal),
@@ -270,6 +295,14 @@ def holdings_template(
     """Same `locale` precedence as GET /holdings/export above."""
     effective_locale = locale if locale is not None else _report_locale(session, principal.user_id)
     md = render_template(effective_locale)
+    user_activity.record(
+        session, principal.user_id, "download", {"kind": "template", "format": None}, request
+    )
+    try:
+        session.commit()
+    except Exception:
+        logger.error("Account activity commit failed")
+        session.rollback()
     return Response(
         content=md,
         media_type="text/markdown",

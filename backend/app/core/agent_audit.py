@@ -104,3 +104,22 @@ def cleanup_holding_changes(session: Session) -> int:
         )
         total += int(result.rowcount)
         session.commit()
+
+
+def cleanup_user_activity(session: Session) -> int:
+    from app.models.user_activity import UserActivity
+
+    cutoff = api_tokens.now_et() - timedelta(days=90)
+    total = 0
+    while True:
+        ids = session.scalars(
+            select(UserActivity.id).where(UserActivity.occurred_at < cutoff).limit(1000)
+        ).all()
+        if not ids:
+            return total
+        result = cast(
+            CursorResult[tuple[()]],
+            session.execute(delete(UserActivity).where(UserActivity.id.in_(ids))),
+        )
+        total += int(result.rowcount)
+        session.commit()

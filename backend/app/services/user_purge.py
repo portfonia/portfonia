@@ -21,6 +21,7 @@ from app.models.news_surfaced import NewsSurfaced
 from app.models.report import Report
 from app.models.upload_job import UploadJob
 from app.models.user import User
+from app.models.user_activity import UserActivity
 from app.models.user_investment_context import UserInvestmentContext
 from app.models.waitlist_entry import WaitlistEntry
 
@@ -92,6 +93,7 @@ def purge_user(session: Session, user_id: UUID) -> PurgeResult:
             session.execute(delete(ApiAuditLog).where(ApiAuditLog.user_id == user_id)),
         )
     )
+    session.execute(delete(UserActivity).where(UserActivity.user_id == user_id))
     api_tokens = _rowcount(
         cast(
             CursorResult[Any], session.execute(delete(ApiToken).where(ApiToken.user_id == user_id))

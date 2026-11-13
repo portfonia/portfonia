@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.core.agent_audit import cleanup_api_audit, cleanup_holding_changes
+from app.core.agent_audit import cleanup_api_audit, cleanup_holding_changes, cleanup_user_activity
 from app.core.operational_events import cleanup_expired_events
 from app.services.email_sender import send_ops_alert
 from app.tasks import celery_app
@@ -44,6 +44,7 @@ def cleanup_operational_events(self: Any) -> dict[str, int]:
             "deleted": deleted,
             "api_audit_deleted": api_audit_deleted,
             "holding_changes_deleted": cleanup_holding_changes(session),
+            "user_activity_deleted": cleanup_user_activity(session),
         }
     except Exception as exc:
         logger.exception("cleanup_operational_events: failed, scheduling retry")
