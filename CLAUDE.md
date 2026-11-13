@@ -506,34 +506,37 @@ socket means Colima is stopped, not that the build cannot be run.
 
 ## CI-First Protocol (MANDATORY)
 
-> **Current reality (still true well into Ring 1, not a Ring-0-only state):**
-> there is no automated CI — no PR-triggered workflow exists; the only
-> GitHub Actions workflow is `release.yml`, which runs on push to `main`
-> only and does not run tests (see Releases below). The local quality gate
-> (see above), run before every push, stands in for CI. There IS a branch +
-> PR for every change (see Branching below); "CI green" currently means
-> "local gate green" on the PR's branch, and `gh pr checks` on an open PR
-> will report no checks at all — that is expected, not a signal something
-> is broken.
+> **Current reality (issue #881):** PR-level CI is `.github/workflows/ci.yml`
+> (#505, 2026-09-17), a single `ruff` job (`ruff format --check` +
+> `ruff check` in `backend/`) on pull requests whose diff touches `backend/**`
+> or the workflow file. A PR that touches neither reports no checks at all —
+> that is expected, not a signal something is broken. The other workflow,
+> `release.yml`, is manual (`workflow_dispatch`, see Releases below) and runs
+> no tests. The local quality gate (see above), run before every push, is
+> still the real gate; CI is only a cheap ruff backstop. There IS a branch +
+> PR for every change (see Branching below).
 
 A task is NOT complete until CI is green.
 
 After every `git push`:
 
-1. Immediately run `gh pr checks --watch` (or `gh run watch`) and block until
-   all checks finish. Today this reports "no checks reported" instantly
-   (see the note above) — that is the expected, correct result on a PR
-   branch, not a failure to investigate. Keep running this step anyway: it
-   costs nothing, and it is what will actually surface a real check the
-   moment PR-level CI is ever added.
+1. Immediately run
+   `gh api repos/portfonia/portfonia/commits/<head-sha>/check-runs --jq '.check_runs[] | {id, name, status, conclusion}'`
+   about every 30 seconds until every check run has `status: completed`
+   (REST only — see "GitHub access" below). An empty list on a PR without
+   backend changes is the expected, correct result, not a failure to
+   investigate.
 2. **Green** → task may proceed.
-3. **Red** → pull failing logs with `gh run view --log-failed`, fix the root
+3. **Red** → read the failing job's log with
+   `gh api repos/portfonia/portfonia/actions/jobs/<check-run-id>/logs` (an
+   Actions check run's `id` is its job id), fix the root
    cause locally (never retry blindly), commit, push again, re-watch.
 
 **Verifying a reported merge is not re-running the gate** (2026-09-15): the
 quality gate already ran green at commit/push time — that's what made the
 commit mine to push. Checking that a reported merge actually landed means
-`gh pr view --json state,mergeCommit,mergedAt`, `git fetch && git pull
+`gh api repos/portfonia/portfonia/pulls/<n> --jq '{state, merged, merge_commit_sha, merged_at}'`,
+`git fetch && git pull
 --ff-only`, and a diff spot-check against the issue's Design comment — not
 a fresh `ruff`/`mypy`/`pytest -q` pass. Re-run the full gate only with a
 specific reason to doubt the reported green state (a rebase after the gate
