@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/server-api", () => ({ forwardedClientHeaders: async () => ({}) }));
+
 import { confirmEmailVerification } from "./actions";
 
 const { redirect } = vi.hoisted(() => ({ redirect: vi.fn(() => { throw new Error("NEXT_REDIRECT"); }) }));

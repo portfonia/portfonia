@@ -7,15 +7,27 @@
 // 1-B design doc §7.3(1)) — it must derive its own Authorization header,
 // same reasoning as the upload Route Handler (see
 // app/api/holdings/upload/route.ts).
+import { headers } from "next/headers";
+
 import type { TechnicalTableOut, HoldingOut, InvestmentContext, Me, PortfolioSummary, ReportListPage, ReportDetail } from "@/lib/api";
 import { logout } from "@/lib/auth-actions";
 import { currentAccessToken } from "@/lib/supabase/server";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
+export async function forwardedClientHeaders(): Promise<Record<string, string>> {
+  const incoming = await headers();
+  const out: Record<string, string> = {};
+  const xff = incoming.get("x-forwarded-for");
+  const ua = incoming.get("user-agent");
+  if (xff) out["X-Forwarded-For"] = xff;
+  if (ua) out["User-Agent"] = ua;
+  return out;
+}
+
 async function authHeaders(): Promise<HeadersInit> {
   const token = await currentAccessToken();
-  return token ? { authorization: `Bearer ${token}` } : {};
+  return token ? { ...(await forwardedClientHeaders()), authorization: `Bearer ${token}` } : await forwardedClientHeaders();
 }
 
 // Same rationale as lib/api.ts's throwOnHttpError: a 401 here can be the

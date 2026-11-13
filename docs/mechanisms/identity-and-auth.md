@@ -1279,6 +1279,8 @@ are specified in [Credit ledger](credit-ledger.md#referral-rewards-and-refund-cl
 | `user_id`, `event`, `detail` | Nullable user FK, event name and small JSON metadata |
 | `client_ip`, `user_agent` | Request client IP and raw user agent (512 characters; NUL replaced); null without a request |
 
+Next.js server-side backend calls (`server-api.ts` and the upload, what-if, unsubscribe-confirm and verify-email-confirm handlers) forward the browser's `X-Forwarded-For` and `User-Agent` through `forwardedClientHeaders()`, so those rows carry the visitor's values (#884).
+
 Events are `login`, `page_view`, `subscription`, `holdings_change`, `upload`,
 `download`, `questionnaire`, `token`, `email`, `admin_call` and `settings`.
 Page views record each signed-in pathname change without deduplication.

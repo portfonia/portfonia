@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { forwardedClientHeaders } from "@/lib/server-api";
 import { currentAccessToken } from "@/lib/supabase/server";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
@@ -9,7 +10,8 @@ const WHAT_IF_TIMEOUT_MS = 90_000;
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const body = await req.text();
   const token = await currentAccessToken();
-  const headers: HeadersInit = { "content-type": "application/json" };
+  const headers: HeadersInit = await forwardedClientHeaders();
+  headers["content-type"] = "application/json";
   if (token) headers.authorization = `Bearer ${token}`;
 
   let res: Response;

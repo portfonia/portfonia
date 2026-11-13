@@ -1,5 +1,7 @@
 "use server";
 
+import { forwardedClientHeaders } from "@/lib/server-api";
+
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 export interface ConfirmUnsubscribeState {
@@ -19,7 +21,7 @@ export async function confirmUnsubscribe(
 
   const res = await fetch(`${BACKEND_URL}/unsubscribe/confirm`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await forwardedClientHeaders()) },
     body: JSON.stringify({ token }),
   });
 

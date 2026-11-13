@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/server-api", () => ({ forwardedClientHeaders: async () => ({}) }));
+
 import { confirmUnsubscribe } from "./actions";
 
 const originalFetch = global.fetch;
