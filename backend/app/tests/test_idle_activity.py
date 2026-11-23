@@ -94,9 +94,6 @@ def test_is_idle_fails_open_when_store_unavailable(monkeypatch: pytest.MonkeyPat
         def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None:
             raise ActivityStoreUnavailable("redis down")
 
-        def set_timestamp_if_absent(self, key: str, value: float, ttl_seconds: int) -> None:
-            raise ActivityStoreUnavailable("redis down")
-
     idle_activity.set_backend(_BrokenBackend())
     assert is_idle(_USER, _SESSION, now=1_000.0) is False
 
@@ -125,9 +122,6 @@ def test_touch_activity_fails_open_when_store_unavailable(monkeypatch: pytest.Mo
             raise ActivityStoreUnavailable("redis down")
 
         def set_timestamp(self, key: str, value: float, ttl_seconds: int) -> None:
-            raise ActivityStoreUnavailable("redis down")
-
-        def set_timestamp_if_absent(self, key: str, value: float, ttl_seconds: int) -> None:
             raise ActivityStoreUnavailable("redis down")
 
     idle_activity.set_backend(_BrokenBackend())
