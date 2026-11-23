@@ -487,33 +487,26 @@ file:
   decision, not a stopgap pending Supabase Pro — see the "explicitly out
   of scope" bullet above this subsection). `ABSOLUTE_SESSION_LIFETIME_SECONDS`
   in `idle_activity.py`. Unlike the idle window, this clock never resets
-  on activity — `session_lifetime_expired(user_id, session_id)` writes a
-  `session:lifetime_start:{user_id}:{session_id}` marker only on that
-  session's first call (write-once), and every later call for the same
-  key only ever reads it. `current_principal` (`app/core/deps.py`) checks
-  it right after `is_idle`, before `touch_activity` — a request already
-  rejected as idle never reaches (or writes) the lifetime marker.
-- **Same `(user_id, session_id)` keying as idle, for the same reason**
-  (round-3 review above): a `user_id`-only key would let a re-login's
-  write reset or extend an unrelated session's clock. A fresh login
-  always gets a new `session_id`, so it always starts its own clean
-  8-hour window.
-- **Why the lifetime-start marker's Redis TTL differs from
-  `_GC_TTL_SECONDS`'s reasoning**: `is_idle`'s absence-is-safe logic
-  relies on the key being *rewritten* on every touch, so losing it to GC
-  only ever affects a session that was already idle far longer than the
-  15-minute window anyway. The lifetime-start marker is write-once by
-  design — nothing ever rewrites it — so if its TTL were too short, GC
-  could delete it *before* the 8-hour cap fires, and the next request
-  would read "absent" and silently restart the clock, extending a capped
-  session past 8h. `_LIFETIME_GC_TTL_SECONDS` is set to
-  `ABSOLUTE_SESSION_LIFETIME_SECONDS + 24h` (32h total) specifically to
-  keep that window from ever being reached in practice — same "TTL as GC
-  safety net, timestamp comparison as the real enforcement" pattern as
-  `_GC_TTL_SECONDS`, just re-derived for a write-once marker instead of a
-  rolling one.
-- **Fails open on Redis outage**, same stance and same reasoning as
-  `is_idle`/`touch_activity` above.
+  on activity — since issue #890, `session_lifetime_expired(authenticated_at)`
+  compares the current time with the token's earliest numeric `amr`
+  timestamp, using a strict `> 8 hours` comparison. `current_principal`
+  (`app/core/deps.py`) checks it right after `is_idle`, before
+  `touch_activity` — a request already rejected as idle never reaches
+  the lifetime check.
+- **Token-based start, independent of Redis**: `AccessTokenClaims.authenticated_at`
+  is required and contains UNIX seconds. `verify_access_token` requires
+  `amr` to be a list and selects the minimum timestamp from object entries
+  whose timestamp is an `int` or `float`, excluding `bool`. No usable
+  timestamp means `InvalidAccessToken` and HTTP 401, just as a missing
+  `session_id` does. Activity and token refresh do not move this start.
+- **No lifetime-start marker or lifetime GC TTL**: issue #890 removes
+  the write-once Redis marker, `_LIFETIME_GC_TTL_SECONDS`, and the
+  `set_timestamp_if_absent` API. Existing `session:lifetime_start:*`
+  keys expire through their existing TTL; no cleanup is needed.
+  The idle activity key and `_GC_TTL_SECONDS` remain unchanged.
+- **No Redis fail-open branch for the absolute cap**: it uses only
+  the token's authentication time. `is_idle` and `touch_activity`
+  retain their existing fail-open behavior on Redis outage.
 - **`GET /auth/session-status`** (`app/routers/auth.py`): 200 with body
   `{"advanced": bool}` since issue #650, `current_principal`-gated only,
   no extra query. Exists because `GET
@@ -1301,3 +1294,14 @@ defaults to 1,000 and caps at 5,000. Results are newest first and include
 existing `api_audit_log` rows as `api_call`, without duplicating their writes.
 Unfiltered reads include null-user rows; a user filter excludes them and an
 unknown email returns `[]`. There is no activity UI or export.
+
+
+## Session cap measured from token authentication — issue #890 (2026-11-22)
+
+A browser returning more than eight hours after login could remain
+authenticated when its Redis records had expired. The lifetime check
+treated a missing marker as a new session and started another eight-hour
+window at the next request. The cap now uses the earliest numeric timestamp
+in the token's `amr` claim and rejects tokens without a usable authentication
+time. Missing Redis records cannot restart this clock. The 15-minute idle
+check and frontend behavior are unchanged.

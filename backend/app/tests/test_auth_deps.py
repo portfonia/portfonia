@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from collections.abc import Iterator
 from datetime import date
@@ -115,7 +116,12 @@ def test_known_sub_without_users_row_is_401_and_does_not_insert(
     sub = str(uuid.uuid4())
 
     def _ok(_token: str) -> AccessTokenClaims:
-        return AccessTokenClaims(sub=sub, email="stranger@example.com", session_id="session-x")
+        return AccessTokenClaims(
+            authenticated_at=time.time(),
+            sub=sub,
+            email="stranger@example.com",
+            session_id="session-x",
+        )
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
     before = db_session.execute(select(func.count()).select_from(User)).scalar_one()
@@ -139,7 +145,9 @@ def test_valid_token_with_users_row_returns_own_holdings(
     _add_user(db_session, user_id=TEST_USER_ID, email="u1@example.com", auth_subject=sub)
 
     def _ok(_token: str) -> AccessTokenClaims:
-        return AccessTokenClaims(sub=sub, email="u1@example.com", session_id="session-u1")
+        return AccessTokenClaims(
+            authenticated_at=time.time(), sub=sub, email="u1@example.com", session_id="session-u1"
+        )
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
     resp = raw_client.get("/holdings", headers={"Authorization": "Bearer good.token"})
@@ -159,7 +167,10 @@ def test_active_session_within_idle_window_stays_authenticated(
 
     def _ok(_token: str) -> AccessTokenClaims:
         return AccessTokenClaims(
-            sub=sub, email="idle-active@example.com", session_id="session-idle-active"
+            authenticated_at=1_000.0,
+            sub=sub,
+            email="idle-active@example.com",
+            session_id="session-idle-active",
         )
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
@@ -190,7 +201,10 @@ def test_idle_session_beyond_window_is_401(
 
     def _ok(_token: str) -> AccessTokenClaims:
         return AccessTokenClaims(
-            sub=sub, email="idle-expired@example.com", session_id="session-idle-expired"
+            authenticated_at=1_000.0,
+            sub=sub,
+            email="idle-expired@example.com",
+            session_id="session-idle-expired",
         )
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
@@ -231,7 +245,9 @@ def test_relogin_after_idle_401_succeeds_immediately(
     _add_user(db_session, user_id=TEST_USER_ID, email="relogin@example.com", auth_subject=sub)
 
     def _old_token(_token: str) -> AccessTokenClaims:
-        return AccessTokenClaims(sub=sub, email="relogin@example.com", session_id="session-old")
+        return AccessTokenClaims(
+            authenticated_at=1_000.0, sub=sub, email="relogin@example.com", session_id="session-old"
+        )
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _old_token)
     clock = {"now": 1_000.0}
@@ -245,7 +261,12 @@ def test_relogin_after_idle_401_succeeds_immediately(
     assert idle.status_code == 401
 
     def _new_token(_token: str) -> AccessTokenClaims:
-        return AccessTokenClaims(sub=sub, email="relogin@example.com", session_id="session-new")
+        return AccessTokenClaims(
+            authenticated_at=clock["now"],
+            sub=sub,
+            email="relogin@example.com",
+            session_id="session-new",
+        )
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _new_token)
     relogin = raw_client.get("/holdings", headers={"Authorization": "Bearer new.token"})
@@ -277,7 +298,10 @@ def test_silent_refresh_of_same_session_does_not_reset_idle_window(
 
     def _token(_token: str) -> AccessTokenClaims:
         return AccessTokenClaims(
-            sub=sub, email="silent-refresh@example.com", session_id="session-same"
+            authenticated_at=1_000.0,
+            sub=sub,
+            email="silent-refresh@example.com",
+            session_id="session-same",
         )
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _token)
@@ -311,7 +335,10 @@ def test_active_session_within_lifetime_window_stays_authenticated(
 
     def _ok(_token: str) -> AccessTokenClaims:
         return AccessTokenClaims(
-            sub=sub, email="lifetime-active@example.com", session_id="session-lifetime-active"
+            authenticated_at=1_000.0,
+            sub=sub,
+            email="lifetime-active@example.com",
+            session_id="session-lifetime-active",
         )
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
@@ -349,7 +376,10 @@ def test_session_beyond_lifetime_window_is_401_even_when_not_idle(
 
     def _ok(_token: str) -> AccessTokenClaims:
         return AccessTokenClaims(
-            sub=sub, email="lifetime-expired@example.com", session_id="session-lifetime-expired"
+            authenticated_at=1_000.0,
+            sub=sub,
+            email="lifetime-expired@example.com",
+            session_id="session-lifetime-expired",
         )
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
@@ -386,7 +416,10 @@ def test_relogin_after_lifetime_401_succeeds_immediately(
 
     def _old_token(_token: str) -> AccessTokenClaims:
         return AccessTokenClaims(
-            sub=sub, email="lifetime-relogin@example.com", session_id="session-lifetime-old"
+            authenticated_at=1_000.0,
+            sub=sub,
+            email="lifetime-relogin@example.com",
+            session_id="session-lifetime-old",
         )
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _old_token)
@@ -402,7 +435,10 @@ def test_relogin_after_lifetime_401_succeeds_immediately(
 
     def _new_token(_token: str) -> AccessTokenClaims:
         return AccessTokenClaims(
-            sub=sub, email="lifetime-relogin@example.com", session_id="session-lifetime-new"
+            authenticated_at=clock["now"],
+            sub=sub,
+            email="lifetime-relogin@example.com",
+            session_id="session-lifetime-new",
         )
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _new_token)
@@ -424,7 +460,10 @@ def test_session_status_endpoint_valid_session_is_200(
 
     def _ok(_token: str) -> AccessTokenClaims:
         return AccessTokenClaims(
-            sub=sub, email="session-status-valid@example.com", session_id="session-status-valid"
+            authenticated_at=time.time(),
+            sub=sub,
+            email="session-status-valid@example.com",
+            session_id="session-status-valid",
         )
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
@@ -450,7 +489,10 @@ def test_session_status_endpoint_idle_expired_is_401(
 
     def _ok(_token: str) -> AccessTokenClaims:
         return AccessTokenClaims(
-            sub=sub, email="session-status-idle@example.com", session_id="session-status-idle"
+            authenticated_at=1_000.0,
+            sub=sub,
+            email="session-status-idle@example.com",
+            session_id="session-status-idle",
         )
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _ok)
@@ -478,6 +520,7 @@ def test_session_status_endpoint_lifetime_expired_is_401(
 
     def _ok(_token: str) -> AccessTokenClaims:
         return AccessTokenClaims(
+            authenticated_at=1_000.0,
             sub=sub,
             email="session-status-lifetime@example.com",
             session_id="session-status-lifetime",
@@ -513,7 +556,12 @@ def test_u2_cannot_read_u1_report(
     db_session.flush()
 
     def _as_u2(_token: str) -> AccessTokenClaims:
-        return AccessTokenClaims(sub="sub-u2", email="u2@example.com", session_id="session-u2")
+        return AccessTokenClaims(
+            authenticated_at=time.time(),
+            sub="sub-u2",
+            email="u2@example.com",
+            session_id="session-u2",
+        )
 
     monkeypatch.setattr("app.core.deps.verify_access_token", _as_u2)
     other = raw_client.get(f"/reports/{report.id}", headers={"Authorization": "Bearer u2.token"})
@@ -523,3 +571,55 @@ def test_u2_cannot_read_u1_report(
     assert other.status_code == 404
     assert missing.status_code == 404
     assert other.json() == missing.json()
+
+
+def test_old_session_without_redis_records_is_401(
+    raw_client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core import idle_activity
+
+    sub = "supabase-sub-old-empty"
+    _add_user(db_session, user_id=TEST_USER_ID, email="old-empty@example.com", auth_subject=sub)
+    clock = {"now": 100_000.0}
+    backend = idle_activity.InMemoryBackend()
+    idle_activity.set_backend(backend)
+    monkeypatch.setattr("app.core.idle_activity.time.time", lambda: clock["now"])
+    monkeypatch.setattr(
+        "app.core.deps.verify_access_token",
+        lambda _: AccessTokenClaims(
+            sub=sub,
+            session_id="same-session",
+            authenticated_at=clock["now"] - 9 * 3600,
+        ),
+    )
+    assert backend._data == {}
+    response = raw_client.get("/holdings", headers={"Authorization": "Bearer old.token"})
+    assert response.status_code == 401
+
+
+def test_recent_session_without_redis_records_is_200(
+    raw_client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core import idle_activity
+
+    sub = "supabase-sub-recent-empty"
+    _add_user(db_session, user_id=TEST_USER_ID, email="recent-empty@example.com", auth_subject=sub)
+    clock = {"now": 100_000.0}
+    backend = idle_activity.InMemoryBackend()
+    idle_activity.set_backend(backend)
+    monkeypatch.setattr("app.core.idle_activity.time.time", lambda: clock["now"])
+    monkeypatch.setattr(
+        "app.core.deps.verify_access_token",
+        lambda _: AccessTokenClaims(
+            sub=sub,
+            session_id="same-session",
+            authenticated_at=clock["now"] - 3600,
+        ),
+    )
+    assert backend._data == {}
+    response = raw_client.get("/holdings", headers={"Authorization": "Bearer recent.token"})
+    assert response.status_code == 200

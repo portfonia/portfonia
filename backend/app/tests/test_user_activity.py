@@ -52,7 +52,11 @@ def test_01_login_session(db_session: Session, monkeypatch: pytest.MonkeyPatch) 
     user = seed_user(db_session, TEST_USER_ID)
     user.auth_subject = str(uuid4())
     db_session.commit()
-    claims = SimpleNamespace(sub=user.auth_subject, session_id="session-one")
+    claims = SimpleNamespace(
+        sub=user.auth_subject,
+        session_id="session-one",
+        authenticated_at=datetime.now(tz=ET).timestamp(),
+    )
     monkeypatch.setattr("app.core.deps.verify_access_token", lambda _: claims)
     monkeypatch.setattr("app.core.deps.is_idle", lambda *a, **k: False)
     monkeypatch.setattr("app.core.deps.session_lifetime_expired", lambda *a, **k: False)
@@ -85,7 +89,11 @@ def test_login_commit_failure_returns_principal(
         advanced=subscription.is_advanced(user),
         jade=subscription.is_jade(user),
     )
-    claims = SimpleNamespace(sub=user.auth_subject, session_id="commit-failure")
+    claims = SimpleNamespace(
+        sub=user.auth_subject,
+        session_id="commit-failure",
+        authenticated_at=datetime.now(tz=ET).timestamp(),
+    )
     monkeypatch.setattr("app.core.deps.verify_access_token", lambda _: claims)
     monkeypatch.setattr("app.core.deps.is_idle", lambda *a, **k: False)
     monkeypatch.setattr("app.core.deps.session_lifetime_expired", lambda *a, **k: False)

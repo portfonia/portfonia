@@ -1,5 +1,6 @@
 """Advanced access and authenticated session response acceptance (#650)."""
 
+import time
 from collections.abc import Iterator
 from datetime import date, datetime
 from decimal import Decimal
@@ -97,7 +98,10 @@ def test_daily_acceptance_11_session_status(
     monkeypatch.setattr(
         "app.core.deps.verify_access_token",
         lambda _: AccessTokenClaims(
-            sub="daily-session-sub", email=user.email, session_id="daily-session"
+            authenticated_at=time.time(),
+            sub="daily-session-sub",
+            email=user.email,
+            session_id="daily-session",
         ),
     )
     statements: list[str] = []
@@ -138,7 +142,10 @@ def test_daily_inactive_session_not_advanced(
     monkeypatch.setattr(
         "app.core.deps.verify_access_token",
         lambda _: AccessTokenClaims(
-            sub="daily-inactive-sub", email=user.email, session_id="daily-session"
+            authenticated_at=time.time(),
+            sub="daily-inactive-sub",
+            email=user.email,
+            session_id="daily-session",
         ),
     )
     assert real_auth_client.get(

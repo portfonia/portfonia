@@ -59,8 +59,8 @@ def current_principal(request: Request, session: Session = Depends(get_session))
     closing the tab, so it cannot revoke anything on its own.
 
     Also enforces an 8-hour absolute session lifetime cap (issue #236),
-    independent of the idle check above: it never resets on activity, only
-    on a fresh login (new session_id). Needed because Supabase's own
+    independent of the idle check above: the cap is measured from the token's
+    authentication time. Needed because Supabase's own
     session-lifetime control is Pro-tier-only and inert on this project's
     Free plan.
     """
@@ -80,7 +80,7 @@ def current_principal(request: Request, session: Session = Depends(get_session))
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
     if is_idle(user.id, session_id=claims.session_id):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
-    if session_lifetime_expired(user.id, session_id=claims.session_id):
+    if session_lifetime_expired(claims.authenticated_at):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
     touch_activity(user.id, session_id=claims.session_id)
     principal = Principal(

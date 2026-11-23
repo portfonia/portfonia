@@ -441,3 +441,38 @@ def test_get_auth_user_by_email_wraps_transport_errors(monkeypatch: pytest.Monke
     monkeypatch.setattr("httpx.Client", lambda **kwargs: _Boom())
     with pytest.raises(ap.AuthProviderError):
         ap.get_auth_user_by_email("a@example.com")
+
+
+def test_verify_access_token_returns_authentication_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import auth_provider as ap
+
+    timestamp = 1763850000
+    payload = {
+        "sub": "user-1",
+        "role": "authenticated",
+        "session_id": "session-1",
+        "amr": [{"method": "password", "timestamp": timestamp}],
+    }
+    monkeypatch.setattr(ap, "_jwks", lambda: _FakeJwksClient())
+    monkeypatch.setattr(jwt, "decode", lambda *a, **k: payload)
+    assert ap.verify_access_token("aaa.bbb.ccc").authenticated_at == float(timestamp)
+
+
+@pytest.mark.parametrize("amr", [None, ["password"]])
+def test_verify_access_token_rejects_unusable_authentication_time(
+    monkeypatch: pytest.MonkeyPatch,
+    amr: object,
+) -> None:
+    from app.services import auth_provider as ap
+
+    payload: dict[str, object] = {
+        "sub": "user-1",
+        "role": "authenticated",
+        "session_id": "session-1",
+    }
+    if amr is not None:
+        payload["amr"] = amr
+    monkeypatch.setattr(ap, "_jwks", lambda: _FakeJwksClient())
+    monkeypatch.setattr(jwt, "decode", lambda *a, **k: payload)
+    with pytest.raises(ap.InvalidAccessToken):
+        ap.verify_access_token("aaa.bbb.ccc")

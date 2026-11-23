@@ -1,5 +1,6 @@
 """Jade A5 session and agent snapshot access."""
 
+import time
 from collections.abc import Iterator
 from datetime import date
 
@@ -37,7 +38,12 @@ def test_a5_session(
     db_session.flush()
     monkeypatch.setattr(
         "app.core.deps.verify_access_token",
-        lambda _: AccessTokenClaims(sub="jade-session", email=u.email, session_id="jade-session"),
+        lambda _: AccessTokenClaims(
+            authenticated_at=time.time(),
+            sub="jade-session",
+            email=u.email,
+            session_id="jade-session",
+        ),
     )
     r = real_auth_client.get("/auth/session-status", headers={"Authorization": "Bearer test.token"})
     assert r.status_code == 200
@@ -88,7 +94,10 @@ def test_d10_8_cancelled_session_status(
     monkeypatch.setattr(
         "app.core.deps.verify_access_token",
         lambda _: AccessTokenClaims(
-            sub="jade-cancelled-session", email=u.email, session_id="jade-cancelled-session"
+            authenticated_at=time.time(),
+            sub="jade-cancelled-session",
+            email=u.email,
+            session_id="jade-cancelled-session",
         ),
     )
     r = real_auth_client.get("/auth/session-status", headers={"Authorization": "Bearer test.token"})
