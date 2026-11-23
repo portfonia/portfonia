@@ -27,6 +27,7 @@ _jwks_client: PyJWKClient | None = None
 class AccessTokenClaims:
     sub: str
     session_id: str
+    authenticated_at: float
     email: str | None = None
 
 
@@ -68,6 +69,8 @@ def verify_access_token(token: str) -> AccessTokenClaims:
     load-bearing input to idle_activity.py's per-session Redis key, not
     just informational, so a token that somehow lacks it must 401 here
     rather than let a session-scoped idle check silently degrade.
+    `amr` is also required: its earliest numeric timestamp supplies the
+    authentication time for the absolute session lifetime cap.
     """
     try:
         signing_key = _jwks().get_signing_key_from_jwt(token)
@@ -90,11 +93,27 @@ def verify_access_token(token: str) -> AccessTokenClaims:
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id:
         raise InvalidAccessToken("invalid token")
+    amr = payload.get("amr")
+    timestamps = (
+        [
+            entry["timestamp"]
+            for entry in amr
+            if isinstance(entry, dict)
+            and isinstance(entry.get("timestamp"), (int, float))
+            and not isinstance(entry["timestamp"], bool)
+        ]
+        if isinstance(amr, list)
+        else []
+    )
+    if not timestamps:
+        raise InvalidAccessToken("invalid token")
+    authenticated_at = float(min(timestamps))
     email = payload.get("email")
     return AccessTokenClaims(
         sub=sub,
         email=email if isinstance(email, str) else None,
         session_id=session_id,
+        authenticated_at=authenticated_at,
     )
 
 
